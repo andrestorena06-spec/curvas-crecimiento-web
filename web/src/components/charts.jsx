@@ -114,12 +114,34 @@ export const LineChart = forwardRef(function LineChart({
     window.addEventListener('pointerup', soltar)
   }
 
+  // detalle del punto más cercano al mover el mouse (funciona también con el zoom por arrastre activo)
+  const [hover, setHover] = useState(null)
+  const mover = (e) => {
+    const svg = e.currentTarget
+    const r = svg.getBoundingClientRect()
+    const k = W / r.width
+    const mx = (e.clientX - r.left) * k, my = (e.clientY - r.top) * k
+    if (mx < left || mx > left + plotW || my < top || my > top + plotH) return setHover(null)
+    let mejor = null, dm = 14 * 14
+    const probar = (p, tip) => {
+      if (!tip) return
+      const dx = X(p.x) - mx, dy = Y(p.y) - my, d = dx * dx + dy * dy
+      if (d < dm) { dm = d; mejor = { x: X(p.x), y: Y(p.y), tip, px: e.clientX - r.left, py: e.clientY - r.top } }
+    }
+    series.forEach((s) => s.data.forEach((p) => probar(p, p.tip)))
+    extras.forEach((p) => probar(p, p.tip))
+    setHover(mejor)
+  }
+
   const idClip = 'clip' + uid
   let yLey = top + plotH + hMarcasX + hLeyX + 20
 
   return (
-    <div ref={wrap} className="chart-wrap" onContextMenu={onContext}>
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} fontFamily={FUENTE}>
+    <div ref={wrap} className="chart-wrap" onContextMenu={onContext} style={{ position: 'relative' }}>
+      {hover && (
+        <div className="tip-grafico" style={{ left: Math.min(hover.px + 14, Math.max(W - 230, 0)), top: Math.max(hover.py - 10, 0) }}>{hover.tip}</div>
+      )}
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} fontFamily={FUENTE} onMouseMove={mover} onMouseLeave={() => setHover(null)}>
         <defs><clipPath id={idClip}><rect x={left} y={top} width={plotW} height={plotH} /></clipPath></defs>
         <rect width={W} height={H} fill="#fff" />
         {est.titulo.texto && <text x={W / 2} y={14 + est.titulo.size} textAnchor="middle" style={estiloTxt(est.titulo)}>{est.titulo.texto}</text>}
@@ -172,6 +194,7 @@ export const LineChart = forwardRef(function LineChart({
             </g>
           ))}
           {capas && capas(esc)}
+          {hover && <circle cx={hover.x} cy={hover.y} r="7" fill="none" stroke="#d9731f" strokeWidth="2" pointerEvents="none" />}
           {sel && <rect x={Math.min(sel[0], sel[1])} y={top} width={Math.abs(sel[1] - sel[0])} height={plotH} fill="#d9731f" fillOpacity="0.18" stroke="#d9731f" />}
         </g>
         {onBrush && <rect x={left} y={top} width={plotW} height={plotH} fill="transparent" style={{ cursor: 'crosshair' }} onPointerDown={empezar} />}
