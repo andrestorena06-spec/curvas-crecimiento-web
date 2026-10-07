@@ -120,6 +120,7 @@ function ModalPocillo({ s, p, onClose }) {
 // ---------------------------------------------------------------
 function VistaPlaca({ s }) {
   const [abierto, setAbierto] = useState(null)
+  const [hover, setHover] = useState(null)
   const m = useMemo(() => {
     const todos = s.pre.marcado.flatMap((w) => w.filas.filter((f) => finito(f.yAntes)))
     if (!todos.length) return null
@@ -134,11 +135,33 @@ function VistaPlaca({ s }) {
   const px = (t, c) => L + c * CW + 4 + ((t - m.t0) / (m.t1 - m.t0 || 1)) * (CW - 8)
   const py = (y, f) => T + f * CH + 4 + (1 - (y - m.y0) / (m.y1 - m.y0 || 1)) * (CH - 8)
   const porPoc = Object.fromEntries(s.pre.marcado.map((w) => [w.Pocillo, w]))
+  // detalle del punto más cercano al pasar el mouse, con el color de la curva
+  const mover = (e) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const k = W / r.width
+    const mx = (e.clientX - r.left) * k, my = (e.clientY - r.top) * k
+    const c = Math.floor((mx - L) / CW), fi = Math.floor((my - T) / CH)
+    const p = c >= 0 && c < 12 && fi >= 0 && fi < 8 ? LETRAS[fi] + (c + 1) : null
+    const w = p && porPoc[p]
+    if (!w) return setHover(null)
+    let mejor = null, dm = 11 * 11
+    w.filas.forEach((q) => {
+      if (!finito(q.yAntes)) return
+      const dx = px(q.t / 3600, c) - mx, dy = py(q.yAntes, fi) - my, d = dx * dx + dy * dy
+      if (d < dm) { dm = d; mejor = q }
+    })
+    const cab = `${nombreReplica(w.Muestra, w.Replica)} (${p})${w.EsBlanco ? ' · blanco' : ''}${s.pre.fuera.has(p) ? ' · excluido' : ''}`
+    const tip = mejor
+      ? `${cab}\nTiempo: ${(mejor.t / 3600).toFixed(2)} h\nAbsorbancia: ${mejor.yAntes.toFixed(3)}${mejor.motivo ? `\n${mejor.motivo}\n${mejor.detalle}` : ''}`
+      : cab
+    setHover({ tip, color: s.colores.porPocillo[p]?.color || '#9a9186', px: e.clientX - r.left, py: e.clientY - r.top, cell: { x: L + c * CW, y: T + fi * CH }, pt: mejor ? { x: px(mejor.t / 3600, c), y: py(mejor.yAntes, fi) } : null })
+  }
   return (
     <>
-      <p className="ayuda">Curvas de los 96 pocillos con el blanco aplicado. Gris: pocillo excluido. Rojo: puntos excluidos. Línea punteada: pocillo de blanco. Clic en un pocillo para ampliarlo, ver sus puntos quitados y excluirlos o reincorporarlos.</p>
-      <div className="placa-wrap">
-        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, minWidth: 720 }} fontFamily="'Segoe UI', system-ui, sans-serif">
+      <p className="ayuda">Curvas de los 96 pocillos con el blanco aplicado. Gris: pocillo excluido. Rojo: puntos excluidos. Línea punteada: pocillo de blanco. Pasá el mouse por una curva para ver el detalle del punto. Clic en un pocillo para ampliarlo, ver sus puntos quitados y excluirlos o reincorporarlos.</p>
+      <div className="placa-wrap" style={{ position: 'relative' }}>
+        {hover && <div className="tip-grafico" style={{ left: hover.px + 14, top: hover.py + 6 }}><i className="punto-color" style={{ background: hover.color }} />{hover.tip}</div>}
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, minWidth: 720 }} fontFamily="'Segoe UI', system-ui, sans-serif" onMouseMove={mover} onMouseLeave={() => setHover(null)}>
           <rect width={W} height={H} fill="#fff" />
           {Array.from({ length: 12 }, (_, c) => <text key={c} x={L + c * CW + CW / 2} y={15} textAnchor="middle" fontSize="11" fill="#6b5d4f">{c + 1}</text>)}
           {LETRAS.map((f, i) => <text key={f} x={11} y={T + i * CH + CH / 2} textAnchor="middle" dominantBaseline="central" fontSize="11" fill="#6b5d4f">{f}</text>)}
@@ -173,6 +196,8 @@ function VistaPlaca({ s }) {
               </g>
             )
           }))}
+          {hover && <rect x={hover.cell.x + 1} y={hover.cell.y + 1} width={CW - 2} height={CH - 2} fill="none" stroke="#d9731f" strokeWidth="1.5" pointerEvents="none" />}
+          {hover?.pt && <circle cx={hover.pt.x} cy={hover.pt.y} r="4" fill="none" stroke="#d9731f" strokeWidth="1.8" pointerEvents="none" />}
           <text x={L + 6 * CW} y={H - 6} textAnchor="middle" fontSize="11" fill="#6b5d4f">Tiempo (h) · {m.t0.toFixed(1)} a {m.t1.toFixed(1)} · eje Y común: {m.y0.toFixed(2)} a {m.y1.toFixed(2)} OD</text>
         </svg>
       </div>

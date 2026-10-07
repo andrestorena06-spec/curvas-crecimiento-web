@@ -123,13 +123,13 @@ export const LineChart = forwardRef(function LineChart({
     const mx = (e.clientX - r.left) * k, my = (e.clientY - r.top) * k
     if (mx < left || mx > left + plotW || my < top || my > top + plotH) return setHover(null)
     let mejor = null, dm = 14 * 14
-    const probar = (p, tip) => {
+    const probar = (p, tip, color) => {
       if (!tip) return
       const dx = X(p.x) - mx, dy = Y(p.y) - my, d = dx * dx + dy * dy
-      if (d < dm) { dm = d; mejor = { x: X(p.x), y: Y(p.y), tip, px: e.clientX - r.left, py: e.clientY - r.top } }
+      if (d < dm) { dm = d; mejor = { x: X(p.x), y: Y(p.y), tip, color, px: e.clientX - r.left, py: e.clientY - r.top } }
     }
-    series.forEach((s) => s.data.forEach((p) => probar(p, p.tip)))
-    extras.forEach((p) => probar(p, p.tip))
+    series.forEach((s) => s.data.forEach((p) => probar(p, p.tip, s.color)))
+    extras.forEach((p) => probar(p, p.tip, p.color || '#d62728'))
     setHover(mejor)
   }
 
@@ -139,7 +139,9 @@ export const LineChart = forwardRef(function LineChart({
   return (
     <div ref={wrap} className="chart-wrap" onContextMenu={onContext} style={{ position: 'relative' }}>
       {hover && (
-        <div className="tip-grafico" style={{ left: Math.min(hover.px + 14, Math.max(W - 230, 0)), top: Math.max(hover.py - 10, 0) }}>{hover.tip}</div>
+        <div className="tip-grafico" style={{ left: Math.min(hover.px + 14, Math.max(W - 230, 0)), top: Math.max(hover.py - 10, 0) }}>
+          <i className="punto-color" style={{ background: hover.color }} />{hover.tip}
+        </div>
       )}
       <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} fontFamily={FUENTE} onMouseMove={mover} onMouseLeave={() => setHover(null)}>
         <defs><clipPath id={idClip}><rect x={left} y={top} width={plotW} height={plotH} /></clipPath></defs>

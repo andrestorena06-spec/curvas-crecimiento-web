@@ -22,8 +22,8 @@ export function SelectorMuestras({ s }) {
   const alternar = (m) => s.setSelMuestras(act.includes(m) ? act.filter((x) => x !== m) : todas.filter((x) => act.includes(x) || x === m))
   return (
     <>
-      <div className="fila-ctrl" style={{ marginBottom: 4 }}>
-        <label style={{ fontWeight: 600 }}>Muestras a mostrar</label>
+      <label style={{ fontWeight: 600, display: 'block' }}>Muestras a mostrar</label>
+      <div style={{ display: 'flex', gap: 6, margin: '4px 0 6px' }}>
         <button className="chico" onClick={() => s.setSelMuestras(todas)}>Todas</button>
         <button className="chico" onClick={() => s.setSelMuestras([])}>Ninguna</button>
       </div>
