@@ -292,3 +292,5 @@ code { background: #f6ebdb; }
 .lateral { max-height: calc(100vh - 80px); overflow-y: auto; }.lateral h3 { text-transform: none; letter-spacing: 0; font-size: 13.5px; }
 .principal h3, .modal h3 { text-transform: none; letter-spacing: 0; }
 .tip-grafico { position: absolute; z-index: 5; pointer-events: none; background: #3b2a1f; color: #fff6ea; font-size: 12px; line-height: 1.4; padding: 6px 10px; border-radius: 7px; white-space: pre-line; max-width: 340px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
+
+.lista-checks { max-height: none !important; overflow: visible !important; }

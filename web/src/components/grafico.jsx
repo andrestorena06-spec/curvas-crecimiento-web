@@ -266,11 +266,12 @@ export function GraficoTab({ s }) {
               xTxt={g.xTxt} yTxt={g.yTxt} altoBase={440}
               onPuntoClick={individual && o.click ? s.alternarPunto : undefined}
               onBrush={o.click && individual ? undefined : (a, b) => { setO('tmin', Number(a.toFixed(3))); setO('tmax', Number(b.toFixed(3))) }}
+              onReset={() => { setO('tmin', ''); setO('tmax', '') }}
               onContext={abrirMenu} />
             <div className="fila-ctrl">
               <button className="primario" onClick={() => setExp(true)}>Descargar imagen…</button>
               <span className="ayuda">
-                {o.click && individual ? 'Clic en un punto para excluirlo o reincorporarlo. ' : 'Arrastrá sobre el gráfico para hacer zoom. '}
+                {o.click && individual ? 'Clic en un punto para excluirlo o reincorporarlo. ' : 'Arrastrá sobre el gráfico para hacer zoom y doble clic para volver. '}
                 Clic derecho: estilo de textos y ejes.
               </span>
             </div>

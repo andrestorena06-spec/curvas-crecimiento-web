@@ -53,7 +53,7 @@ export function marcasEje(a, b, cfg = ejeDefecto(), nAuto = 6) {
 // ---------------------------------------------------------------
 export const LineChart = forwardRef(function LineChart({
   series, extras = [], xlim, ylim, est, ejes, xTxt, yTxt, leyenda = true, onPuntoClick, onBrush,
-  capas, capasAntes, tam, onContext, altoBase = 420, nota,
+  capas, capasAntes, tam, onContext, altoBase = 420, nota, onReset,
 }, svgRef) {
   const [wrap, Wmed] = useAncho()
   const uid = useId().replace(/:/g, '')
@@ -143,7 +143,7 @@ export const LineChart = forwardRef(function LineChart({
           <i className="punto-color" style={{ background: hover.color }} />{hover.tip}
         </div>
       )}
-      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} fontFamily={FUENTE} onMouseMove={mover} onMouseLeave={() => setHover(null)}>
+      <svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} width={W} height={H} fontFamily={FUENTE} onMouseMove={mover} onDoubleClick={onReset} onMouseLeave={() => setHover(null)}>
         <defs><clipPath id={idClip}><rect x={left} y={top} width={plotW} height={plotH} /></clipPath></defs>
         <rect width={W} height={H} fill="#fff" />
         {est.titulo.texto && <text x={W / 2} y={14 + est.titulo.size} textAnchor="middle" style={estiloTxt(est.titulo)}>{est.titulo.texto}</text>}
