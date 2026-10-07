@@ -1,0 +1,23 @@
+{
+  "name": "curvas-crecimiento-web",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build:web": "vite build --mode web --outDir dist-web --emptyOutDir",
+    "build:single": "vite build --mode single --outDir dist-single --emptyOutDir",
+    "preview:web": "vite preview --outDir dist-web --port 4174"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "read-excel-file": "^9.3.10",
+    "write-excel-file": "^4.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11",
+    "vite-plugin-singlefile": "^2.3.3"
+  }
+}
