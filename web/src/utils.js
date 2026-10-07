@@ -128,7 +128,21 @@ export function medir(texto, size, bold = false, italic = false) {
 export const anchoMax = (textos, size, bold, italic) =>
   Math.max(0, ...textos.flatMap((t) => String(t).split('\n')).map((t) => medir(t, size, bold, italic)))
 
-export function descargarBlob(blob, nombre) {
+export async function descargarBlob(blob, nombre) {
+  // En Edge/Chrome se abre el cuadro «Guardar como» para elegir carpeta y nombre; en otros navegadores se descarga directo
+  if (window.showSaveFilePicker) {
+    try {
+      const ext = '.' + nombre.split('.').pop().toLowerCase()
+      const mime = (blob.type || '').split(';')[0] || 'application/octet-stream'
+      const h = await window.showSaveFilePicker({ suggestedName: nombre, types: [{ description: ext.slice(1).toUpperCase(), accept: { [mime]: [ext] } }] })
+      const w = await h.createWritable()
+      await w.write(blob)
+      await w.close()
+      return
+    } catch (e) {
+      if (e && e.name === 'AbortError') return // la persona canceló
+    }
+  }
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
