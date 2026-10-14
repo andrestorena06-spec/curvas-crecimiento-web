@@ -1,3 +1,4 @@
+import { ACEPTA_LIBRO } from '../libro.js'
 import { useRef, useState } from 'react'
 import { Campo, Modal, Select } from './ui.jsx'
 import { aCSV, descargarBlob, descargarTexto, fmt, pocillos96 } from '../utils.js'
@@ -76,9 +77,9 @@ export function ArchivoTab({ s }) {
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); abrir(e.dataTransfer.files) }}>
           <strong>{cargando ? 'Leyendo…' : d ? 'Soltá otro archivo acá para reemplazar el actual, o hacé clic' : 'Soltá el Excel acá, o hacé clic para elegirlo'}</strong>
-          <span>Solo Excel en formato nuevo (.xlsx) — formato del lector: «Time [s]» con los pocillos A1 a H12, o una columna de tiempo con los pocillos como encabezados</span>
+          <span>Excel o LibreOffice (.xlsx, .xls, .odsâ€¦) — formato del lector: «Time [s]» con los pocillos A1 a H12, o una columna de tiempo con los pocillos como encabezados</span>
         </div>
-        <input ref={inputRef} type="file" hidden accept=".xlsx"
+        <input ref={inputRef} type="file" hidden accept={ACEPTA_LIBRO}
           onChange={(e) => { abrir(e.target.files); e.target.value = '' }} />
         {s.archivo?.hojas?.length > 1 && s.tieneArchivo && (
           <Campo label="Hoja del Excel">

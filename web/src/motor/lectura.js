@@ -3,6 +3,8 @@
 // Equivale a leer_crudo() y raw_a_largo() de la aplicación en R.
 // ============================================================
 
+import { leerHojasLibro } from '../libro.js'
+
 export const LETRAS = 'ABCDEFGH'.split('')
 export const pocillos96 = () => LETRAS.flatMap((f) => Array.from({ length: 12 }, (_, i) => f + (i + 1)))
 const VALIDOS = new Set(pocillos96())
@@ -46,26 +48,18 @@ async function decodificar(file) {
   }
 }
 
-// ---------- Excel ----------
+// ---------- Excel / LibreOffice ----------
 const cacheHojas = new WeakMap()
 async function hojasExcel(file) {
-  if (!cacheHojas.has(file)) {
-    const { default: leer } = await import('read-excel-file/browser')
-    cacheHojas.set(file, await leer(file))
-  }
+  if (!cacheHojas.has(file)) cacheHojas.set(file, await leerHojasLibro(file))
   return cacheHojas.get(file)
 }
 
-const esXlsx = (nombre) => /\.xlsx$/i.test(nombre)
-
 export async function hojasDe(file) {
-  if (!esXlsx(file.name)) throw new Error('Solo se aceptan archivos Excel en formato nuevo (.xlsx). Si tenés un .xls, .csv o .txt, abrilo en Excel y guardalo como «Libro de Excel (.xlsx)».')
   return { hojas: (await hojasExcel(file)).map((h) => h.sheet) }
 }
-
 // Matriz cruda (filas × columnas) de la hoja elegida
 export async function leerCrudo(file, hoja) {
-  if (!esXlsx(file.name)) throw new Error('Solo se aceptan archivos Excel en formato nuevo (.xlsx). Si tenés un .xls, .csv o .txt, abrilo en Excel y guardalo como «Libro de Excel (.xlsx)».')
   const hojas = await hojasExcel(file)
   const h = hojas.find((x) => x.sheet === hoja) || hojas[0]
   const ancho = Math.max(...h.data.map((f) => f.length), 1)
