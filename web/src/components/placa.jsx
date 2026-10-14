@@ -57,8 +57,8 @@ export function PlacaTab({ s }) {
     return () => window.removeEventListener('mouseup', up)
   })
 
-  const guardar = () => {
-    const m = muestra.trim()
+  const guardar = (elegida) => {
+    const m = (typeof elegida === 'string' ? elegida : muestra).trim()
     if (!m) return s.avisar('Tenés que indicar una muestra.', 'error')
     const nombre = s.muestras.find((x) => x.toLowerCase() === m.toLowerCase()) || m
     if (!s.muestras.includes(nombre)) s.setMuestras([...s.muestras, nombre])
@@ -91,8 +91,8 @@ export function PlacaTab({ s }) {
   return (
     <div className="con-lateral lateral-der">
       <div className="principal">
-        <h1>Placa de 96 pocillos</h1>
-        <p className="ayuda">Hacé clic en un pocillo, o clic y arrastrá para seleccionar varios. Elegí una muestra de la lista o escribí una nueva; la réplica se asigna sola. Si es medio sin inocular (blanco), marcá «Definir como blanco». El color de cada pocillo es el de su curva en el gráfico.</p>
+        <h1>{s.tituloPlaca || 'Placa de 96 pocillos'}</h1>
+        <p className="ayuda">{s.ayudaPlaca || 'Hacé clic en un pocillo, o clic y arrastrá para seleccionar varios. Elegí una muestra de la lista o escribí una nueva; la réplica se asigna sola. Si es medio sin inocular (blanco), marcá «Definir como blanco». El color de cada pocillo es el de su curva en el gráfico.'}</p>
         <div className="placa-wrap">
           <table className="placa">
             <thead><tr><th />{Array.from({ length: 12 }, (_, i) => <th key={i}>{i + 1}</th>)}</tr></thead>
@@ -113,7 +113,7 @@ export function PlacaTab({ s }) {
                         <div className={`pocillo ${!ok ? 'sin-datos' : ''} ${enSel ? 'sel' : ''} ${c ? 'asig' : ''}`}
                           style={fondo && !enSel ? { background: fondo, color: textoSobre(fondo) } : undefined}>
                           {!ok ? <><b>Sin datos</b><small>{p}</small></>
-                            : c ? <><b>{nombreReplica(c.Muestra, c.Replica)}</b><small>{c.EsBlanco ? `${p} · blanco` : p}</small></>
+                            : c ? <><b>{s.sinReplicas ? c.Muestra : nombreReplica(c.Muestra, c.Replica)}</b><small>{c.EsBlanco ? `${p} · blanco` : p}</small></>
                               : <><b>Libre</b><small>{p}</small></>}
                         </div>
                       </td>
@@ -134,7 +134,7 @@ export function PlacaTab({ s }) {
               <div key={r.m} className="resumen-m">
                 <b>{r.m}</b>
                 <span>{r.n} {r.n === 1 ? 'pocillo' : 'pocillos'}{r.b > 0 && ` (${r.b} blanco)`}</span>
-                <span>Réplicas: {r.reps}</span>
+                {!s.sinReplicas && <span>Réplicas: {r.reps}</span>}
               </div>
             ))}
           </>
@@ -147,6 +147,14 @@ export function PlacaTab({ s }) {
             <button onClick={() => setSel(null)}>Cancelar</button>
             {sel.some(cfgDe) && <button className="peligro" onClick={quitar}>Quitar</button>}
             <button className="primario" onClick={guardar}>Guardar</button></>}>
+          <div onKeyDown={(e) => {
+            // Enter: guarda la muestra elegida y cierra la ventana (tambiÃ©n estando sobre una opciÃ³n de la lista o una casilla)
+            if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
+            const t = e.target
+            if (t.tagName === 'BUTTON' && t.getAttribute('role') !== 'option') return
+            e.preventDefault()
+            guardar(t.getAttribute('role') === 'option' ? t.dataset.muestra : undefined)
+          }}>
           {sel.length > 1 && <p><b>Pocillos:</b> {sel.join(', ')}</p>}
           {sel.length > 1 && (() => {
             const cnt = {}
@@ -164,7 +172,7 @@ export function PlacaTab({ s }) {
           })()}
           <Campo label="Muestra">
             <input autoFocus value={muestra} placeholder="Elegí una muestra de la lista o escribí una nueva"
-              onChange={(e) => setMuestra(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && guardar()} />
+              onChange={(e) => setMuestra(e.target.value)} />
           </Campo>
           {(() => {
             const todas = [...new Set([...s.muestras, ...s.config.map((c) => c.Muestra)])]
@@ -175,7 +183,7 @@ export function PlacaTab({ s }) {
                   {todas.map((m) => {
                     const n = s.config.filter((c) => c.Muestra === m).length
                     return (
-                      <button key={m} role="option" aria-selected={m.toLowerCase() === muestra.trim().toLowerCase()}
+                      <button key={m} role="option" data-muestra={m} aria-selected={m.toLowerCase() === muestra.trim().toLowerCase()}
                         className={m.toLowerCase() === muestra.trim().toLowerCase() ? 'on' : ''} onClick={() => setMuestra(m)}>
                         <span>{m}</span>{n > 0 && <small>{n} {n === 1 ? 'pocillo' : 'pocillos'}</small>}
                       </button>
@@ -186,12 +194,14 @@ export function PlacaTab({ s }) {
               </>
             )
           })()}
-          <label className="check">
+          {!s.sinBlanco && <label className="check">
             <input type="checkbox" checked={blanco === true} ref={(el) => { if (el) el.indeterminate = blanco === null }}
               onChange={() => setBlanco(blanco === true ? false : true)} />
             <span>Definir como blanco{blanco === null && <small>Mixto: algunos pocillos son blanco y otros no. Si no lo cambiás, cada uno conserva su estado.</small>}</span>
-          </label>
-          <p className="ayuda">{sel.length > 1 ? 'A cada pocillo se le asigna un número de réplica automático, en orden por filas.' : 'La réplica se asigna sola según cuántas veces uses esta muestra.'}</p>
+          </label>}
+          {!s.sinReplicas && <p className="ayuda">{sel.length > 1 ? 'A cada pocillo se le asigna un número de réplica automático, en orden por filas.' : 'La réplica se asigna sola según cuántas veces uses esta muestra.'}</p>}
+          <p className="ayuda">ElegÃ­ la muestra de la lista (o escribila) y apretÃ¡ <b>Enter</b>: se guarda y se cierra la ventana.</p>
+          </div>
         </Modal>
       )}
       {confirmar && (
