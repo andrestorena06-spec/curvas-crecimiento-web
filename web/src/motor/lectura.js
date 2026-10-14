@@ -56,19 +56,16 @@ async function hojasExcel(file) {
   return cacheHojas.get(file)
 }
 
-const esCSV = (nombre) => ['csv', 'txt', 'tsv'].includes(nombre.split('.').pop().toLowerCase())
+const esXlsx = (nombre) => /\.xlsx$/i.test(nombre)
 
 export async function hojasDe(file) {
-  if (esCSV(file.name)) return { hojas: ['csv'] }
-  if (file.name.toLowerCase().endsWith('.xls')) {
-    throw new Error('Los archivos .xls antiguos no se pueden leer en el navegador. Guardalo como .xlsx o .csv y probá de nuevo.')
-  }
+  if (!esXlsx(file.name)) throw new Error('Solo se aceptan archivos Excel en formato nuevo (.xlsx). Si tenés un .xls, .csv o .txt, abrilo en Excel y guardalo como «Libro de Excel (.xlsx)».')
   return { hojas: (await hojasExcel(file)).map((h) => h.sheet) }
 }
 
 // Matriz cruda (filas × columnas) de la hoja elegida
 export async function leerCrudo(file, hoja) {
-  if (esCSV(file.name)) return parsearCSV(await decodificar(file))
+  if (!esXlsx(file.name)) throw new Error('Solo se aceptan archivos Excel en formato nuevo (.xlsx). Si tenés un .xls, .csv o .txt, abrilo en Excel y guardalo como «Libro de Excel (.xlsx)».')
   const hojas = await hojasExcel(file)
   const h = hojas.find((x) => x.sheet === hoja) || hojas[0]
   const ancho = Math.max(...h.data.map((f) => f.length), 1)

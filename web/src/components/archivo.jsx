@@ -76,9 +76,9 @@ export function ArchivoTab({ s }) {
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => { e.preventDefault(); abrir(e.dataTransfer.files) }}>
           <strong>{cargando ? 'Leyendo…' : d ? 'Soltá otro archivo acá para reemplazar el actual, o hacé clic' : 'Soltá el Excel acá, o hacé clic para elegirlo'}</strong>
-          <span>.xlsx · .csv · .txt — formato del lector: «Time [s]» con los pocillos A1 a H12, o una columna de tiempo con los pocillos como encabezados</span>
+          <span>Solo Excel en formato nuevo (.xlsx) — formato del lector: «Time [s]» con los pocillos A1 a H12, o una columna de tiempo con los pocillos como encabezados</span>
         </div>
-        <input ref={inputRef} type="file" hidden accept=".xlsx,.xls,.csv,.txt"
+        <input ref={inputRef} type="file" hidden accept=".xlsx"
           onChange={(e) => { abrir(e.target.files); e.target.value = '' }} />
         {s.archivo?.hojas?.length > 1 && s.tieneArchivo && (
           <Campo label="Hoja del Excel">
