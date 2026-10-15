@@ -456,7 +456,7 @@ function Modelos({ s }) {
 export function AnalisisTab({ s }) {
   const [sub, setSub] = useState('par')
   const { aj, setAj } = s
-  if (!s.datos) return <Vacio texto="Primero cargá el archivo del lector en la pestaña Archivo." />
+  if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
   if (!s.config.length) return <Vacio texto="Configurá los pocillos para analizar el crecimiento." />
   if (s.pre?.error) return <Vacio texto={s.pre.error} />
   if (!s.res?.length) return <Vacio texto="No hay pocillos (sin blanco ni excluidos) para analizar." />

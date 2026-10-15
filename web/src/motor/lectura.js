@@ -110,6 +110,31 @@ function armar(trios) {
   return { tiempos, pocillos }
 }
 
+// Formato C (bloques): una etiqueta «T=<tiempo>» (en horas, o con h/min/s) seguida de la matriz de la placa
+// (filas A..H con valores numéricos en 12 columnas), repetida para cada tiempo.
+function rawABloques(raw, unidad = 'auto') {
+  const re = /^\s*T\s*=\s*([0-9]+(?:[.,][0-9]+)?)\s*(h|hs|hr|min|s|seg)?\s*$/i
+  const factor = { h: 3600, hs: 3600, hr: 3600, min: 60, s: 1, seg: 1 }
+  const trios = []
+  for (let r = 0; r < raw.length; r++) {
+    let m = null
+    for (const c of raw[r]) { m = re.exec(String(c ?? '')); if (m) break }
+    if (!m) continue
+    const f = m[2] ? factor[m[2].toLowerCase()] : unidad === 'auto' ? 3600 : { s: 1, min: 60, h: 3600 }[unidad] || 3600
+    const t = convertirNumero(m[1]) * f
+    // las 8 filas A..H siguientes (hasta 20 filas más abajo)
+    for (let i = r + 1, k = 0; i < Math.min(raw.length, r + 20) && k < 8; i++) {
+      const cel = raw[i]
+      const cl = cel.findIndex((x) => String(x ?? '').trim().toUpperCase() === LETRAS[k])
+      if (cl < 0) continue
+      const vals = cel.slice(cl + 1, cl + 13).map(convertirNumero)
+      if (vals.filter(Number.isFinite).length < 8) continue
+      vals.forEach((y, j) => trios.push([LETRAS[k] + (j + 1), t, y]))
+      k++
+    }
+  }
+  return trios.length ? armar(trios) : null
+}
 // Formato A (filas):    "Time [s]" en la columna A de una fila, tiempos en esa fila, pocillos (A1..H12) debajo.
 // Formato B (columnas): una fila de encabezado con los pocillos A1..H12 y una columna Time.
 export function rawADatos(raw, unidad = 'auto') {
@@ -140,7 +165,9 @@ export function rawADatos(raw, unidad = 'auto') {
     if (raw[r].filter(esPoc).length >= 8) { h = r; break }
   }
   if (h < 0 || h >= nr - 1) {
-    throw new Error("No se reconoció el formato. Se espera 'Time [s]' en la columna A con los tiempos en esa fila y los pocillos (A1..H12) debajo, o bien una fila de encabezado con los pocillos y una columna 'Time'.")
+    const bl = rawABloques(raw, unidad)
+    if (bl) return bl
+    throw new Error("No se reconoció el formato. Se espera 'Time [s]' en la columna A con los tiempos en esa fila y los pocillos (A1..H12) debajo, o bien una fila de encabezado con los pocillos y una columna 'Time', o bloques «T=<horas>» con la matriz A..H de cada tiempo.")
   }
   const enc = raw[h].map((x) => String(x ?? ''))
   const colsP = enc.map((x, j) => (esPoc(x) ? j : -1)).filter((j) => j >= 0)

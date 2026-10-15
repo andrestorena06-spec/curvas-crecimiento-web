@@ -4,6 +4,10 @@ import { Vacio } from './placa.jsx'
 import { ETIQUETAS_AJUSTE, MODELOS_ETQ, PARAMS, signif } from '../ayuda.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { opAnalisis } from '../motor/pipeline.js'
+import { crecimientoUfc, hayConteos } from '../motor/ufc.js'
+import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
+import { MODOS, ORIGENES_OD } from '../experimento.js'
+import { abrirInforme } from './informe.jsx'
 import { aCSV, descargarBlob, descargarTexto, tCuantil } from '../utils.js'
 import { excelDe } from '../excel.js'
 
@@ -12,12 +16,14 @@ const n2 = (x) => (finito(x) ? Number(x.toPrecision(3)) : null)
 // ---------------------------------------------------------------
 // Texto de métodos con los criterios activos (equivale a texto_metodos de la app en R)
 // ---------------------------------------------------------------
-export function textoMetodos(s) {
+function textoOd(s) {
   const { aj, E, pre } = s
   const op = opAnalisis(aj)
   const num = (x, d) => { const v = Number(x); return finito(v) ? v : d }
   const p = []
-  if (aj.corregir_blanco) {
+  if (s.a?.origenOd === 'manual') {
+    p.push('El blanco se restó en la tabla de lecturas manuales.')
+  } else if (aj.corregir_blanco) {
     p.push(aj.blanco_metodo === 'const_media' ? 'Se restó a todas las lecturas el promedio global de los pocillos de blanco.'
       : aj.blanco_metodo === 'const_min' ? 'Se restó a todas las lecturas el valor mínimo de la curva promedio del blanco.'
         : 'Se restó a cada lectura el promedio de los pocillos de blanco en el mismo tiempo.')
@@ -43,6 +49,31 @@ export function textoMetodos(s) {
     ? `La fase lag se definió como el tiempo hasta alcanzar ${op.lag_factor} veces la OD inicial.`
     : 'La fase lag (λ) se definió como la intersección de la tangente en μmax con ln(OD₀).')
   p.push(`K se tomó como el máximo de la curva suavizada con mediana móvil de 3 puntos. El AUC se calculó por el método trapezoidal. La fase exponencial se delimitó con las ventanas con μ ≥ ${op.frac_exp}×μmax; la estacionaria empieza cuando μ < ${op.frac_est}×μmax y la de muerte cuando la OD cae más de ${op.muerte_pct}% desde K.`)
+  return p.join(' ')
+}
+
+function textoManual(s) {
+  const m = s.a.manual
+  return `La densidad óptica se midió manualmente en cubeta${s.a.cond.lambda ? ` a ${s.a.cond.lambda} nm` : ''}. ${m.yaCorregido ? 'Las lecturas ya venían corregidas por el blanco.' : `A cada lectura se le restó el blanco (OD del medio estéril = ${m.blanco}).`} Cuando la suspensión se diluyó para quedar en la zona lineal del equipo, la OD de la suspensión original se calculó como la media de las lecturas netas dentro de la ventana lineal (${m.vmin} a ${m.vmax}) multiplicadas por ${m.factor}^k, donde k es el número de diluciones.`
+}
+
+function textoConteo(s) {
+  const { par, tabla } = s.ufc
+  const partes = [`Los recuentos se expresan en UFC/mL. Cada placa (o gota) con C colonias y volumen V aporta C / V × f^k UFC/mL, con f el factor de dilución y k el número de diluciones. Se consideraron contables las placas con ${tabla.min} a ${tabla.max} colonias (gotas: ${par.min} a ${par.max}). Cuando más de una dilución estuvo en el rango se usó la media ponderada (ISO 7218; FDA BAM): UFC/mL = ΣC / (V × Σ f^−k). El intervalo de confianza del 95 % de cada recuento es el de Poisson exacto (Garwood) según las colonias contadas. Las réplicas se promediaron con la media geométrica (el error de un recuento es multiplicativo) y su dispersión se expresa como desviación estándar de log10(UFC/mL).`]
+  partes.push(par.estimados === false ? 'Solo se promediaron las réplicas con diluciones dentro del rango contable.' : 'Las estimaciones fuera del rango contable (con la dilución más cercana) se incluyeron en las medias y se señalan en las tablas.')
+  partes.push('La velocidad de crecimiento (μ) con los recuentos es la pendiente máxima de ln(UFC/mL) contra el tiempo en 3 o más tiempos consecutivos con R² ≥ 0,9; el lag es la intersección de esa recta con el nivel inicial.')
+  return partes.join(' ')
+}
+
+// Texto de métodos con los criterios que están activos para el experimento actual
+export function textoMetodos(s) {
+  const a = s.a
+  const p = []
+  if (a && a.modo !== 'conteo') {
+    if (a.origenOd === 'manual') p.push(textoManual(s))
+    p.push(textoOd(s))
+  }
+  if (a && a.modo !== 'od') p.push(textoConteo(s))
   p.push('Análisis realizado con la aplicación web «Curvas de crecimiento» (los cálculos se hacen en el navegador).')
   return p.join(' ')
 }
@@ -50,7 +81,16 @@ export function textoMetodos(s) {
 // Excel con todo el análisis
 async function excelCompleto(s) {
   const hojas = []
-  const claves = ['n_puntos', 'od0', 'od0_metodo', 'mu_max', 'mu_se', 'td_min', 'lag_h', 'lag_tangente_h', 'lag_umbral_h', 'K', 't_K_h', 'od_final', 'delta_od', 'generaciones', 'auc_od', 'auc_ln', 't_umbral_od_h', 't_max_dod_h', 'dod_max', 'mu_spline', 'r2', 'intercepto', 'n_ventana', 't_ini_ventana', 't_fin_ventana', 't_exp_ini', 't_exp_fin', 't_estacionaria', 't_muerte', 'caida_pct', 'aviso']
+  if (s.a) {
+    const c = s.a.cond
+    hojas.push({ nombre: 'Condiciones', columnas: ['Campo', 'Valor'], filas: [
+      { Campo: 'Experimento', Valor: s.a.nombre }, { Campo: 'Tipo', Valor: MODOS[s.a.modo].titulo },
+      ...(s.a.modo !== 'conteo' ? [{ Campo: 'Origen de la OD', Valor: ORIGENES_OD[s.a.origenOd].titulo }] : []),
+      { Campo: 'Organismo / cepa', Valor: c.organismo }, { Campo: 'Medio de cultivo', Valor: c.medio }, { Campo: 'Temperatura (°C)', Valor: c.temperatura },
+      ...(s.a.modo !== 'conteo' ? [{ Campo: 'Equipo de OD', Valor: c.equipo }, { Campo: 'Longitud de onda (nm)', Valor: String(c.lambda) }] : []),
+      { Campo: 'Fecha', Valor: c.fecha }, { Campo: 'Notas', Valor: c.notas }] })
+  }
+  const claves =['n_puntos', 'od0', 'od0_metodo', 'mu_max', 'mu_se', 'td_min', 'lag_h', 'lag_tangente_h', 'lag_umbral_h', 'K', 't_K_h', 'od_final', 'delta_od', 'generaciones', 'auc_od', 'auc_ln', 't_umbral_od_h', 't_max_dod_h', 'dod_max', 'mu_spline', 'r2', 'intercepto', 'n_ventana', 't_ini_ventana', 't_fin_ventana', 't_exp_ini', 't_exp_fin', 't_estacionaria', 't_muerte', 'caida_pct', 'aviso']
   if (s.res?.length) {
     const sel = new Set(s.seleccion.map((c) => c.Pocillo))
     const fp = s.res.map((r) => {
@@ -88,6 +128,39 @@ async function excelCompleto(s) {
     s.pre.marcado.forEach((w) => w.filas.forEach((f) => { if (f.motivo) ex.push({ Tipo: f.motivo, Pocillo: w.Pocillo, Tiempo_h: signif(f.t / 3600, 5), Detalle: f.detalle }) }))
     if (ex.length) hojas.push({ nombre: 'Exclusiones', columnas: ['Tipo', 'Pocillo', 'Tiempo_h', 'Detalle'], filas: ex })
   }
+  if (s.a && s.a.origenOd === 'manual' && s.a.modo !== 'conteo' && s.a.manual.filas.length) {
+    const m = s.a.manual
+    const { filas: fm, res: rm } = resumenOdManual(m)
+    const ks = Array.from({ length: m.nd }, (_, k) => k)
+    hojas.push({ nombre: 'OD_manual_lecturas', columnas: ['Muestra', 'Replica', 'T_h', ...ks.map((k) => (k ? `Lectura_-${k}` : 'Lectura_sin_diluir')), 'OD_corregida', 'Estado'],
+      filas: m.filas.map((f, i) => ({ Muestra: f.muestra, Replica: f.replica, T_h: f.t, ...Object.fromEntries(ks.map((k) => [k ? `Lectura_-${k}` : 'Lectura_sin_diluir', f.od[k] ?? null])), OD_corregida: finito(fm[i]?.od) ? signif(fm[i].od, 4) : null, Estado: TEXTO_OD[fm[i]?.estado] || '' })) })
+    hojas.push({ nombre: 'OD_manual_resumen', columnas: ['Muestra', 'T_h', 'N', 'OD', 'DE'], filas: rm.map((r) => ({ Muestra: r.Muestra, T_h: r.T_h, N: r.N, OD: signif(r.OD, 4), DE: finito(r.DE) ? signif(r.DE, 3) : null })) })
+  }
+  if (s.ufcRes && s.a && s.a.modo !== 'od' && s.ufcRes.hay) {
+    const f2 = (x, d = 4) => (finito(x) ? signif(x, d) : null)
+    hojas.push({ nombre: 'UFC_muestras', columnas: ['Muestra', 'T_h', 'Replicas', 'Con_conteos', 'N', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'DE', 'log10', 'DE_log10', 'Media_aritmetica', 'CV_pct', 'Estado'],
+      filas: s.ufcRes.res.filter((r) => r.Con_conteos > 0).map((r) => ({ ...r, UFC_mL: f2(r.UFC_mL), IC95_inf: f2(r.IC95_inf, 3), IC95_sup: f2(r.IC95_sup, 3), DE: f2(r.DE, 3), log10: f2(r.log10), DE_log10: f2(r.DE_log10, 3), Media_aritmetica: f2(r.Media_aritmetica), CV_pct: f2(r.CV_pct, 3) })) })
+    hojas.push({ nombre: 'UFC_replicas', columnas: ['Muestra', 'T_h', 'Origen', 'Fila', 'Replica', 'Conteos', 'Diluciones_usadas', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'log10', 'Estado', 'Limite'],
+      filas: s.ufcRes.reps.filter((r) => r.Conteos > 0).map((r) => ({ ...r, UFC_mL: f2(r.UFC_mL), IC95_inf: f2(r.IC95_inf, 3), IC95_sup: f2(r.IC95_sup, 3), log10: f2(r.log10), Limite: f2(r.Limite, 3) })) })
+    const cr = []
+    const por = {}
+    s.ufcRes.res.forEach((r) => { (por[r.Muestra] ||= []).push(r) })
+    Object.entries(por).forEach(([mu, rs]) => {
+      const c = crecimientoUfc(rs)
+      if (c && finito(c.mu)) cr.push({ Muestra: mu, mu_h: f2(c.mu), td_min: f2(c.td_min), lag_h: f2(c.lag_h, 3), R2: f2(c.r2, 3), Ventana: c.ventana, log10_N0: f2(c.log10_N0, 3), Crecimiento_log10: f2(c.crecimiento_log10, 3), Generaciones: f2(c.generaciones, 3) })
+    })
+    if (cr.length) hojas.push({ nombre: 'UFC_crecimiento', columnas: Object.keys(cr[0]), filas: cr })
+    const cs = []
+    Object.entries(s.ufc.conteos).forEach(([k, o]) => Object.entries(o).forEach(([p, n]) => cs.push({ Tipo: 'Gota', T_h: Number(k), Muestra: (s.ufc.layout.find((c) => c.Pocillo === p) || {}).Muestra || '', Replica: p[0], Dilucion: -Number(p.slice(1)), Colonias: n })))
+    s.ufc.tabla.filas.forEach((f) => Object.entries(f.c || {}).forEach(([k, n]) => cs.push({ Tipo: 'Placa', T_h: Number(f.t), Muestra: f.muestra, Replica: f.replica, Dilucion: -Number(k), Colonias: n })))
+    hojas.push({ nombre: 'UFC_conteos', columnas: ['Tipo', 'T_h', 'Muestra', 'Replica', 'Dilucion', 'Colonias'], filas: cs })
+    hojas.push({ nombre: 'UFC_parametros', columnas: ['Parametro', 'Valor'], filas: [
+      { Parametro: 'Gotas: volumen (mL)', Valor: String(s.ufc.par.vol) }, { Parametro: 'Gotas: factor de dilución', Valor: String(s.ufc.par.factor) },
+      { Parametro: 'Gotas: rango contable (colonias)', Valor: `${s.ufc.par.min} a ${s.ufc.par.max}` },
+      { Parametro: 'Placas: volumen sembrado (µL)', Valor: String(s.ufc.tabla.vol) }, { Parametro: 'Placas: factor de dilución', Valor: String(s.ufc.tabla.factor) },
+      { Parametro: 'Placas: rango contable (colonias)', Valor: `${s.ufc.tabla.min} a ${s.ufc.tabla.max}` },
+      { Parametro: 'Incluye estimaciones fuera de rango', Valor: s.ufc.par.estimados === false ? 'No' : 'Sí' }] })
+  }
   hojas.push({ nombre: 'Layout', columnas: ['Pocillo', 'Muestra', 'Replica', 'EsBlanco'], filas: s.config.map((c) => ({ ...c, EsBlanco: c.EsBlanco ? 'Sí' : 'No' })) })
   hojas.push({ nombre: 'Ajustes', columnas: ['Ajuste', 'Valor'], filas: Object.keys(ETIQUETAS_AJUSTE).map((k) => ({ Ajuste: ETIQUETAS_AJUSTE[k], Valor: String(s.aj[k]) })) })
   hojas.push({ nombre: 'Metodos', columnas: ['Texto'], filas: [{ Texto: textoMetodos(s) }] })
@@ -98,6 +171,8 @@ async function excelCompleto(s) {
 // ===============================================================
 // DATOS
 // ===============================================================
+const cols = ['Pocillo', 'Muestra', 'Replica', 'Blanco', 'Tiempo_s', 'Tiempo_h', 'Absorbancia', 'Absorbancia_original']
+
 export function DatosTab({ s }) {
   const vistas = useRef({})
   const filas = useMemo(() => {
@@ -108,19 +183,33 @@ export function DatosTab({ s }) {
       Absorbancia: signif(w.y[i], 5), Absorbancia_original: signif(w.yOrig[i], 5),
     })))
   }, [s.pre, s.seleccion])
-  if (!s.datos) return <Vacio texto="Primero cargá el archivo del lector en la pestaña Archivo." />
+  const informe = () => { if (!abrirInforme(s, textoMetodos(s))) s.avisar('No hay nada que informar todavía: cargá y configurá la OD o los recuentos.', 'error') }
+  const botones = (
+    <div className="fila-ctrl" style={{ margin: 0 }}>
+      {s.datos && <button onClick={() => descargarTexto(aCSV(filas, cols), 'datos_curvas_crecimiento.csv')} disabled={!filas.length}>Descargar datos (CSV)</button>}
+      <button className="primario" onClick={() => excelCompleto(s).then((b) => descargarBlob(b, 'analisis_curvas_de_crecimiento.xlsx'))}>Descargar análisis completo (Excel)</button>
+      <button className="primario" onClick={informe} title="Abre el cuadro de impresión: elegí «Guardar como PDF»">Informe (PDF)</button>
+    </div>
+  )
+  if (!s.datos) {
+    return (
+      <div className="pagina">
+        <p className="ayuda">{s.a && s.a.modo === 'conteo'
+          ? 'Este experimento es solo de conteo: sus resultados están en «Recuento › Resultados» y salen en el Excel y en el informe.'
+          : 'Todavía no hay datos de OD. Cargalos en «Experimento» (o en «OD manual»).'}</p>
+        {s.a && (hayConteos(s.ufc) || s.datos) ? botones : null}
+        {s.a && !hayConteos(s.ufc) && !s.datos && <Vacio texto="No hay datos para mostrar todavía." />}
+      </div>
+    )
+  }
   if (!s.config.length) return <Vacio texto="Configurá los pocillos para ver los datos." />
   if (s.pre?.error) return <Vacio texto={s.pre.error} />
-  const cols = ['Pocillo', 'Muestra', 'Replica', 'Blanco', 'Tiempo_s', 'Tiempo_h', 'Absorbancia', 'Absorbancia_original']
   const onVista = (id, v) => { vistas.current[id] = v; s.onVista?.(id, v) }
   return (
     <div className="pagina">
       <div className="titulo-fila">
-        <p className="ayuda" style={{ margin: 0 }}>Datos procesados (con el blanco, las exclusiones, el suavizado y la normalización aplicados) de las muestras y réplicas elegidas en «Gráfico». Cada columna numérica tiene un botón <code>▾</code> para filtrar; clic en un encabezado para ordenar; arrastralo para mover la columna.</p>
-        <div className="fila-ctrl" style={{ margin: 0 }}>
-          <button onClick={() => descargarTexto(aCSV(filas, cols), 'datos_curvas_crecimiento.csv')}>Descargar datos (CSV)</button>
-          <button className="primario" onClick={() => excelCompleto(s).then((b) => descargarBlob(b, 'analisis_curvas.xlsx'))}>Descargar análisis completo (Excel)</button>
-        </div>
+        <p className="ayuda" style={{ margin: 0 }}>Datos procesados (con el blanco, las exclusiones, el suavizado y la normalización aplicados) de las muestras y réplicas elegidas en «Gráfico». Cada columna numérica tiene un botón <code>▾</code> para filtrar; clic en un encabezado para ordenar; arrastralo para mover la columna. El informe en PDF incluye todos los experimentos.</p>
+        {botones}
       </div>
       <TablaAvanzada id="datos" titulo="Datos procesados" columnas={cols} filas={filas} onVista={onVista} />
     </div>
@@ -251,7 +340,25 @@ export function MetodosTab({ s }) {
           </tbody></table></div>
         <p className="ayuda">Ejemplo: con 3 réplicas, IC 95 % = 4,303 × SEM = 4,303 × s / √3 ≈ 2,484 × s. Con pocas réplicas t es grande, por eso el IC 95 % es mucho más ancho que el SEM. En el gráfico «Media ± error», para cada instante se promedian las réplicas y la banda es x̄ ± error. En la escala ln(OD) se transforma <b>antes</b> de promediar.</p>
 
-        <h3>9. Cómo leer los resultados con criterio</h3>
+        <h3>9. Recuento de UFC</h3>
+        <p>Cada placa (o gota) con <b>C</b> colonias, sembrada con un volumen <b>V</b> (mL) de una suspensión diluida <b>k</b> veces con factor <b>f</b>, aporta <code>C ÷ V × f^k</code> UFC/mL. Ejemplo: 8 colonias en una gota de 0,02 mL de la dilución −5 con factor 5: 8 ÷ 0,02 × 5⁵ = 400 × 3125 = 1,25 × 10⁶ UFC/mL. En la placa de 96 pocillos cada <b>fila</b> es una réplica y cada <b>columna</b> una dilución; en las placas de Petri cada fila de la tabla es una placa.</p>
+        <ul>
+          <li><b>Rango contable</b>: placas con {s.ufc.tabla.min} a {s.ufc.tabla.max} colonias (gotas: {s.ufc.par.min} a {s.ufc.par.max}), ajustable en «Experimento». Con muy pocas colonias domina el azar del conteo (error de Poisson ≈ 1/√C) y con demasiadas se superponen y se cuentan mal.</li>
+          <li><b>Varias diluciones en rango</b>: media ponderada de la ISO 7218 / FDA BAM, <code>UFC/mL = ΣC ÷ (V × Σ f^−k)</code>. Ejemplo: 168 colonias en −2 y 15 en −3 (V = 1 mL, f = 10): 183 ÷ (10⁻² + 10⁻³) = 183 ÷ 0,011 = 16 636 UFC/mL. Pesa más la dilución con más colonias, que es la más precisa.</li>
+          <li><b>Fuera del rango</b>: si ninguna dilución es contable se estima con la más cercana (la de más colonias por debajo del rango, o la de menos colonias por encima si no supera el doble del máximo) y se marca como «estimado»; si todas dan 0 se informa el <b>límite de detección</b> (≈ 3 ÷ (V × Σ f^−k)); si todas se pasan se marca «incontable». La opción de «Experimento» decide si las estimaciones entran en las medias.</li>
+          <li><b>IC 95 % del conteo</b>: Poisson exacto (Garwood) según el total de colonias S usadas: de χ²(0,025; 2S)/2 a χ²(0,975; 2S+2)/2, divididos por V × Σ f^−k. Con 10 colonias el intervalo va de 4,8 a 18,4: contar pocas colonias es poco preciso aunque se repita.</li>
+          <li><b>Réplicas por muestra y tiempo</b>: <b>media geométrica</b> (el error de un recuento es multiplicativo): se promedia log10(UFC/mL) y se vuelve a la escala natural; la dispersión es la desviación estándar de los log10 y el IC 95 % usa la t de Student sobre los log10. También se informan la media aritmética y el CV.</li>
+          <li><b>Crecimiento</b>: μ es la pendiente máxima de ln(UFC/mL) contra el tiempo en 3 a 6 tiempos consecutivos con R² ≥ 0,9; <code>td = ln 2 ÷ μ</code>; el lag es el tiempo en que esa recta alcanza el nivel inicial; las generaciones son <code>log₂(N máx ÷ N₀)</code>.</li>
+          <li><b>Concentración esperada</b> (números grises de la grilla de gotas): <code>c0 × OD(T) ÷ OD(0)</code>, solo como guía para elegir diluciones; no entra en ningún cálculo.</li>
+        </ul>
+        <h4>OD manual (cubeta)</h4>
+        <p>En el espectrofotómetro la OD solo es proporcional a la concentración celular en una zona lineal (típicamente 0,05 a 0,8). Si la lectura la supera, se diluye la suspensión y la OD original es <code>(lectura − blanco) × f^k</code>. Cuando hay varias lecturas dentro de la ventana lineal se promedian; si ninguna cae en ella se usa la más cercana y se avisa. Las filas (muestra × réplica × tiempo) se convierten en una curva por réplica que se analiza como las de una placa.</p>
+        <h4>Calibración OD ↔ UFC/mL</h4>
+        <p>Con los pares (OD, UFC/mL) de los mismos tiempos se ajusta una curva (clásica <code>log₁₀ UFC = m·OD + b</code>, lineal, proporcional o de potencia) para estimar las UFC/mL a partir de la OD y al revés. La calidad se mide con R² y con el error típico en órdenes de magnitud (log₁₀). Solo vale dentro del rango de OD calibrado y para el mismo organismo, medio y equipo; fuera de ese rango el resultado es una extrapolación.</p>
+        <h4>Comparar OD y UFC</h4>
+        <p>En «Comparar» la OD (líneas, eje izquierdo) y las UFC (cuadrados con barra de error, eje derecho) se dibujan juntas por muestra. Con varios experimentos se pueden ver por separado o promediados: cada experimento aporta un valor por tiempo y el error es el de esos valores (SD, SEM o IC 95 %). La tabla «Crecimiento según UFC y según OD» compara μ con UFC (pendiente máxima de <code>ln(UFC/mL)</code> en ventanas de 3 tiempos) con la μmax de la OD. La regresión <code>log10(UFC/mL) = a + b·ln(OD)</code> mide cuánto sigue la OD a las células viables: si fueran proporcionales, b = 1/ln(10) = 0,434.</p>
+
+        <h3>10. Cómo leer los resultados con criterio</h3>
         <ul>
           <li>Los pocillos de una misma placa son <b>réplicas técnicas</b>. Para afirmar algo sobre una cepa o condición hace falta repetir el experimento en días distintos (réplicas biológicas).</li>
           <li>Los pocillos del <b>borde</b> (filas A y H, columnas 1 y 12) evaporan más: el «Mapa de placa» ayuda a ver si el borde se separa sistemáticamente del interior.</li>

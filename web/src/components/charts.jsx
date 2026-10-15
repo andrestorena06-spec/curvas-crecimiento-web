@@ -53,7 +53,7 @@ export function marcasEje(a, b, cfg = ejeDefecto(), nAuto = 6) {
 // ---------------------------------------------------------------
 export const LineChart = forwardRef(function LineChart({
   series, extras = [], xlim, ylim, est, ejes, xTxt, yTxt, leyenda = true, onPuntoClick, onBrush,
-  capas, capasAntes, tam, onContext, altoBase = 420, nota, onReset,
+  capas, capasAntes, tam, onContext, altoBase = 420, nota, onReset, ylimDer, yTxtDer,
 }, svgRef) {
   const [wrap, Wmed] = useAncho()
   const uid = useId().replace(/:/g, '')
@@ -62,6 +62,7 @@ export const LineChart = forwardRef(function LineChart({
   const cfgY = ejes?.y || ejeDefecto()
   const marcasX = marcasEje(xlim[0], xlim[1], cfgX, 7)
   const marcasY = marcasEje(ylim[0], ylim[1], cfgY, 6)
+  const marcasDer = ylimDer ? marcasEje(ylimDer[0], ylimDer[1], ejeDefecto(), 6) : []
   const tY = est.numerosY, tX = est.numerosX
 
   // márgenes medidos con el texto real
@@ -70,7 +71,8 @@ export const LineChart = forwardRef(function LineChart({
   const tituloY = est.leyendaY.texto || yTxt || ''
   const tituloX = est.leyendaX.texto || xTxt || ''
   const left = 14 + est.leyendaY.size * 1.3 + 10 + wY + 8
-  const right = 18
+  const wDer = Math.max(0, ...marcasDer.map((m) => medir(m.texto, tY.size, tY.bold, tY.italic)))
+  const right = ylimDer ? 8 + wDer + 10 + est.leyendaY.size * 1.3 + 14 : 18
   const top = 14 + hTit
   const hMarcasX = Math.max(tX.size, ...marcasX.map((m) => m.est?.size || 0)) * 1.4 + 10
   const hLeyX = tituloX ? est.leyendaX.size * 1.5 + 6 : 0
@@ -92,7 +94,9 @@ export const LineChart = forwardRef(function LineChart({
 
   const X = (v) => left + ((v - xlim[0]) / (xlim[1] - xlim[0])) * plotW
   const Y = (v) => top + plotH - ((v - ylim[0]) / (ylim[1] - ylim[0])) * plotH
-  const esc = { X, Y, L: { left, top, plotW, plotH } }
+  const Y2 = ylimDer ? (v) => top + plotH - ((v - ylimDer[0]) / (ylimDer[1] - ylimDer[0])) * plotH : Y
+  const yS = (s) => (s.eje === 'der' ? Y2 : Y)
+  const esc = { X, Y, Y2, L: { left, top, plotW, plotH } }
 
   // selección por arrastre
   const [sel, setSel] = useState(null)
@@ -123,12 +127,12 @@ export const LineChart = forwardRef(function LineChart({
     const mx = (e.clientX - r.left) * k, my = (e.clientY - r.top) * k
     if (mx < left || mx > left + plotW || my < top || my > top + plotH) return setHover(null)
     let mejor = null, dm = 14 * 14
-    const probar = (p, tip, color) => {
+    const probar = (p, tip, color, Yf = Y) => {
       if (!tip) return
-      const dx = X(p.x) - mx, dy = Y(p.y) - my, d = dx * dx + dy * dy
-      if (d < dm) { dm = d; mejor = { x: X(p.x), y: Y(p.y), tip, color, px: e.clientX - r.left, py: e.clientY - r.top } }
+      const dx = X(p.x) - mx, dy = Yf(p.y) - my, d = dx * dx + dy * dy
+      if (d < dm) { dm = d; mejor = { x: X(p.x), y: Yf(p.y), tip, color, px: e.clientX - r.left, py: e.clientY - r.top } }
     }
-    series.forEach((s) => s.data.forEach((p) => probar(p, p.tip, s.color)))
+    series.forEach((s) => s.data.forEach((p) => probar(p, p.tip, s.color, yS(s))))
     extras.forEach((p) => probar(p, p.tip, p.color || '#d62728'))
     setHover(mejor)
   }
@@ -156,6 +160,18 @@ export const LineChart = forwardRef(function LineChart({
         {marcasY.map((m) => (
           <text key={'ty' + m.pos} x={left - 8} y={Y(m.pos)} textAnchor="end" dominantBaseline="central" style={estiloTxt(m.est || tY)}>{m.texto}</text>
         ))}
+        {ylimDer && (
+          <g>
+            <line x1={left + plotW} x2={left + plotW} y1={top} y2={top + plotH} stroke="#444" />
+            {marcasDer.map((m) => (
+              <g key={'td' + m.pos}>
+                <line x1={left + plotW} x2={left + plotW + 4} y1={Y2(m.pos)} y2={Y2(m.pos)} stroke="#444" />
+                <text x={left + plotW + 8} y={Y2(m.pos)} dominantBaseline="central" style={estiloTxt(m.est || tY)}>{m.texto}</text>
+              </g>
+            ))}
+            <text transform={`translate(${W - 14 - est.leyendaY.size * 0.4},${top + plotH / 2}) rotate(90)`} textAnchor="middle" style={estiloTxt(est.leyendaY)}>{yTxtDer}</text>
+          </g>
+        )}
         {marcasX.map((m) => (
           <g key={'tx' + m.pos}>
             <line x1={X(m.pos)} x2={X(m.pos)} y1={top + plotH} y2={top + plotH + 4} stroke="#444" />
@@ -171,18 +187,27 @@ export const LineChart = forwardRef(function LineChart({
           {capasAntes && capasAntes(esc)}
           {series.map((s) => s.banda && s.banda.length > 1 && (
             <polygon key={'b' + s.id} fill={s.color} fillOpacity="0.2"
-              points={[...s.banda.map((p) => `${X(p.x)},${Y(p.hi)}`), ...[...s.banda].reverse().map((p) => `${X(p.x)},${Y(p.lo)}`)].join(' ')} />
+              points={[...s.banda.map((p) => `${X(p.x)},${yS(s)(p.hi)}`), ...[...s.banda].reverse().map((p) => `${X(p.x)},${yS(s)(p.lo)}`)].join(' ')} />
           ))}
           {series.map((s) => (
             <polyline key={'l' + s.id} fill="none" stroke={s.color} strokeWidth={s.sinLinea ? 0 : s.grosor || 1.6} strokeDasharray={DASH[s.dash] || undefined}
-              strokeLinejoin="round" points={s.data.map((p) => `${X(p.x)},${Y(p.y)}`).join(' ')} />
+              strokeLinejoin="round" points={s.data.map((p) => `${X(p.x)},${yS(s)(p.y)}`).join(' ')} />
           ))}
-          {series.map((s) => s.puntos && s.data.map((p, i) => (
-            <circle key={s.id + '-' + i} cx={X(p.x)} cy={Y(p.y)} r={s.radio || (s.data.length > 90 ? 1.6 : 2.4)} fill={s.color}
+          {series.map((s) => s.errores && s.data.map((p, i) => (Number.isFinite(p.err) && p.err > 0 ? (
+            <g key={'er' + s.id + i} stroke={s.color} strokeWidth="1.4">
+              <line x1={X(p.x)} x2={X(p.x)} y1={yS(s)(p.y - p.err)} y2={yS(s)(p.y + p.err)} />
+              <line x1={X(p.x) - 4} x2={X(p.x) + 4} y1={yS(s)(p.y + p.err)} y2={yS(s)(p.y + p.err)} />
+              <line x1={X(p.x) - 4} x2={X(p.x) + 4} y1={yS(s)(p.y - p.err)} y2={yS(s)(p.y - p.err)} />
+            </g>
+          ) : null)))}
+          {series.map((s) => s.puntos && s.data.map((p, i) => (s.forma === 'cuadrado' ? (
+            <rect key={s.id + '-' + i} x={X(p.x) - (s.radio || 4)} y={yS(s)(p.y) - (s.radio || 4)} width={2 * (s.radio || 4)} height={2 * (s.radio || 4)} fill={s.color} stroke="#fff" strokeWidth="1" />
+          ) : (
+            <circle key={s.id + '-' + i} cx={X(p.x)} cy={yS(s)(p.y)} r={s.radio || (s.data.length > 90 ? 1.6 : 2.4)} fill={s.color}
               style={p.key && onPuntoClick ? { cursor: 'pointer' } : undefined} onClick={p.key && onPuntoClick ? () => onPuntoClick(p.key) : undefined}>
               {p.tip && <title>{p.tip}</title>}
             </circle>
-          )))}
+          ))))}
           {extras.map((e, i) => (
             <g key={'e' + i} style={onPuntoClick && e.key ? { cursor: 'pointer' } : undefined} onClick={onPuntoClick && e.key ? () => onPuntoClick(e.key) : undefined}>
               {e.forma === 'x' && (

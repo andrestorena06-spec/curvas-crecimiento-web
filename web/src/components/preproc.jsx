@@ -295,7 +295,7 @@ function ExcluirPuntos({ s }) {
 export function PreprocTab({ s }) {
   const [sub, setSub] = useState('placa')
   const { aj, setAj } = s
-  if (!s.datos) return <Vacio texto="Primero cargá el archivo del lector en la pestaña Archivo." />
+  if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
   const cuerpo = !s.config.length ? <Vacio texto="Configurá los pocillos para ver el preprocesado." />
     : s.pre?.error ? <Vacio texto={s.pre.error} />
       : sub === 'placa' ? <VistaPlaca s={s} /> : sub === 'qc' ? <TablaQC s={s} /> : <ExcluirPuntos s={s} />

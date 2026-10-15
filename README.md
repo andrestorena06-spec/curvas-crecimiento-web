@@ -1,48 +1,23 @@
-# Curvas de crecimiento – análisis de placa de 96 pocillos (versión web)
+# Curvas de crecimiento (versión web)
 
-Aplicación web para analizar curvas de crecimiento bacteriano medidas en lectores de placas (densidad óptica
-contra el tiempo): preprocesado y control de calidad, gráficos, parámetros de crecimiento (μmax, tiempo de
-duplicación, lag, K, AUC, fases) y ajuste de modelos (Gompertz, logístico, Richards y Baranyi-Roberts).
+Aplicación web para analizar el crecimiento de cultivos **por densidad óptica (OD), por recuento de colonias (UFC/mL) o por ambos**.
+Al empezar se elige qué se va a analizar (solo OD, OD + conteo o solo conteo) y de dónde sale la OD.
 
-**Todo se calcula en tu navegador.** El archivo y los resultados no se envían a ningún servidor.
+**Todo se calcula en tu navegador.** Los archivos y los resultados no se envían a ningún servidor.
 
 ## Usar sin internet
 
-[**Curvas.html**](Curvas.html) (450 KB): un solo archivo; se descarga y se abre con doble clic en Edge, Chrome o Firefox.
-No requiere instalar nada (ni R ni Node.js) ni conexión a internet.
+[**Curvas.html**](docs/Curvas.html): un solo archivo; se descarga y se abre con doble clic en Edge, Chrome o Firefox.
 
 ## Qué hace
-- **Un Excel a la vez**: lee el archivo del lector (`.xlsx`, `.csv`, `.txt`) con los pocillos A1 a H12 y el tiempo.
-- **La sesión guarda los datos del Excel**: para continuar otro día alcanza con cargar la sesión. Al abrir la página
-  pregunta si querés continuar con el trabajo anterior o empezar de cero.
-- Configuración de pocillos por arrastre, con muestras, réplicas automáticas y blancos (también por layout en CSV).
-- **Preprocesado**: corrección al blanco, filtro de Hampel (mediana y MAD), OD máxima confiable, suavizado
-  (media, mediana, LOESS), normalización, control de calidad por pocillo y exclusión de puntos o pocillos con un clic.
-- **Gráfico**: réplicas individuales, media o media ± error (SD, SEM, IC 95 %), escala lineal o ln(OD), zoom por
-  arrastre, textos y ejes editables con clic derecho (subrayado y tachado incluidos) y descarga de imagen con ajuste
-  visual de proporción (PNG, JPG, SVG).
-- **Análisis**: parámetros por pocillo y por muestra, detalle con ln(OD), ventana de μmax y fases (con ventana manual),
-  mapa de placa con explicación de cada valor y modelos con comparación por AIC.
-- Tablas con filtros por columna, columnas movibles y descarga a Excel; análisis completo en un Excel.
-- Descripción de todos los cálculos, paso a paso y en lenguaje llano, en la pestaña *Métodos*.
-
-## Limitaciones
-- No lee archivos `.xls` antiguos: guardalos como `.xlsx` o `.csv`.
-- La configuración se guarda en el navegador de cada persona; para llevarla a otra computadora usá *Guardar sesión*
-  en la pestaña Archivo.
-
-## Estructura
-- `docs/` – sitio ya compilado (es lo que publica GitHub Pages).
-- `web/` – código fuente (React + Vite). Para recompilar:
-
-```bash
-cd web
-npm install
-npm run build:web      # genera web/dist-web (copiar su contenido a docs/)
-npm run build:single   # genera web/dist-single/index.html (un solo archivo)
-```
-
-- `icono/` – ícono de la aplicación (una curva de crecimiento): `curvas.svg`, `curvas.ico` y PNG.
-
-Los cálculos coinciden con los de la aplicación en R (`curvas.R`): se verificó con los mismos datos el filtro de Hampel,
-la OD₀ de tres fases, las ventanas de μmax, los parámetros, el control de calidad y los modelos.
+- **Pantalla inicial**: solo OD · OD + conteo · solo conteo. La OD puede venir de un Excel del lector (Tecan u otro), de placas de 96
+  leídas por separado (formato del programa de Biofilm: una matriz A–H × 1–12 por lectura) o de lecturas manuales con cubeta.
+- **Condiciones del experimento** (primer cuadro): organismo, medio, temperatura, equipo, longitud de onda, fecha y notas; si hay
+  conteo, también las diluciones (factor, volumen sembrado, rango contable).
+- **OD manual**: tabla con muestra, réplica, tiempo y lecturas sin diluir y diluidas; la OD corregida usa la ventana lineal del equipo.
+- **Recuento**: gotas en placa de 96 (filas = réplicas, columnas = diluciones) o placas de Petri en una tabla. Media ponderada
+  ISO 7218, IC 95 % de Poisson exacto (Garwood), media geométrica de las réplicas, límite de detección y parámetros de crecimiento.
+- **Curvas de OD**: preprocesado y QC (blanco, Hampel, suavizado, normalización), μmax, tiempo de duplicación, lag, K, AUC, fases y modelos.
+- **Calibración OD–UFC/mL** y **Comparar** (OD y UFC en el mismo gráfico con doble eje, varios experimentos).
+- **Planillas**: Excel y LibreOffice (.xlsx, .xls, .xlsm, .xlsb, .ods).
+- **Sesión** con todos los datos, **Excel** con todo el análisis e **informe en PDF**.

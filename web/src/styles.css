@@ -294,3 +294,36 @@ code { background: #f6ebdb; }
 .tip-grafico { position: absolute; z-index: 5; pointer-events: none; background: #3b2a1f; color: #fff6ea; font-size: 12px; line-height: 1.4; padding: 6px 10px; border-radius: 7px; white-space: pre-line; max-width: 340px; box-shadow: 0 3px 10px rgba(0,0,0,.25); }
 
 .lista-checks { max-height: none !important; overflow: visible !important; }
+
+/* ---- Recuento de UFC ---- */
+.grilla-ufc { border-collapse: separate; border-spacing: 2px; font-size: 12px; }
+.grilla-ufc th { font-weight: 600; color: var(--suave); text-align: center; padding: 2px 4px; }
+.grilla-ufc th small { display: block; font-weight: 400; font-size: 10px; }
+.grilla-ufc .cab-fila { text-align: left; }
+.grilla-ufc td { padding: 0; border-radius: 5px; background: #fffdf9; border: 1px solid var(--borde); }
+.grilla-ufc td input { width: 54px; border: none; background: transparent; text-align: center; padding: 6px 2px; font-size: 13px; font-weight: 600; }
+.grilla-ufc td input::placeholder { color: #b9b1a5; font-weight: 400; }
+.grilla-ufc td input:disabled { cursor: not-allowed; opacity: .35; }
+.grilla-ufc .nombre-fila { background: transparent; border: none; padding: 0 8px; white-space: nowrap; font-weight: 600; }
+.grilla-ufc .res-fila { background: transparent; border: none; padding: 0 8px; font-variant-numeric: tabular-nums; color: var(--suave); white-space: nowrap; }
+.leyenda-ufc { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; }
+.leyenda-ufc i { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--borde); display: inline-block; }
+.chip-t { border-radius: 999px; padding: 5px 14px; font-weight: 600; }
+.chip-t.on { background: var(--acento-claro); color: var(--acento-osc); border-color: var(--acento); }
+/* ---- Curvas de crecimiento: inicio, condiciones y tablas de lecturas ---- */
+.inicio { max-width: 920px; margin: 28px auto; background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 14px; padding: 22px 26px; box-shadow: var(--sombra); }
+.inicio h2 { margin: 0 0 4px; font-size: 22px; }
+.inicio h3 { margin: 18px 0 8px; font-size: 15px; }
+.tarjetas-modo { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 12px; }
+.tarjeta-modo { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; padding: 14px 16px; border-radius: 12px; border: 1.5px solid var(--borde); background: #fffaf2; cursor: pointer; font: inherit; color: var(--texto); }
+.tarjeta-modo b { font-size: 16px; }
+.tarjeta-modo span { font-size: 12.5px; color: var(--suave); line-height: 1.4; }
+.tarjeta-modo:hover { border-color: var(--acento); }
+.tarjeta-modo.on { border-color: var(--acento); background: var(--acento-claro); box-shadow: 0 0 0 2px rgba(217, 115, 31, .22); }
+.tarjeta-modo.chica { padding: 10px 14px; }
+.tarjeta-modo.chica b { font-size: 14px; }
+.rejilla-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px 16px; margin-bottom: 10px; }
+.rejilla-campos .campo input, .rejilla-campos .campo select { width: 100%; }
+.tabla-od input { padding: 3px 5px; }
+.tabla-od td { padding: 2px 4px; }
+.aviso-error { color: var(--peligro); font-weight: 600; }

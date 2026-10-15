@@ -192,7 +192,7 @@ export function GraficoTab({ s }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [s.pre, s.seleccion, aj, o.tmin, o.tmax, s.colores, s.muestrasCfg, s.E, s.datos])
 
-  if (!s.datos) return <Vacio texto="Primero cargá el archivo del lector en la pestaña Archivo." />
+  if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
   const blancos = s.config.filter((c) => c.EsBlanco)
   const individual = aj.modo_grafico === 'individual'
   const est = estiloConTitulo(s.estilo, g.titulo || '')

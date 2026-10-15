@@ -1,24 +1,38 @@
+import { ACEPTA_LIBRO } from './libro.js'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ArchivoTab } from './components/archivo.jsx'
+import { ExperimentoTab } from './components/experimento.jsx'
+import { Elegir, NuevoExperimentoModal } from './components/inicio.jsx'
 import { PlacaTab } from './components/placa.jsx'
+import { OdManualTab } from './components/odmanual.jsx'
 import { PreprocTab } from './components/preproc.jsx'
 import { GraficoTab } from './components/grafico.jsx'
 import { AnalisisTab } from './components/analisis.jsx'
+import { ConteoTab } from './components/ufc.jsx'
+import { CalibracionTab } from './components/calibracion.jsx'
+import { CompararTab } from './components/comparar.jsx'
 import { DatosTab, MetodosTab } from './components/datos.jsx'
 import { Modal } from './components/ui.jsx'
 import { normalizarEjes, normalizarEstilo } from './components/estilo.jsx'
 import { ajustesDef } from './ayuda.js'
-import { estilosPocillos } from './colores.js'
-import { hojasDe, leerArchivo } from './motor/lectura.js'
-import { analizarTodos, clavePunto, estadoVacio, preprocesar, r3 } from './motor/pipeline.js'
+import { estilosPocillos, paletaMuestras } from './colores.js'
+import { hojasDe, leerArchivo, leerCrudo } from './motor/lectura.js'
+import { analizarTodos, clavePunto, curvaMedia, estadoVacio, preprocesar } from './motor/pipeline.js'
+import { calcularUfc, esperadoStock, ufcVacio } from './motor/ufc.js'
+import { manualADatos } from './motor/odmanual.js'
+import { datosDeLecturas, leerPlacaDeMatriz, tiempoDeNombre } from './motor/placas.js'
+import { MODOS, expVacio, expsDe, hayConteo, hayOd, nuevoId, odPorPocillos } from './experimento.js'
 
 const CLAVE = 'curvas-crecimiento-v1'
+const CLAVE_VIEJA = 'crecimiento-ufc-v1'
 
 const optsDef = () => ({
   graf: { tmin: '', tmax: '', click: false },
   det: { modo: 'pocillo', pocillo: '', muestra: '', replicas: true, modelo: 'ninguno', fases: true },
   mapa: { param: 'mu_max' },
   modelos: { sel: ['gompertz', 'logistico', 'richards', 'baranyi'] },
+  ufc: { sub: 'gotas', t: 0 },
+  comp: { exps: null, muestras: null, modo: 'por_exp', od: true, ufc: true, escala: 'log10', error: 'sd' },
+  calib: { modelo: 'clasico', exps: null, muestras: null, odEntrada: '', ufcEntrada: '' },
 })
 const optsDe = (x) => {
   const d = optsDef()
@@ -26,101 +40,330 @@ const optsDe = (x) => {
 }
 
 function cargarGuardado() {
-  try { return JSON.parse(localStorage.getItem(CLAVE)) || {} } catch { return {} }
+  try { return JSON.parse(localStorage.getItem(CLAVE)) || JSON.parse(localStorage.getItem(CLAVE_VIEJA)) || {} } catch { return {} }
 }
 
-// JSON guarda NaN como null: se restituye al leer
-const reviveDatos = (d) => (d && d.tiempos && d.pocillos ? {
-  tiempos: d.tiempos.map((x) => (x === null ? NaN : x)),
-  pocillos: Object.fromEntries(Object.entries(d.pocillos).map(([k, v]) => [k, v.map((x) => (x === null ? NaN : x))])),
-} : null)
+const PESTANAS = {
+  experimento: ['Experimento', 'Condiciones y datos'],
+  placa: ['Configurar pocillos', 'Placa de densidad óptica'],
+  odmanual: ['OD manual', 'Lecturas con cubeta'],
+  preproc: ['Preprocesado y QC', 'Blanco, filtros y calidad'],
+  grafico: ['Gráfico', 'Curvas de crecimiento'],
+  analisis: ['Análisis', 'μmax, lag, K, modelos'],
+  conteo: ['Recuento', 'Diluciones y UFC/mL'],
+  calibracion: ['Calibración', 'OD frente a UFC/mL'],
+  comparar: ['Comparar', 'OD y UFC de todo'],
+  datos: ['Datos', 'Tablas, Excel e informe'],
+  metodos: ['Métodos', 'Cómo se calcula'],
+}
+// pestañas de un experimento según lo que se analiza
+export function pestanasDe(e) {
+  if (!e) return ['experimento']
+  const t = ['experimento']
+  if (hayOd(e)) {
+    if (odPorPocillos(e)) t.push('placa')
+    else t.push('odmanual')
+    t.push('preproc', 'grafico', 'analisis')
+  }
+  if (hayConteo(e)) t.push('conteo')
+  if (e.modo === 'ambos') t.push('calibracion')
+  t.push('comparar', 'datos', 'metodos')
+  return t
+}
 
-const PESTANAS = [
-  ['archivo', 'Archivo', 'Excel, muestras y sesión'],
-  ['placa', 'Configurar pocillos', 'Placa de 96 pocillos'],
-  ['preproc', 'Preprocesado y QC', 'Blanco, filtros y calidad'],
-  ['grafico', 'Gráfico', 'Curvas de crecimiento'],
-  ['analisis', 'Análisis', 'μmax, lag, K, modelos'],
-  ['datos', 'Datos', 'Tablas y Excel'],
-  ['metodos', 'Métodos', 'Cómo se calcula'],
-]
-
-// Logo: un gráfico con una curva de crecimiento (lag, fase exponencial y meseta)
+// Logo: curva de crecimiento con colonias (puntos)
 export const LogoCurva = ({ ancho = 40, alto = 30 }) => (
   <svg viewBox="0 0 48 36" width={ancho} height={alto} aria-hidden>
     <path d="M5 4 V31 H45" fill="none" stroke="#ffe3c2" strokeOpacity=".85" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     <path d="M7 28.5 C16 28.5 18.5 27.5 22.5 19.5 S31 8 43 7" fill="none" stroke="#ffb35c" strokeWidth="2.8" strokeLinecap="round" />
     <circle cx="14" cy="28.3" r="1.7" fill="#ffe3c2" /><circle cx="22.5" cy="19.5" r="1.7" fill="#ffe3c2" /><circle cx="35" cy="9.2" r="1.7" fill="#ffe3c2" />
+    <g fill="#ffe3c2" fillOpacity=".9"><circle cx="10" cy="8" r="2.1" /><circle cx="15" cy="6.2" r="1.5" /><circle cx="14.5" cy="11" r="1.7" /></g>
   </svg>
 )
+
+const EVACIO = estadoVacio()
 
 export default function App() {
   const g = useMemo(cargarGuardado, [])
   // Si hay un trabajo anterior no se carga solo: se le pregunta a la persona
-  const [pendiente, setPendiente] = useState(() => !!(g.datos || (g.config && g.config.length)))
+  const [pendiente, setPendiente] = useState(() => !!(g.exps && g.exps.length))
   const gi = pendiente ? {} : g
-  const [tab, setTab] = useState('archivo')
-  const [archivo, setArchivo] = useState(gi.archivo || null)
-  const [datos, setDatos] = useState(() => reviveDatos(gi.datos))
-  const [preview, setPreview] = useState(gi.preview || null)
+  const [tab, setTab] = useState('experimento')
+  const [exps, setExps] = useState(() => expsDe(gi))
+  const [activeId, setActiveId] = useState(gi.activeId || null)
   const [muestras, setMuestras] = useState(gi.muestras || [])
-  const [config, setConfig] = useState(gi.config || [])
-  const [E, setE] = useState(() => ({ ...estadoVacio(), ...(gi.E || {}) }))
   const [aj, setAjObj] = useState(() => ({ ...ajustesDef(), ...(gi.aj || {}) }))
-  const [blancosSel, setBlancosSel] = useState(gi.blancosSel ?? null)
-  const [selMuestrasRaw, setSelMuestras] = useState(gi.selMuestras ?? null)
-  const [selReps, setSelReps] = useState(gi.selReps || {})
   const [estilo, setEstilo] = useState(() => normalizarEstilo(gi.estilo))
   const [ejes, setEjes] = useState(() => normalizarEjes(gi.ejes))
   const [opts, setOpts] = useState(() => optsDe(gi))
   const [modelosRes, setModelosRes] = useState(null)
   const [avisos, setAvisos] = useState([])
-  const fileRef = useRef(null)
+  const [nuevo, setNuevo] = useState(false)
+  const archivosRef = useRef({})        // id de experimento -> File (solo mientras la pestaña está abierta)
+  const arrastrada = useRef(null)
+  const [arrastrandoSobre, setArrastrandoSobre] = useState(null)
+  const inputExps = useRef()
+  const inputSesion = useRef()
   const vistas = useRef({})
+
+  const a = exps.find((e) => e.id === activeId) || exps[0] || null
+  useEffect(() => { if (a && a.id !== activeId) setActiveId(a.id) }, [a, activeId])
+  const tabs = pestanasDe(a)
+  const tabAct = tabs.includes(tab) ? tab : 'experimento'
 
   const avisar = useCallback((texto, tipo = 'ok') => {
     const id = Math.random()
-    setAvisos((a) => [...a, { id, texto, tipo }])
-    setTimeout(() => setAvisos((a) => a.filter((x) => x.id !== id)), 4200)
+    setAvisos((x) => [...x, { id, texto, tipo }])
+    setTimeout(() => setAvisos((x) => x.filter((v) => v.id !== id)), 4200)
   }, [])
 
-  // El trabajo (incluidos los datos del Excel) se guarda en el navegador.
+  // El trabajo (incluidos los datos de cada Excel) se guarda en el navegador.
   // Mientras se espera la decisión sobre el trabajo anterior no se guarda nada, para no pisarlo.
   useEffect(() => {
     if (pendiente) return
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(CLAVE, JSON.stringify({ fecha: new Date().toISOString(), archivo, datos, preview, muestras, config, E, aj, blancosSel, selMuestras: selMuestrasRaw, selReps, estilo, ejes, opts }))
+        localStorage.setItem(CLAVE, JSON.stringify({ fecha: new Date().toISOString(), exps, activeId, muestras, aj, estilo, ejes, opts }))
       } catch { /* sin almacenamiento o sin espacio */ }
     }, 400)
     return () => clearTimeout(t)
-  }, [pendiente, archivo, datos, preview, muestras, config, E, aj, blancosSel, selMuestrasRaw, selReps, estilo, ejes, opts])
+  }, [pendiente, exps, activeId, muestras, aj, estilo, ejes, opts])
 
   const aplicarGuardado = (x) => {
-    setArchivo(x.archivo || null)
-    setDatos(reviveDatos(x.datos))
-    setPreview(x.preview || null)
+    const es = expsDe(x)
+    setExps(es)
+    setActiveId(x.activeId && es.some((e) => e.id === x.activeId) ? x.activeId : es[0]?.id || null)
     setMuestras(x.muestras || [])
-    setConfig(x.config || [])
-    setE({ ...estadoVacio(), ...(x.E || {}) })
     setAjObj({ ...ajustesDef(), ...(x.aj || {}) })
-    setBlancosSel(x.blancosSel ?? null)
-    setSelMuestras(x.selMuestras ?? null)
-    setSelReps(x.selReps || {})
     setEstilo(normalizarEstilo(x.estilo))
     setEjes(normalizarEjes(x.ejes))
     setOpts(optsDe(x))
-    fileRef.current = null
+    archivosRef.current = {}
+    setTab('experimento')
   }
   const continuarAnterior = () => { aplicarGuardado(g); setPendiente(false) }
   const empezarDeCero = () => {
-    try { localStorage.removeItem(CLAVE) } catch { /* sin almacenamiento */ }
+    try { localStorage.removeItem(CLAVE); localStorage.removeItem(CLAVE_VIEJA) } catch { /* sin almacenamiento */ }
     setPendiente(false)
   }
 
   // ---------------------------------------------------------------
-  // Derivados
+  // Experimentos
   // ---------------------------------------------------------------
+  const upd = useCallback((id, patch) => {
+    setExps((es) => es.map((e) => (e.id === id ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e)))
+  }, [])
+  const updA = (patch) => { if (a) upd(a.id, patch) }
+
+  const nombreUnico = (base, existentes) => {
+    let n = base, i = 2
+    while (existentes.includes(n)) n = `${base} (${i++})`
+    return n
+  }
+
+  const crearExperimento = ({ modo, origenOd, nombre }) => {
+    const e = expVacio(nombreUnico(nombre || 'Experimento', exps.map((x) => x.nombre)), modo, origenOd)
+    setExps((es) => [...es, e])
+    setActiveId(e.id)
+    setTab('experimento')
+    setNuevo(false)
+  }
+
+  // Lee un libro: cada hoja con una placa de curvas se vuelve un experimento
+  const leerLibro = async (file) => {
+    const { hojas } = await hojasDe(file)
+    const lecturas = []
+    for (const hoja of hojas) {
+      try { lecturas.push({ hoja, l: await leerArchivo(file, hoja) }) } catch (e) { if (hojas.length === 1) throw e }
+    }
+    if (!lecturas.length) throw new Error('No encontré datos de absorbancia en ninguna hoja.')
+    return { hojas, lecturas }
+  }
+
+  const cargarArchivos = async (files, idDestino = null) => {
+    const nuevos = []
+    for (const file of Array.from(files)) {
+      try {
+        const { hojas, lecturas } = await leerLibro(file)
+        const base = file.name.replace(/\.[^.]+$/, '')
+        lecturas.forEach(({ hoja, l }) => nuevos.push({ file, hoja, hojas, l, nombre: lecturas.length > 1 ? `${base} · ${hoja}` : base }))
+      } catch (e) { avisar(`${file.name}: ${e.message}`, 'error') }
+    }
+    if (!nuevos.length) return
+    const poner = (n, e) => ({
+      ...e, archivo: { nombre: n.file.name, hoja: n.hoja, hojas: n.hojas }, datos: n.l.datos, preview: n.l.preview,
+      E: estadoVacio(), config: e.config.filter((c) => n.l.datos.pocillos[c.Pocillo]),
+    })
+    let primero = null
+    let resto = nuevos
+    if (idDestino) {
+      archivosRef.current[idDestino] = nuevos[0].file
+      upd(idDestino, (e) => poner(nuevos[0], e))
+      primero = idDestino
+      resto = nuevos.slice(1)
+    }
+    const existentes = exps.map((e) => e.nombre)
+    const creados = resto.map((n) => {
+      const e = poner(n, expVacio(nombreUnico(n.nombre, existentes), 'od', 'tecan'))
+      archivosRef.current[e.id] = n.file
+      existentes.push(e.nombre)
+      if (!primero) primero = e.id
+      return e
+    })
+    if (creados.length) setExps((es) => [...es, ...creados])
+    setActiveId(primero)
+    avisar(nuevos.length === 1 ? `Cargado: ${Object.keys(nuevos[0].l.datos.pocillos).length} pocillos, ${nuevos[0].l.datos.tiempos.length} mediciones.` : `${nuevos.length} experimentos agregados.`)
+  }
+
+  // Lecturas de placas formato Biofilm: cada archivo (o cada hoja con una placa) es una lectura en un tiempo
+  const agregarLecturas = async (files) => {
+    if (!a) return
+    const lects = []
+    let n = a.lecturas.length
+    for (const file of Array.from(files)) {
+      try {
+        const { hojas } = await hojasDe(file)
+        const base = file.name.replace(/\.[^.]+$/, '')
+        const nuevasDe = []
+        for (const hoja of hojas) {
+          try {
+            const r = leerPlacaDeMatriz(await leerCrudo(file, hoja))
+            nuevasDe.push({ hoja, r })
+          } catch (e) { if (hojas.length === 1) throw e }
+        }
+        if (!nuevasDe.length) throw new Error('No encontré una placa (filas A a H con valores numéricos).')
+        nuevasDe.forEach(({ hoja, r }) => {
+          const nombre = nuevasDe.length > 1 ? `${base} · ${hoja}` : base
+          lects.push({ id: nuevoId(), nombre, t: tiempoDeNombre(nuevasDe.length > 1 ? hoja : base, n++), datos: r.datos, onda: r.onda, fecha: r.fecha })
+        })
+      } catch (e) { avisar(`${file.name}: ${e.message}`, 'error') }
+    }
+    if (!lects.length) return
+    const onda = lects.find((l) => l.onda)?.onda
+    upd(a.id, (e) => {
+      const lecturas = [...e.lecturas, ...lects]
+      const datos = datosDeLecturas(lecturas)
+      return {
+        lecturas, datos, config: datos ? e.config.filter((c) => datos.pocillos[c.Pocillo]) : e.config,
+        cond: onda && !e.lecturas.length ? { ...e.cond, lambda: onda } : e.cond,
+      }
+    })
+    avisar(`${lects.length} ${lects.length === 1 ? 'lectura agregada' : 'lecturas agregadas'}.`)
+  }
+  const reconstruir = (e, lecturas) => {
+    const datos = datosDeLecturas(lecturas)
+    return { lecturas, datos, config: datos ? e.config.filter((c) => datos.pocillos[c.Pocillo]) : [], E: estadoVacio() }
+  }
+  const setLectura = (id, patch) => upd(a.id, (e) => reconstruir(e, e.lecturas.map((l) => (l.id === id ? { ...l, ...patch } : l))))
+  const quitarLectura = (id) => upd(a.id, (e) => reconstruir(e, e.lecturas.filter((l) => l.id !== id)))
+
+  // OD manual: las filas se convierten en series «virtuales» para usar los mismos gráficos y análisis
+  const setManual = (f) => {
+    if (!a) return
+    upd(a.id, (e) => {
+      const manual = typeof f === 'function' ? f(e.manual) : f
+      const r = manualADatos(manual)
+      return { manual, datos: r.datos, config: r.config, manualError: r.error || null }
+    })
+  }
+
+  const setModo = (modo) => {
+    if (!a || modo === a.modo) return
+    const pierdeOd = modo === 'conteo' && a.datos
+    if (pierdeOd && !window.confirm('Al pasar a «Solo conteo» la OD queda guardada pero se oculta del análisis. ¿Continuar?')) return
+    upd(a.id, { modo })
+  }
+  const setOrigenOd = (origen) => {
+    if (!a || origen === a.origenOd) return
+    if ((a.datos || a.lecturas.length || a.manual.filas.length) && !window.confirm('Cambiar el origen de la OD descarta la configuración de pocillos y las exclusiones. Los datos cargados se conservan en su origen. ¿Continuar?')) return
+    delete archivosRef.current[a.id]
+    upd(a.id, (e) => {
+      if (origen === 'placa') return { origenOd: origen, ...reconstruir(e, e.lecturas), config: [] }
+      if (origen === 'manual') { const r = manualADatos(e.manual); return { origenOd: origen, datos: r.datos, config: r.config, E: estadoVacio(), archivo: null, preview: null } }
+      return { origenOd: origen, datos: null, config: [], E: estadoVacio(), archivo: null, preview: null }
+    })
+  }
+  const setCond = (k, v) => updA((e) => ({ cond: { ...e.cond, [k]: v } }))
+
+  const cambiarHoja = async (hoja) => {
+    const file = a && archivosRef.current[a.id]
+    if (!file) return avisar('Para cambiar de hoja hay que volver a cargar el archivo.', 'error')
+    try {
+      const l = await leerArchivo(file, hoja)
+      upd(a.id, (e) => ({ archivo: { ...e.archivo, hoja }, datos: l.datos, preview: l.preview, E: estadoVacio(), config: e.config.filter((c) => l.datos.pocillos[c.Pocillo]) }))
+    } catch (e) { avisar(e.message, 'error') }
+  }
+
+  const quitarExp = (id) => {
+    const e = exps.find((x) => x.id === id)
+    if (e && (e.config.length || e.manual.filas.length || e.ufc.tabla.filas.length || Object.keys(e.ufc.conteos).length) && !window.confirm(`Se quitará «${e.nombre}» con su configuración y sus datos. ¿Continuar?`)) return
+    delete archivosRef.current[id]
+    setExps((es) => es.filter((x) => x.id !== id))
+  }
+  const renombrarExp = (id, nombre) => {
+    if (!nombre) return avisar('El nombre no puede estar vacío.', 'error')
+    if (exps.some((e) => e.id !== id && e.nombre.toLowerCase() === nombre.toLowerCase())) return avisar(`Ya hay un experimento llamado «${nombre}».`, 'error')
+    upd(id, { nombre })
+  }
+  const reordenarExps = (idMovida, idDestino) => {
+    if (idMovida === idDestino) return
+    setExps((es) => {
+      const mov = es.find((p) => p.id === idMovida)
+      if (!mov) return es
+      const sin = es.filter((p) => p.id !== idMovida)
+      const i = sin.findIndex((p) => p.id === idDestino)
+      const o = es.findIndex((p) => p.id === idMovida), d = es.findIndex((p) => p.id === idDestino)
+      sin.splice(o < d ? i + 1 : i, 0, mov)
+      return sin
+    })
+  }
+
+  // Layout de la placa de densidad óptica
+  const aplicarLayout = (cfgCrudo) => {
+    if (!a?.datos) return avisar('Primero cargá los datos de OD.', 'error')
+    upd(a.id, (e) => ({ config: cfgCrudo.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio() }))
+    setMuestras((m) => [...new Set([...m, ...cfgCrudo.map((c) => c.Muestra)])])
+    avisar(`Layout importado en «${a.nombre}».`)
+  }
+  const copiarLayoutDe = (idOrigen) => {
+    const o = exps.find((x) => x.id === idOrigen)
+    if (!o || !a?.datos) return avisar('Primero cargá los datos de OD de este experimento.', 'error')
+    upd(a.id, (e) => ({ config: o.config.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio(), blancosSel: o.blancosSel }))
+    avisar(`Layout copiado de «${o.nombre}».`)
+  }
+  const copiarConfig = () => {
+    if (!a) return
+    const otras = exps.filter((e) => e.id !== a.id && e.datos && odPorPocillos(e))
+    if (!otras.length) return avisar('Los demás experimentos no tienen datos de OD por pocillos.', 'error')
+    if (otras.some((e) => e.config.length) && !window.confirm('Los demás experimentos ya tienen configuración. Se va a reemplazar. ¿Continuar?')) return
+    setExps((es) => es.map((e) => (e.id === a.id || !e.datos || !odPorPocillos(e) ? e : {
+      ...e, config: a.config.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio(), blancosSel: a.blancosSel,
+    })))
+    avisar('Configuración copiada a los demás experimentos.')
+  }
+
+  // ---------------------------------------------------------------
+  // Datos derivados del experimento activo
+  // ---------------------------------------------------------------
+  const conOd = hayOd(a)
+  const datos = conOd ? a?.datos || null : null
+  const config = conOd ? a?.config || [] : []
+  const E = a?.E || EVACIO
+  const blancosSel = a ? a.blancosSel : null
+  const selMuestrasRaw = a ? a.selMuestras : null
+  const selReps = a?.selReps || {}
+  const ufc = a?.ufc || ufcVacio()
+
+  const todasMuestras = useMemo(() => {
+    const st = new Set(muestras)
+    exps.forEach((e) => {
+      e.config.forEach((c) => st.add(c.Muestra)); e.ufc.layout.forEach((c) => st.add(c.Muestra))
+      e.ufc.tabla.filas.forEach((f) => f.muestra && st.add(f.muestra)); e.manual.filas.forEach((f) => f.muestra && st.add(f.muestra))
+    })
+    return [...st]
+  }, [muestras, exps])
+  const coloresGlobal = useMemo(() => paletaMuestras(todasMuestras), [todasMuestras])
+
   const muestrasCfg = useMemo(() => {
     const pres = [...new Set(config.map((c) => c.Muestra))]
     return [...muestras.filter((m) => pres.includes(m)), ...pres.filter((m) => !muestras.includes(m))]
@@ -139,78 +382,71 @@ export default function App() {
   )
 
   const ajD = useDeferredValue(aj)
+  // con OD manual el blanco ya se resta en la tabla de lecturas: no se vuelve a restar
+  const ajEfec = useMemo(() => (a && a.origenOd === 'manual' ? { ...ajD, corregir_blanco: false } : ajD), [ajD, a?.origenOd]) // eslint-disable-line react-hooks/exhaustive-deps
   const pre = useMemo(
-    () => (datos && config.length ? preprocesar({ datos, config, E, aj: ajD, blancosSel }) : null),
-    [datos, config, E, ajD, blancosSel],
+    () => (datos && config.length ? preprocesar({ datos, config, E, aj: ajEfec, blancosSel }) : null),
+    [datos, config, E, ajEfec, blancosSel],
   )
-  const res = useMemo(() => (pre && !pre.error ? analizarTodos(pre.proc, ajD, E.ventanas) : null), [pre, ajD, E.ventanas])
-  useEffect(() => { setModelosRes(null) }, [res])
+  const res = useMemo(() => (pre && !pre.error ? analizarTodos(pre.proc, ajEfec, E.ventanas) : null), [pre, ajEfec, E.ventanas])
+  useEffect(() => { setModelosRes(null) }, [res, activeId])
+
+  // Recuento de UFC del experimento activo
+  const curvaExp = useMemo(() => {
+    if (!pre || pre.error) return null
+    const ws = pre.proc.filter((w) => !w.EsBlanco)
+    return ws.length ? curvaMedia(ws) : null
+  }, [pre])
+  const ufcRes = useMemo(() => calcularUfc(ufc), [ufc])
+  const stock = useMemo(() => esperadoStock(ufc, curvaExp), [ufc, curvaExp])
 
   // ---------------------------------------------------------------
-  // Acciones
+  // Acciones sobre el experimento activo
   // ---------------------------------------------------------------
   const setAj = (k, v) => {
-    if (k === 'corregir_blanco' && v && !selMuestrasRaw) {
-      // al activar la corrección, las muestras que son solo blanco salen de «Muestras a mostrar» (se pueden volver a elegir)
-      setSelMuestras(muestrasCfg.filter((m) => !soloBlanco.includes(m)))
+    if (k === 'corregir_blanco' && v && a && !selMuestrasRaw) {
+      updA({ selMuestras: muestrasCfg.filter((m) => !soloBlanco.includes(m)) })
     }
-    setAjObj((a) => ({ ...a, [k]: v }))
+    setAjObj((x) => ({ ...x, [k]: v }))
   }
   const setOpt = (grupo, k, v) => setOpts((o) => ({ ...o, [grupo]: { ...o[grupo], [k]: v } }))
-  const setRepsDe = (m, arr) => setSelReps((x) => ({ ...x, [m]: arr }))
+  const setConfig = (c) => { if (a) upd(a.id, (e) => ({ config: typeof c === 'function' ? c(e.config) : c })) }
+  const setE = (f) => { if (a) upd(a.id, (e) => ({ E: f(e.E) })) }
+  const setUfc = (f) => { if (a) upd(a.id, (e) => ({ ufc: typeof f === 'function' ? f(e.ufc) : f })) }
 
-  const cargarArchivo = async (file) => {
-    try {
-      const { hojas } = await hojasDe(file)
-      let lectura = null, hoja = hojas[0], err = null
-      for (const h of hojas) {
-        try { lectura = await leerArchivo(file, h); hoja = h; break } catch (e) { err = e }
-      }
-      if (!lectura) throw err
-      fileRef.current = file
-      setArchivo({ nombre: file.name, hoja, hojas })
-      setDatos(lectura.datos)
-      setPreview(lectura.preview)
-      setE(estadoVacio())
-      setConfig((c) => c.filter((x) => lectura.datos.pocillos[x.Pocillo]))
-      avisar(`Archivo cargado: ${Object.keys(lectura.datos.pocillos).length} pocillos, ${lectura.datos.tiempos.length} mediciones.`)
-    } catch (e) {
-      avisar(`${file.name}: ${e.message}`, 'error')
-    }
-  }
-  const cambiarHoja = async (hoja) => {
-    if (!fileRef.current) return avisar('Para cambiar de hoja hay que volver a cargar el archivo.', 'error')
-    try {
-      const l = await leerArchivo(fileRef.current, hoja)
-      setArchivo((a) => ({ ...a, hoja }))
-      setDatos(l.datos); setPreview(l.preview); setE(estadoVacio())
-      setConfig((c) => c.filter((x) => l.datos.pocillos[x.Pocillo]))
-    } catch (e) { avisar(e.message, 'error') }
-  }
-
-  const aplicarLayout = (cfgCrudo) => {
-    if (!datos) return avisar('Primero cargá el archivo del lector.', 'error')
-    const cfg = cfgCrudo.filter((c) => datos.pocillos[c.Pocillo]).map((c) => ({ ...c }))
-    const omitidos = cfgCrudo.length - cfg.length
-    setConfig(cfg)
-    setE(estadoVacio())
-    setMuestras((m) => [...new Set([...m, ...cfg.map((c) => c.Muestra)])])
-    avisar(`Layout importado: ${cfg.length} pocillos.${omitidos ? ` Sin datos en el archivo: ${omitidos}.` : ''}`, omitidos ? 'error' : 'ok')
-  }
-
+  const usosDe = (e, m) => e.config.filter((c) => c.Muestra === m).length + e.ufc.layout.filter((c) => c.Muestra === m).length
+    + e.ufc.tabla.filas.filter((f) => f.muestra === m).length + e.manual.filas.filter((f) => f.muestra === m).length
   const borrarMuestra = (m) => {
-    const n = config.filter((c) => c.Muestra === m).length
-    if (n > 0 && !window.confirm(`La muestra '${m}' está asignada a ${n} pocillo(s). Si la borrás, esos pocillos quedan sin asignar. ¿Continuar?`)) return
+    const n = exps.reduce((t, e) => t + usosDe(e, m), 0)
+    if (n > 0 && !window.confirm(`La muestra '${m}' se usa en ${n} lugar(es) (pocillos y filas de tablas). Si la borrás, esos pocillos y filas se quitan. ¿Continuar?`)) return
     setMuestras(muestras.filter((x) => x !== m))
-    setConfig(config.filter((c) => c.Muestra !== m))
+    setExps((es) => es.map((e) => {
+      const man = { ...e.manual, filas: e.manual.filas.filter((f) => f.muestra !== m) }
+      const r = man.filas.length !== e.manual.filas.length ? manualADatos(man) : null
+      return {
+        ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}),
+        ufc: { ...e.ufc, layout: e.ufc.layout.filter((c) => c.Muestra !== m), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) } },
+      }
+    }))
   }
-  const renombrarMuestra = (viejo, nuevo) => {
-    if (!nuevo) return avisar('El nombre no puede estar vacío.', 'error')
-    if (muestras.some((m) => m !== viejo && m.toLowerCase() === nuevo.toLowerCase())) return avisar(`Ya existe una muestra llamada '${nuevo}'.`, 'error')
-    setMuestras(muestras.map((m) => (m === viejo ? nuevo : m)))
-    setConfig(config.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevo } : c)))
-    setSelMuestras((x) => (x ? x.map((m) => (m === viejo ? nuevo : m)) : x))
-    setSelReps((x) => (x[viejo] ? { ...Object.fromEntries(Object.entries(x).filter(([k]) => k !== viejo)), [nuevo]: x[viejo] } : x))
+  const renombrarMuestra = (viejo, nuevoNombre) => {
+    if (!nuevoNombre) return avisar('El nombre no puede estar vacío.', 'error')
+    if (muestras.some((m) => m !== viejo && m.toLowerCase() === nuevoNombre.toLowerCase())) return avisar(`Ya existe una muestra llamada '${nuevoNombre}'.`, 'error')
+    setMuestras(muestras.map((m) => (m === viejo ? nuevoNombre : m)))
+    setExps((es) => es.map((e) => {
+      const man = { ...e.manual, filas: e.manual.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) }
+      const r = e.manual.filas.some((f) => f.muestra === viejo) ? manualADatos(man) : null
+      return {
+        ...e,
+        config: r ? r.config : e.config.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)), manual: man, ...(r ? { datos: r.datos } : {}),
+        ufc: {
+          ...e.ufc, layout: e.ufc.layout.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)),
+          tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) },
+        },
+        selMuestras: e.selMuestras ? e.selMuestras.map((m) => (m === viejo ? nuevoNombre : m)) : e.selMuestras,
+        selReps: e.selReps[viejo] ? { ...Object.fromEntries(Object.entries(e.selReps).filter(([k]) => k !== viejo)), [nuevoNombre]: e.selReps[viejo] } : e.selReps,
+      }
+    }))
   }
 
   // Exclusión de puntos y pocillos
@@ -247,7 +483,6 @@ export default function App() {
   const reincorporarPuntos = (ks) => setE((e) => ({ ...e, puntosExcl: e.puntosExcl.filter((k) => !ks.includes(k)) }))
   const reincorporarTodosPuntos = () => setE((e) => ({ ...e, puntosExcl: [], forzados: [] }))
 
-  // Ventanas manuales de μmax
   const aplicarVentana = (claves, rango) => setE((e) => {
     const v = { ...e.ventanas }
     claves.forEach((c) => { v[c] = [rango[0], rango[1]] })
@@ -261,47 +496,93 @@ export default function App() {
   })
 
   // Sesión
-  const exportarSesion = () => ({ version: 1, tipo: 'curvas-crecimiento', fecha: new Date().toISOString(), archivo, datos, preview, muestras, config, E, aj, blancosSel, selMuestras: selMuestrasRaw, selReps, estilo, ejes, opts })
+  const exportarSesion = () => ({ version: 2, tipo: 'curvas-de-crecimiento', fecha: new Date().toISOString(), exps, activeId: a?.id || null, muestras, aj, estilo, ejes, opts })
   const importarSesion = (x) => {
-    if (!x?.datos || !x?.config) throw new Error('inválida')
+    if (!Array.isArray(x?.exps)) throw new Error('inválida')
     aplicarGuardado(x)
   }
   const onVista = useCallback((id, v) => { vistas.current[id] = v }, [])
 
   const s = {
-    archivo, datos, preview, tieneArchivo: !!fileRef.current, cargarArchivo, cambiarHoja,
-    muestras, setMuestras, muestrasCfg, config, setConfig, colores, aplicarLayout, borrarMuestra, renombrarMuestra,
+    // experimentos
+    exps, a, setActiva: setActiveId, cargarArchivos, agregarLecturas, setLectura, quitarLectura, setManual, quitarExp, renombrarExp, reordenarExps, copiarConfig,
+    tieneArchivo: !!(a && archivosRef.current[a.id]), cambiarHoja, aplicarLayout, copiarLayoutDe, setModo, setOrigenOd, setCond, irA: setTab,
+    // experimento activo (así las pestañas de curvas funcionan igual que en la app de una sola placa)
+    archivo: a?.archivo || null, datos, preview: a?.preview || null,
+    muestras, setMuestras, muestrasCfg, config, setConfig, colores, coloresGlobal, todasMuestras, borrarMuestra, renombrarMuestra,
     E, aj, setAj, opts, setOpt, estilo, setEstilo, ejes, setEjes,
-    blancosSel, setBlancosSel, selMuestras, setSelMuestras, replicasSel, setRepsDe, seleccion,
-    pre, res, modelosRes, setModelosRes, onVista, avisar,
+    blancosSel, setBlancosSel: (b) => updA({ blancosSel: b }),
+    selMuestras, setSelMuestras: (x) => updA({ selMuestras: x }), replicasSel,
+    setRepsDe: (m, arr) => updA((e) => ({ selReps: { ...e.selReps, [m]: arr } })),
+    seleccion, pre, res, modelosRes, setModelosRes, onVista, avisar,
     alternarPunto, excluirPocillos, reincorporarPocillos, alternarPocilloCompleto, reincorporarPocillo, excluirRango,
     reincorporarPuntos, reincorporarTodosPuntos, aplicarVentana, quitarVentanas,
+    // UFC
+    ufc, setUfc, ufcRes, stock, curvaExp,
     exportarSesion, importarSesion,
   }
 
-  const Vista = { archivo: ArchivoTab, placa: PlacaTab, preproc: PreprocTab, grafico: GraficoTab, analisis: AnalisisTab, datos: DatosTab, metodos: MetodosTab }[tab]
+  const Vista = { experimento: ExperimentoTab, placa: PlacaTab, odmanual: OdManualTab, preproc: PreprocTab, grafico: GraficoTab, analisis: AnalisisTab, conteo: ConteoTab, calibracion: CalibracionTab, comparar: CompararTab, datos: DatosTab, metodos: MetodosTab }[tabAct]
+
+  const cargarSesionArchivo = async (file) => {
+    try { importarSesion(JSON.parse(await file.text())); avisar('Sesión cargada.') } catch { avisar('No se pudo leer la sesión.', 'error') }
+  }
 
   return (
     <div className="app">
       <nav className="barra">
         <div className="marca">
           <div className="logo"><LogoCurva /></div>
-          <div><b>Curvas de crecimiento</b><small>Placa de 96 pocillos</small></div>
+          <div><b>Curvas de crecimiento</b><small>Por OD, por conteo o ambos</small></div>
         </div>
-        {PESTANAS.map(([id, t, d], i) => (
-          <button key={id} className={`nav ${tab === id ? 'activa' : ''}`} onClick={() => setTab(id)}>
+        {tabs.map((id, i) => (
+          <button key={id} className={`nav ${tabAct === id ? 'activa' : ''}`} onClick={() => setTab(id)}>
             <span className="num">{i + 1}</span>
-            <span><b>{t}</b><small>{d}</small></span>
+            <span><b>{PESTANAS[id][0]}</b><small>{PESTANAS[id][1]}</small></span>
           </button>
         ))}
         <div className="pie-nav">
           {res?.length > 0 && <div className="chip-odc">{res.length} curvas analizadas</div>}
-          <small>{archivo ? archivo.nombre : 'Sin archivo'}</small>
+          <small>{a ? `${a.nombre} · ${MODOS[a.modo].titulo}` : 'Sin experimentos'}</small>
         </div>
       </nav>
       <main className="contenido">
-        <Vista s={s} />
+        {exps.length > 0 && (
+          <div className="barra-placas">
+            {exps.map((p) => (
+              <div key={p.id} role="tab" tabIndex={0} aria-selected={p.id === a?.id}
+                className={`chip-placa ${p.id === a?.id ? 'activa' : ''} ${arrastrandoSobre === p.id ? 'sobre' : ''}`}
+                draggable
+                onDragStart={(e) => { arrastrada.current = p.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }}
+                onDragOver={(e) => { if (arrastrada.current) { e.preventDefault(); setArrastrandoSobre(p.id) } }}
+                onDragLeave={() => setArrastrandoSobre((v) => (v === p.id ? null : v))}
+                onDrop={(e) => { e.preventDefault(); if (arrastrada.current) reordenarExps(arrastrada.current, p.id); arrastrada.current = null; setArrastrandoSobre(null) }}
+                onDragEnd={() => { arrastrada.current = null; setArrastrandoSobre(null) }}
+                onClick={() => setActiveId(p.id)} title="Clic para ver este experimento · arrastrá para cambiar el orden · doble clic para renombrar"
+                onDoubleClick={() => { const n = window.prompt('Nombre del experimento', p.nombre); if (n !== null) renombrarExp(p.id, n.trim()) }}>
+                <i className="punto-placa" style={{ background: '#d9731f' }} />
+                <span className="nombre-placa">{p.nombre}</span>
+                <small className="sin-datos-placa">{MODOS[p.modo].titulo}</small>
+                <button className="x-placa" aria-label={`Quitar ${p.nombre}`} onClick={(e) => { e.stopPropagation(); quitarExp(p.id) }}>×</button>
+              </div>
+            ))}
+            <button className="agregar-placa" onClick={() => setNuevo(true)}>+ Nuevo experimento</button>
+            <button className="agregar-placa" onClick={() => inputExps.current.click()}>+ Excel del lector</button>
+            <input ref={inputExps} type="file" multiple hidden accept={ACEPTA_LIBRO}
+              onChange={(e) => { cargarArchivos(e.target.files); e.target.value = '' }} />
+          </div>
+        )}
+        {a ? <Vista s={s} /> : !pendiente && (
+          <div className="pagina">
+            <Elegir onCrear={crearExperimento} nombreSugerido="" />
+            <p className="ayuda" style={{ textAlign: 'center' }}>
+              ¿Tenés una sesión guardada? <button className="chico" onClick={() => inputSesion.current.click()}>Cargar sesión</button>
+              <input ref={inputSesion} type="file" hidden accept=".json" onChange={(e) => { e.target.files[0] && cargarSesionArchivo(e.target.files[0]); e.target.value = '' }} />
+            </p>
+          </div>
+        )}
       </main>
+      {nuevo && <NuevoExperimentoModal onCrear={crearExperimento} onClose={() => setNuevo(false)} nombreSugerido="" />}
       {pendiente && (
         <Modal titulo="Encontré trabajo anterior" ancho={540}
           pie={<>
@@ -313,12 +594,14 @@ export default function App() {
             {g.fecha ? <> del <b>{new Date(g.fecha).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}</b></> : ''}:
           </p>
           <ul className="resumen-guardado">
-            <li><b>{g.archivo?.nombre || 'Sin archivo'}</b> <small>{g.datos ? `${Object.keys(g.datos.pocillos).length} pocillos` : 'sin datos'} · {g.config?.length || 0} configurados</small></li>
+            {g.exps.map((p) => (
+              <li key={p.id}><b>{p.nombre}</b> <small>{p.datos ? `${Object.keys(p.datos.pocillos).length} curvas de OD` : 'sin OD'} · {p.config?.length || 0} configuradas · {Object.values(p.ufc?.conteos || {}).reduce((n, o) => n + Object.keys(o).length, 0) + (p.ufc?.tabla?.filas?.length || 0)} conteos de UFC</small></li>
+            ))}
           </ul>
           <p className="ayuda">«Continuar con lo anterior» recupera todo tal como lo dejaste. «Empezar de cero» borra ese trabajo guardado del navegador y arranca vacío (si querés conservarlo antes, cargá un archivo de sesión que hayas descargado).</p>
         </Modal>
       )}
-      <div className="toasts">{avisos.map((a) => <div key={a.id} className={`toast ${a.tipo}`}>{a.texto}</div>)}</div>
+      <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
     </div>
   )
 }

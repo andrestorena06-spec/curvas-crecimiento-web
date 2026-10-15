@@ -81,7 +81,7 @@ export function PlacaTab({ s }) {
   }
   const quitar = () => { s.setConfig(s.config.filter((c) => !sel.includes(c.Pocillo))); setSel(null) }
 
-  if (!s.datos) return <Vacio texto="Primero cargá el archivo del lector en la pestaña Archivo." />
+  if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
 
   const resumen = [...new Set(s.config.map((c) => c.Muestra))].map((m) => {
     const g = s.config.filter((c) => c.Muestra === m)
@@ -148,7 +148,7 @@ export function PlacaTab({ s }) {
             {sel.some(cfgDe) && <button className="peligro" onClick={quitar}>Quitar</button>}
             <button className="primario" onClick={guardar}>Guardar</button></>}>
           <div onKeyDown={(e) => {
-            // Enter: guarda la muestra elegida y cierra la ventana (tambiÃ©n estando sobre una opciÃ³n de la lista o una casilla)
+            // Enter: guarda la muestra elegida y cierra la ventana (también estando sobre una opción de la lista o una casilla)
             if (e.key !== 'Enter' || e.nativeEvent.isComposing) return
             const t = e.target
             if (t.tagName === 'BUTTON' && t.getAttribute('role') !== 'option') return
@@ -200,7 +200,7 @@ export function PlacaTab({ s }) {
             <span>Definir como blanco{blanco === null && <small>Mixto: algunos pocillos son blanco y otros no. Si no lo cambiás, cada uno conserva su estado.</small>}</span>
           </label>}
           {!s.sinReplicas && <p className="ayuda">{sel.length > 1 ? 'A cada pocillo se le asigna un número de réplica automático, en orden por filas.' : 'La réplica se asigna sola según cuántas veces uses esta muestra.'}</p>}
-          <p className="ayuda">ElegÃ­ la muestra de la lista (o escribila) y apretÃ¡ <b>Enter</b>: se guarda y se cierra la ventana.</p>
+          <p className="ayuda">Elegí la muestra de la lista (o escribila) y apretá <b>Enter</b>: se guarda y se cierra la ventana.</p>
           </div>
         </Modal>
       )}
