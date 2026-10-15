@@ -15,8 +15,10 @@ export const ORIGENES_OD = {
 }
 
 export const condDef = () => ({
-  organismo: '', medio: '', temperatura: '', equipo: '', lambda: 600, fecha: '', notas: '', origenOdMuestra: 'misma',
+  organismo: '', medio: '', temperatura: '', agitacion: '', rpm: '', equipo: '', lambda: 600, fecha: '', notas: '', origenOdMuestra: 'misma',
 })
+
+export const textoAgitacion = (c) => (c.agitacion === 'si' ? `Con agitación${c.rpm ? ` (${c.rpm} rpm)` : ''}` : c.agitacion === 'no' ? 'Sin agitación' : '')
 
 export const hayOd = (e) => !!e && e.modo !== 'conteo'
 export const hayConteo = (e) => !!e && e.modo !== 'od'
@@ -38,11 +40,21 @@ const reviveDatos = (d) => (d && d.tiempos && d.pocillos ? {
   pocillos: Object.fromEntries(Object.entries(d.pocillos).map(([k, v]) => [k, v.map((x) => (x === null ? NaN : x))])),
 } : null)
 
+// sesiones sin cepas elegidas: las que ya se usan en el experimento (o las del campo «organismo» de versiones viejas)
+function cepasUsadas(x) {
+  const st = new Set(x.cond?.organismo ? String(x.cond.organismo).split(/[,;]+/).map((v) => v.trim()).filter(Boolean) : [])
+  ;(x.config || []).forEach((c) => c.Muestra && !c.EsBlanco && st.add(c.Muestra))
+  ;(x.ufc?.placasG || []).forEach((p) => Object.values(p.filas || {}).forEach((f) => f?.muestra && st.add(f.muestra)))
+  ;(x.ufc?.tabla?.filas || []).forEach((f) => f.muestra && st.add(f.muestra))
+  ;(x.manual?.filas || []).forEach((f) => f.muestra && st.add(f.muestra))
+  return [...st]
+}
+
 export const normExp = (x) => ({
   ...expVacio(x.nombre || 'Experimento', x.modo || (x.datos ? 'od' : 'conteo'), x.origenOd || 'tecan'), ...x,
   cond: { ...condDef(), ...(x.cond || {}) },
   datos: reviveDatos(x.datos), E: { ...estadoVacio(), ...(x.E || {}) }, config: x.config || [], selReps: x.selReps || {},
-  cepas: Array.isArray(x.cepas) && x.cepas.length ? x.cepas : (x.cond?.organismo ? String(x.cond.organismo).split(/[,;]+/).map((v) => v.trim()).filter(Boolean) : []), disenoOd: normalizarDisenoOd(x.disenoOd),
+  cepas: Array.isArray(x.cepas) && x.cepas.length ? x.cepas : cepasUsadas(x), disenoOd: normalizarDisenoOd(x.disenoOd),
   lecturas: Array.isArray(x.lecturas) ? x.lecturas : [], manual: normalizarManual(x.manual), ufc: normalizarUfc(x.ufc),
 })
 export const expsDe = (g) => (Array.isArray(g.exps) ? g.exps.map(normExp) : [])

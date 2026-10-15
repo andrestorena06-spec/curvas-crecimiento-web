@@ -6,7 +6,7 @@ import { desvio, finito, media } from '../motor/analisis.js'
 import { opAnalisis } from '../motor/pipeline.js'
 import { crecimientoUfc, hayConteos, lineasPetri } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
-import { MODOS, ORIGENES_OD } from '../experimento.js'
+import { MODOS, ORIGENES_OD, textoAgitacion } from '../experimento.js'
 import { abrirInforme } from './informe.jsx'
 import { aCSV, descargarBlob, descargarTexto, tCuantil } from '../utils.js'
 import { excelDe } from '../excel.js'
@@ -88,7 +88,7 @@ async function excelCompleto(s) {
     hojas.push({ nombre: 'Condiciones', columnas: ['Campo', 'Valor'], filas: [
       { Campo: 'Experimento', Valor: s.a.nombre }, { Campo: 'Tipo', Valor: MODOS[s.a.modo].titulo },
       ...(s.a.modo !== 'conteo' ? [{ Campo: 'Origen de la OD', Valor: ORIGENES_OD[s.a.origenOd].titulo }] : []),
-      { Campo: 'Cepas y especies', Valor: s.a.cepas.join(', ') }, { Campo: 'Medio de cultivo', Valor: c.medio }, { Campo: 'Temperatura (°C)', Valor: c.temperatura },
+      { Campo: 'Cepas y especies', Valor: s.a.cepas.join(', ') }, { Campo: 'Medio de cultivo', Valor: c.medio }, { Campo: 'Temperatura (°C)', Valor: c.temperatura }, { Campo: 'Agitación', Valor: textoAgitacion(c) },
       ...(s.a.modo !== 'conteo' ? [{ Campo: 'Equipo de OD', Valor: c.equipo }, { Campo: 'Longitud de onda (nm)', Valor: String(c.lambda) }] : []),
       { Campo: 'Fecha', Valor: c.fecha }, { Campo: 'Notas', Valor: c.notas }] })
   }

@@ -80,31 +80,82 @@ export function datosDeLecturas(lecturas) {
 }
 
 // ------------------------------------------------------------
-// Placa de OD única: cada COLUMNA es un tiempo (t0 en la 1, t2 en la 2…) y cada FILA una réplica de una cepa.
-// Se convierte en curvas: una por fila, con la OD de cada columna que tenga tiempo asignado.
+// Placa de OD única: cada COLUMNA es un tiempo (t0 en la 1, t2 en la 2…). Cada POCILLO tiene su cepa (o es blanco),
+// así una fila puede tener dos cepas o el blanco puede ir en cualquier lugar de la placa.
+// Una curva = los pocillos de una misma fila con la misma cepa (y el mismo estado de blanco).
+// pocillos: { A1: { muestra, blanco, todos?, t? } }: t (h) opcional reemplaza el tiempo de la columna;
+//   todos: el blanco se aplica a todos los tiempos (su OD promedio se resta en cada tiempo).
 // ------------------------------------------------------------
-export const disenoOdDef = () => ({ tiempos: Object.fromEntries([0, 2, 4, 6, 8, 10, 12].map((t, i) => [i + 1, t])), filas: {} })
-export const normalizarDisenoOd = (d) => ({ ...disenoOdDef(), ...(d || {}), tiempos: d?.tiempos || disenoOdDef().tiempos, filas: d?.filas || {} })
+export const disenoOdDef = () => ({ tiempos: Object.fromEntries([0, 2, 4, 6, 8, 10, 12].map((t, i) => [i + 1, t])), pocillos: {} })
+export function normalizarDisenoOd(d) {
+  const base = { ...disenoOdDef(), ...(d || {}), tiempos: d?.tiempos || disenoOdDef().tiempos }
+  let pocillos = d?.pocillos && typeof d.pocillos === 'object' ? d.pocillos : null
+  if (!pocillos) {
+    // sesiones anteriores: una cepa por fila
+    pocillos = {}
+    Object.entries(d?.filas || {}).forEach(([L, f]) => {
+      if (f?.muestra) for (let c = 1; c <= 12; c++) pocillos[L + c] = { muestra: f.muestra, blanco: !!f.blanco }
+    })
+  }
+  const { filas, ...resto } = base
+  return { ...resto, pocillos }
+}
+
+// Orden de las filas al asignar cepas: 'agrupado' (A B C | A B C → L100 L100 SCV SCV) o 'alternado' (L100 SCV L100 SCV);
+// `espacio` filas vacías entre una fila ocupada y la siguiente. Devuelve [{ muestra, rep }] (null = fila vacía), sin límite de largo.
+export function ordenFilas(cepas, reps, orden = 'agrupado', espacio = 0) {
+  const n = Math.max(1, Number(reps) || 1)
+  const seq = []
+  if (orden === 'alternado') { for (let r = 1; r <= n; r++) cepas.forEach((m) => seq.push({ muestra: m, rep: r })) }
+  else cepas.forEach((m) => { for (let r = 1; r <= n; r++) seq.push({ muestra: m, rep: r }) })
+  const out = []
+  seq.forEach((x, i) => { if (i > 0) for (let k = 0; k < Math.max(0, Number(espacio) || 0); k++) out.push(null); out.push(x) })
+  return out
+}
+
+export const tiempoDeCol = (d, c) => {
+  const t = d.tiempos[c]
+  return t !== '' && t !== null && t !== undefined && finito(Number(t)) ? Number(t) : NaN
+}
+export const tiempoDePocillo = (d, p) => {
+  const w = d.pocillos[p]
+  if (w && w.t !== undefined && w.t !== '' && finito(Number(w.t))) return Number(w.t)
+  return tiempoDeCol(d, Number(p.slice(1)))
+}
 
 export function placaADatos(lectura, d) {
   if (!lectura || !lectura.datos?.length) return { datos: null, config: [] }
-  const cols = Object.entries(d.tiempos).filter(([, t]) => t !== '' && t !== null && finito(Number(t))).map(([c, t]) => [Number(c), Number(t)]).sort((a, b) => a[1] - b[1])
-  const filas = LETRAS.filter((L) => d.filas[L]?.muestra)
-  if (!cols.length || !filas.length) return { datos: null, config: [] }
-  const tiempos = [...new Set(cols.map(([, t]) => Math.round(t * 3600 * 1000) / 1000))]
   const val = {}
   lectura.datos.forEach((x) => { val[x.Pocillo] = x.OD })
+  // curvas: fila + cepa + blanco
+  const grupos = new Map()
+  for (const L of LETRAS) for (let c = 1; c <= 12; c++) {
+    const p = L + c
+    const w = d.pocillos[p]
+    if (!w?.muestra) continue
+    const t = tiempoDePocillo(d, p)
+    // un blanco puede estar en una columna sin tiempo (por ejemplo, al final de la placa)
+    if (!finito(t) && !w.blanco) continue
+    const k = `${L}|${w.muestra}|${w.blanco ? 1 : 0}`
+    if (!grupos.has(k)) grupos.set(k, { L, c, muestra: w.muestra, blanco: !!w.blanco, todos: false, pts: [] })
+    if (w.blanco && w.todos) grupos.get(k).todos = true
+    grupos.get(k).pts.push([finito(t) ? Math.round(t * 3600 * 1000) / 1000 : NaN, val[p]])
+  }
+  const tiempos = [...new Set([...grupos.values()].flatMap((g) => g.pts.map(([ts]) => ts)).filter(finito))].sort((a, b) => a - b)
+  if (!tiempos.length) return { datos: null, config: [] }
   const pocillos = {}, config = []
   const cuenta = {}
-  filas.forEach((L) => {
-    const f = d.filas[L]
-    pocillos[L + '1'] = tiempos.map((ts) => {
-      const c = cols.find(([, t]) => Math.round(t * 3600 * 1000) / 1000 === ts)
-      const v = c ? val[L + c[0]] : NaN
-      return finito(v) ? v : NaN
+  grupos.forEach((g) => {
+    const clave = g.L + g.c   // primer pocillo de la curva
+    const prom = (v) => (v.length ? v.reduce((a, b) => a + b, 0) / v.length : NaN)
+    // en los blancos, los tiempos sin lectura toman el promedio de sus pocillos (el blanco se resta en cada tiempo)
+    const resto = g.blanco ? prom(g.pts.filter(([, y]) => finito(y)).map(([, y]) => y)) : NaN
+    pocillos[clave] = tiempos.map((ts) => {
+      const v = prom(g.pts.filter(([x, y]) => x === ts && finito(y)).map(([, y]) => y))
+      return finito(v) && !g.todos ? v : resto
     })
-    cuenta[f.muestra] = (cuenta[f.muestra] || 0) + 1
-    config.push({ Pocillo: L + '1', Muestra: f.muestra, Replica: cuenta[f.muestra], EsBlanco: !!f.blanco, Fila: L })
+    cuenta[g.muestra] = (cuenta[g.muestra] || 0) + 1
+    config.push({ Pocillo: clave, Muestra: g.muestra, Replica: cuenta[g.muestra], EsBlanco: g.blanco, Fila: g.L })
   })
   return { datos: { tiempos, pocillos }, config }
 }

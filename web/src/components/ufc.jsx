@@ -9,7 +9,7 @@ import { estiloCurvaDefecto, ejesDefecto } from './estilo.jsx'
 import { signif } from '../ayuda.js'
 import { finito } from '../motor/analisis.js'
 import { hojasDe, LETRAS, leerCrudo } from '../motor/lectura.js'
-import { crecimientoUfc, estimarUfc, leerPlantillaUfc, leerTablaConteos, placasDeGrilla, textoEstado } from '../motor/ufc.js'
+import { crecimientoUfc, estimarUfc, leerPlantillaUfc, leerTablaConteos, lineasPetri, placasDeGrilla, textoEstado } from '../motor/ufc.js'
 import { nuevoId } from '../experimento.js'
 import { PetriDiseno } from './petri.jsx'
 import { Nota } from './tip.jsx'
@@ -324,7 +324,8 @@ export function ConteoTab({ s }) {
 
   const metodo = ufc.metodo
   const SUBS = metodo === 'extendida'
-    ? [['petri', 'Diseño de placa'], ['placas', 'Tabla'], ['res', 'Resultados']]
+    // la siembra extendida cubre toda la placa: no lleva diseño (solo se muestra si una sesión anterior tiene sectores cargados)
+    ? [...(lineasPetri(ufc).length ? [['petri', 'Sectores (sesión anterior)']] : []), ['placas', 'Tabla'], ['res', 'Resultados']]
     : [['dist', 'Diseño de placa'], ['gotas', 'Conteos'], ['res', 'Resultados']]
   const sub0 = SUBS.some(([id]) => id === o.sub) ? o.sub : SUBS[0][0]
   const sub = sub0 === 'gotas' && !ufc.placasG.length ? 'dist' : sub0
