@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { descargarBlob } from '../utils.js'
+import { useEffect, useState } from 'react'
 
 export function Modal({ titulo, children, pie, onClose, ancho = 520 }) {
   useEffect(() => {
@@ -76,57 +75,4 @@ export function MenuContextual({ menu, items }) {
   )
 }
 
-// ---------------------------------------------------------------
-// Ventana de estilo de texto: cada texto del gráfico se configura por separado
-// ---------------------------------------------------------------
-function BloqueEstilo({ titulo, v, onChange, conTexto, placeholder }) {
-  const set = (k, x) => onChange({ ...v, [k]: x })
-  const deco = [v.underline && 'underline', v.strike && 'line-through'].filter(Boolean).join(' ')
-  return (
-    <div className="bloque-estilo">
-      <h4>{titulo}</h4>
-      {conTexto && (
-        <Campo label="Texto">
-          <input value={v.texto || ''} placeholder={placeholder} onChange={(e) => set('texto', e.target.value)} />
-        </Campo>
-      )}
-      <div className="fila-ctrl">
-        <Campo label="Tamaño (px)">
-          <input type="number" min="6" max="60" value={v.size} onChange={(e) => set('size', Number(e.target.value) || 12)} />
-        </Campo>
-        <Campo label="Color">
-          <input type="color" value={v.color} onChange={(e) => set('color', e.target.value)} />
-        </Campo>
-        <Campo label="Estilo">
-          <div className="seg">
-            <button title="Negrita" className={v.bold ? 'on' : ''} onClick={() => set('bold', !v.bold)}><b>N</b></button>
-            <button title="Cursiva" className={v.italic ? 'on' : ''} onClick={() => set('italic', !v.italic)}><i>C</i></button>
-            <button title="Subrayado" className={v.underline ? 'on' : ''} onClick={() => set('underline', !v.underline)}><u>S</u></button>
-            <button title="Tachado" className={v.strike ? 'on' : ''} onClick={() => set('strike', !v.strike)}><s>T</s></button>
-          </div>
-        </Campo>
-        <div className="muestra-estilo" style={{ fontSize: Math.min(v.size, 26), color: v.color, textDecoration: deco || 'none',
-          fontWeight: v.bold ? 700 : 400, fontStyle: v.italic ? 'italic' : 'normal' }}>Abc 0.123</div>
-      </div>
-    </div>
-  )
-}
-
-export function EstiloDialog({ estilo, conClases, ejeDefecto, onGuardar, onClose }) {
-  const [e, setE] = useState(estilo)
-  const up = (k) => (v) => setE({ ...e, [k]: v })
-  return (
-    <Modal titulo="Estilo de texto del gráfico" onClose={onClose} ancho={620}
-      pie={<><button onClick={onClose}>Cancelar</button><button className="primario" onClick={() => onGuardar(e)}>Aplicar</button></>}>
-      <p className="ayuda">Cada texto tiene su propio formato. Si dejás el texto vacío se usa el automático.</p>
-      <BloqueEstilo titulo="Título del gráfico" v={e.titulo} onChange={up('titulo')} conTexto placeholder="(sin título)" />
-      <BloqueEstilo titulo="Leyenda del eje Y" v={e.leyendaY} onChange={up('leyendaY')} conTexto placeholder={ejeDefecto} />
-      <BloqueEstilo titulo="Leyenda del eje X" v={e.leyendaX} onChange={up('leyendaX')} conTexto placeholder="(sin leyenda)" />
-      <BloqueEstilo titulo="Etiquetas del eje X (nombres de las muestras)" v={e.nombresX} onChange={up('nombresX')} />
-      <BloqueEstilo titulo="Números del eje Y" v={e.numerosY} onChange={up('numerosY')} />
-      <BloqueEstilo titulo="Valor medio (y error) sobre cada muestra" v={e.valores} onChange={up('valores')} />
-      {conClases && <BloqueEstilo titulo="Marcaciones de clasificación" v={e.clases} onChange={up('clases')} />}
-    </Modal>
-  )
-}
 

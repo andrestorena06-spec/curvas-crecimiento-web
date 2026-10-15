@@ -4,10 +4,6 @@
 // ============================================================
 import { finito } from './analisis.js'
 
-export const MODELOS = {
-  gompertz: 'Gompertz modificado', logistico: 'Logístico', richards: 'Richards', baranyi: 'Baranyi-Roberts',
-}
-
 // y = ln(OD) para Baranyi con nu = mumax
 export function baranyiF(x, y0, ymax, mu, h0) {
   const a = x + Math.log(Math.exp(-mu * x) + Math.exp(-h0) - Math.exp(-mu * x - h0)) / mu
