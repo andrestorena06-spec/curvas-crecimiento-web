@@ -490,3 +490,6 @@ input[type=date] { width: 100%; padding: 7px 10px; border: 1px solid #ecdcc2; bo
 .leyenda-ufc i { width: 13px; height: 13px; border-radius: 4px; display: inline-block; border: 1px solid rgba(0, 0, 0, .12); }
 .grilla-conteo th small { font-size: 12px !important; }
 .valor-calculado small { font-size: 15px; }
+button.chip-cepa { cursor: pointer; background: transparent; }
+button.chip-cepa:hover { filter: brightness(.97); }
+button.chip-cepa:not(.on) { color: #8a7765; font-weight: 500; }

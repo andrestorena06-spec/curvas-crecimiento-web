@@ -88,7 +88,7 @@ async function excelCompleto(s) {
     hojas.push({ nombre: 'Condiciones', columnas: ['Campo', 'Valor'], filas: [
       { Campo: 'Experimento', Valor: s.a.nombre }, { Campo: 'Tipo', Valor: MODOS[s.a.modo].titulo },
       ...(s.a.modo !== 'conteo' ? [{ Campo: 'Origen de la OD', Valor: ORIGENES_OD[s.a.origenOd].titulo }] : []),
-      { Campo: 'Organismo / cepa', Valor: c.organismo }, { Campo: 'Medio de cultivo', Valor: c.medio }, { Campo: 'Temperatura (°C)', Valor: c.temperatura },
+      { Campo: 'Cepas y especies', Valor: s.a.cepas.join(', ') }, { Campo: 'Medio de cultivo', Valor: c.medio }, { Campo: 'Temperatura (°C)', Valor: c.temperatura },
       ...(s.a.modo !== 'conteo' ? [{ Campo: 'Equipo de OD', Valor: c.equipo }, { Campo: 'Longitud de onda (nm)', Valor: String(c.lambda) }] : []),
       { Campo: 'Fecha', Valor: c.fecha }, { Campo: 'Notas', Valor: c.notas }] })
   }

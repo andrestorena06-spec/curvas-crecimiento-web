@@ -42,7 +42,7 @@ export const normExp = (x) => ({
   ...expVacio(x.nombre || 'Experimento', x.modo || (x.datos ? 'od' : 'conteo'), x.origenOd || 'tecan'), ...x,
   cond: { ...condDef(), ...(x.cond || {}) },
   datos: reviveDatos(x.datos), E: { ...estadoVacio(), ...(x.E || {}) }, config: x.config || [], selReps: x.selReps || {},
-  cepas: Array.isArray(x.cepas) ? x.cepas : [], disenoOd: normalizarDisenoOd(x.disenoOd),
+  cepas: Array.isArray(x.cepas) && x.cepas.length ? x.cepas : (x.cond?.organismo ? String(x.cond.organismo).split(/[,;]+/).map((v) => v.trim()).filter(Boolean) : []), disenoOd: normalizarDisenoOd(x.disenoOd),
   lecturas: Array.isArray(x.lecturas) ? x.lecturas : [], manual: normalizarManual(x.manual), ufc: normalizarUfc(x.ufc),
 })
 export const expsDe = (g) => (Array.isArray(g.exps) ? g.exps.map(normExp) : [])

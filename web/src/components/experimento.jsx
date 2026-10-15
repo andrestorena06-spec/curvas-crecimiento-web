@@ -106,23 +106,36 @@ export function ExperimentoTab({ s }) {
               <Select value={a.origenOd} onChange={(v) => s.setOrigenOd(v)} opciones={Object.entries(ORIGENES_OD).map(([id, m]) => [id, m.titulo])} />
             </Campo>
           )}
-          <Campo label="Organismo / especie"><input value={cond.organismo} onChange={(e) => setC('organismo', e.target.value)} placeholder="Ej.: S. aureus" /></Campo>
           <Campo label="Medio de cultivo"><input value={cond.medio} onChange={(e) => setC('medio', e.target.value)} placeholder="BHI, TSB, LB…" list="medios-sugeridos" /></Campo>
           <Campo label="Temperatura (°C)"><input value={cond.temperatura} onChange={(e) => setC('temperatura', e.target.value)} placeholder="37" /></Campo>
-          {conOd && <Campo label="Equipo de OD"><input value={cond.equipo} onChange={(e) => setC('equipo', e.target.value)} placeholder="Tecan Sunrise, espectrofotómetro…" /></Campo>}
+          {conOd && (
+            <Campo label="Equipo de OD">
+              <select value={cond.equipo} onChange={(e) => setC('equipo', e.target.value)}>
+                <option value="">Elegí…</option>
+                <option value="Espectrofotómetro UV-Vis">Espectrofotómetro UV-Vis</option>
+                <option value="Tecan">Tecan</option>
+                <option value="Lector de placas">Lector de placas</option>
+                {cond.equipo && !['Espectrofotómetro UV-Vis', 'Tecan', 'Lector de placas'].includes(cond.equipo) && <option value={cond.equipo}>{cond.equipo}</option>}
+              </select>
+            </Campo>
+          )}
           {conOd && <Campo label="Longitud de onda (nm)"><Num value={cond.lambda} min={200} max={1000} step={5} onChange={(v) => setC('lambda', v)} /></Campo>}
           <Campo label="Fecha"><input type="date" value={cond.fecha} onChange={(e) => setC('fecha', e.target.value)} /></Campo>
         </div>
         <div className="campo">
-          <label>Cepas del experimento <Nota>Podés usar varias. Son las que después vas a poder elegir en las placas (OD y conteo). Las que escribas se agregan también a la lista general.</Nota></label>
+          <label>Cepas y especies del experimento <Nota>Tocá una para usarla o quitarla. Son las que después vas a poder elegir en las placas de OD y de conteo. Si escribís una nueva y apretás Enter, se agrega a la lista general y queda elegida.</Nota></label>
           <div className="fila-chips">
-            {a.cepas.map((c) => (
-              <span key={c} className="chip-cepa" style={{ borderColor: s.coloresGlobal[c] || '#c99a5b', background: (s.coloresGlobal[c] || '#c99a5b') + '26' }}>
-                <i style={{ background: s.coloresGlobal[c] || '#c99a5b' }} />{c}
-                <button aria-label={`Quitar ${c}`} onClick={() => s.setCepas((x) => x.filter((y) => y !== c))}>×</button>
-              </span>
-            ))}
-            <input className="entrada-cepa" list="cepas-lista" placeholder="Agregar cepa y Enter" onKeyDown={(e) => {
+            {[...new Set([...s.muestras, ...a.cepas])].map((c) => {
+              const on = a.cepas.includes(c)
+              const col = s.coloresGlobal[c] || '#c99a5b'
+              return (
+                <button key={c} type="button" className={`chip-cepa ${on ? 'on' : ''}`} style={{ borderColor: col, background: on ? col + '33' : 'transparent' }}
+                  onClick={() => s.setCepas((x) => (on ? x.filter((y) => y !== c) : [...x, c]))} data-tip={on ? 'Elegida: tocá para quitarla' : 'Tocá para usarla en este experimento'}>
+                  <i style={{ background: col, opacity: on ? 1 : 0.35 }} />{c}
+                </button>
+              )
+            })}
+            <input className="entrada-cepa" placeholder="Agregar otra cepa o especie y Enter" onKeyDown={(e) => {
               if (e.key !== 'Enter') return
               const v = e.currentTarget.value.trim()
               if (!v) return
@@ -130,7 +143,6 @@ export function ExperimentoTab({ s }) {
               if (!a.cepas.includes(v)) s.setCepas((x) => [...x, v])
               e.currentTarget.value = ''
             }} />
-            <datalist id="cepas-lista">{s.muestras.filter((m) => !a.cepas.includes(m)).map((m) => <option key={m} value={m} />)}</datalist>
           </div>
         </div>
         <datalist id="medios-sugeridos">{['BHI', 'TSB', 'TSBye', 'LB', 'M9', 'MH'].map((m) => <option key={m} value={m} />)}</datalist>

@@ -167,6 +167,7 @@ export default function App() {
 
   const crearExperimento = ({ modo, origenOd, nombre }) => {
     const e = expVacio(nombreUnico(nombre || 'Experimento', exps.map((x) => x.nombre)), modo, origenOd)
+    e.cepas = [...muestras]   // las cepas por defecto (las de Biofilm) ya vienen cargadas
     setExps((es) => [...es, e])
     setActiveId(e.id)
     setTab('experimento')

@@ -44,7 +44,7 @@ export function abrirInforme(s, metodos = '') {
     const c = e.cond
     let html = `<section class="${i ? 'salto' : ''}"><h2>${esc(e.nombre)} <small>· ${esc(MODOS[e.modo].titulo)}</small></h2>
       <table class="cond"><tbody>
-        ${[['Organismo / cepa', c.organismo], ['Medio de cultivo', c.medio], ['Temperatura (°C)', c.temperatura], ...(hayOd(e) ? [['Equipo de OD', c.equipo], ['Longitud de onda (nm)', c.lambda], ['Origen de la OD', ORIGENES_OD[e.origenOd].titulo]] : []), ['Fecha', c.fecha], ['Notas', c.notas]]
+        ${[['Cepas y especies', e.cepas.join(', ')], ['Medio de cultivo', c.medio], ['Temperatura (°C)', c.temperatura], ...(hayOd(e) ? [['Equipo de OD', c.equipo], ['Longitud de onda (nm)', c.lambda], ['Origen de la OD', ORIGENES_OD[e.origenOd].titulo]] : []), ['Fecha', c.fecha], ['Notas', c.notas]]
     .filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}
       </tbody></table>`
 
