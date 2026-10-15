@@ -2,15 +2,16 @@ import { ACEPTA_LIBRO } from '../libro.js'
 import { useMemo, useRef, useState } from 'react'
 import { LineChart } from './charts.jsx'
 import { Campo, Modal, Num, Select } from './ui.jsx'
-import { PlacaTab, Vacio } from './placa.jsx'
+import { Vacio } from './placa.jsx'
+import { ConteosGota, DisenoGota } from './gota.jsx'
 import { TablaAvanzada } from './tabla.jsx'
 import { estiloCurvaDefecto, ejesDefecto } from './estilo.jsx'
 import { signif } from '../ayuda.js'
 import { finito } from '../motor/analisis.js'
 import { hojasDe, LETRAS, leerCrudo } from '../motor/lectura.js'
-import { claveT, coloniasEsperadas, contable, crecimientoUfc, estimarUfc, leerPlantillaUfc, leerTablaConteos, textoEstado } from '../motor/ufc.js'
+import { crecimientoUfc, estimarUfc, leerPlantillaUfc, leerTablaConteos, placasDeGrilla, textoEstado } from '../motor/ufc.js'
 import { nuevoId } from '../experimento.js'
-import { Esquema96, PetriDiseno } from './petri.jsx'
+import { PetriDiseno } from './petri.jsx'
 import { Nota } from './tip.jsx'
 import { dGeo, dMuUfc, dUfc } from '../calculos.js'
 import { descargarBlob, fmt } from '../utils.js'
@@ -18,171 +19,6 @@ import { excelMatriz } from '../excel.js'
 
 const sci = (x) => (finito(x) ? x.toExponential(1).replace('e+', 'E+').replace('e-', 'E-') : '–')
 const COLS = Array.from({ length: 12 }, (_, i) => i + 1)
-
-const fondoCelda = (n, par) => {
-  if (!finito(n)) return undefined
-  if (contable(n, par)) return '#e3f1dc'
-  if (n > par.max) return '#f8d9d6'
-  if (n === 0) return '#efece6'
-  return '#fbf0cf'
-}
-
-// ---------------------------------------------------------------
-// Grilla de conteos de un tiempo
-// ---------------------------------------------------------------
-function GrillaConteos({ s, t }) {
-  const { ufc, stock, ufcRes } = s
-  const par = ufc.par
-  const k = claveT(t)
-  const cont = ufc.conteos[k] || {}
-  const de = Object.fromEntries(ufc.layout.map((c) => [c.Pocillo, c.Muestra]))
-  const st = stock[k]
-  const refs = useRef({})
-
-  const poner = (mapa) => s.setUfc((u) => {
-    const actual = { ...(u.conteos[k] || {}) }
-    Object.entries(mapa).forEach(([p, v]) => { if (v === null) delete actual[p]; else actual[p] = v })
-    return { ...u, conteos: { ...u.conteos, [k]: actual } }
-  })
-  const enfocar = (f, c) => { const el = refs.current[LETRAS[f] + c]; if (el) { el.focus(); el.select() } }
-  const tecla = (e, f, c) => {
-    if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); enfocar(Math.min(f + 1, 7), c) }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); enfocar(Math.max(f - 1, 0), c) }
-    else if (e.key === 'ArrowRight' && e.currentTarget.selectionStart === e.currentTarget.value.length) { e.preventDefault(); enfocar(f, Math.min(c + 1, 12)) }
-    else if (e.key === 'ArrowLeft' && e.currentTarget.selectionStart === 0) { e.preventDefault(); enfocar(f, Math.max(c - 1, 1)) }
-  }
-  // pegar un bloque copiado de Excel a partir de la celda elegida
-  const pegar = (e, f, c) => {
-    const txt = e.clipboardData.getData('text')
-    if (!/[\t\n]/.test(txt.trim())) return
-    e.preventDefault()
-    const mapa = {}
-    txt.trim().split(/\r?\n/).forEach((fila, i) => fila.split('\t').forEach((v, j) => {
-      const ff = f + i, cc = c + j
-      if (ff > 7 || cc > 12) return
-      const p = LETRAS[ff] + cc
-      if (!de[p]) return
-      const n = Number(String(v).trim().replace(',', '.'))
-      if (String(v).trim() === '') mapa[p] = null
-      else if (Number.isFinite(n) && n >= 0) mapa[p] = n
-    }))
-    poner(mapa)
-  }
-
-  const repDe = (L) => s.ufcRes.reps.find((r) => r.Fila === L && r.T_h === t)
-  const muestraDe = (L) => ufc.layout.find((c) => c.Pocillo[0] === L)?.Muestra
-
-  return (
-    <div className="placa-wrap">
-      <table className="grilla-ufc">
-        <thead>
-          <tr>
-            <th />
-            <th className="cab-fila">Muestra</th>
-            {COLS.map((c) => (
-              <th key={c} title={`Dilución ${par.factor}^${c}`}>
-                <b>−{c}</b>
-                <small>{sci(st / par.factor ** c)}</small>
-              </th>
-            ))}
-            <th className="cab-fila">UFC/mL</th>
-          </tr>
-        </thead>
-        <tbody>
-          {LETRAS.map((L, f) => {
-            const r = repDe(L)
-            const muestra = muestraDe(L)
-            const color = muestra ? s.coloresGlobal[muestra] : null
-            return (
-              <tr key={L}>
-                <th>{L}</th>
-                <td className="nombre-fila">{muestra ? <><i className="punto-color" style={{ background: color }} />{muestra}</> : <span className="ayuda">sin muestra</span>}</td>
-                {COLS.map((c) => {
-                  const p = L + c
-                  const n = cont[p]
-                  const activo = !!de[p]
-                  return (
-                    <td key={p} style={{ background: fondoCelda(n, par) }}>
-                      <input ref={(el) => { refs.current[p] = el }} type="number" min="0" step="1" disabled={!activo}
-                        value={finito(n) ? n : ''} placeholder={finito(st) ? String(Number(coloniasEsperadas(st, c, par).toPrecision(2))) : ''}
-                        title={activo ? `${p} · ${de[p]}` : 'Definí la muestra de este pocillo en «Distribución»'}
-                        onChange={(e) => { const v = e.target.value; poner({ [p]: v === '' ? null : Math.max(0, Math.round(Number(v))) }) }}
-                        onKeyDown={(e) => tecla(e, f, c)} onPaste={(e) => pegar(e, f, c)} />
-                    </td>
-                  )
-                })}
-                <td className="res-fila">{r && finito(r.UFC_mL) ? sci(r.UFC_mL) : '–'}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-      <p className="ayuda">
-        Escribí cuántas colonias salieron en la gota de cada pocillo (el número gris es lo esperado según la concentración estimada).
-        <span className="leyenda-ufc"><i style={{ background: '#e3f1dc' }} /> contable ({par.min}–{par.max})</span>
-        <span className="leyenda-ufc"><i style={{ background: '#fbf0cf' }} /> pocas</span>
-        <span className="leyenda-ufc"><i style={{ background: '#f8d9d6' }} /> demasiadas</span>
-        {' '}Se pueden pegar bloques copiados de Excel; Enter y las flechas mueven entre celdas.
-      </p>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------
-// Distribución de muestras en la placa de diluciones
-// ---------------------------------------------------------------
-function Distribucion({ s }) {
-  const [filas, setFilas] = useState({})
-  const todas = [...new Set([...s.muestras, ...s.todasMuestras])]
-  const set = (config) => s.setUfc((u) => ({ ...u, layout: config.map((c) => ({ Pocillo: c.Pocillo, Muestra: c.Muestra })) }))
-  const stub = {
-    datos: { pocillos: Object.fromEntries(LETRAS.flatMap((L) => COLS.map((c) => [L + c, true]))) },
-    config: s.ufc.layout.map((c) => ({ ...c, Replica: 1, EsBlanco: false })),
-    setConfig: (c) => set(typeof c === 'function' ? c(s.ufc.layout) : c),
-    muestras: s.muestras, setMuestras: s.setMuestras, avisar: s.avisar,
-    colores: { porPocillo: Object.fromEntries(s.ufc.layout.map((c) => [c.Pocillo, { color: s.coloresGlobal[c.Muestra] || '#999' }])) },
-    sinReplicas: true, sinBlanco: true,
-    tituloPlaca: 'Placa de diluciones: muestras',
-    ayudaPlaca: 'Hacé clic en un pocillo, o clic y arrastrá para seleccionar varios, y elegí la muestra. Cada FILA es una réplica de la muestra y cada COLUMNA una dilución. Para asignar filas enteras podés usar el atajo de abajo.',
-  }
-  const aplicar = () => {
-    const nuevos = []
-    LETRAS.forEach((L) => { const m = filas[L]; if (m) COLS.forEach((c) => nuevos.push({ Pocillo: L + c, Muestra: m })) })
-    if (!nuevos.length) return s.avisar('Elegí al menos una muestra para alguna fila.', 'error')
-    const nuevas = [...new Set(nuevos.map((x) => x.Muestra))].filter((m) => !s.muestras.includes(m))
-    if (nuevas.length) s.setMuestras([...s.muestras, ...nuevas])
-    const filasDef = new Set(Object.keys(filas).filter((L) => filas[L]))
-    s.setUfc((u) => ({ ...u, layout: [...u.layout.filter((c) => !filasDef.has(c.Pocillo[0])), ...nuevos] }))
-    s.avisar('Muestras asignadas por fila.')
-  }
-  return (
-    <>
-      <section className="tarjeta" style={{ marginBottom: 14 }}>
-        <h2>Diseño de la placa <Nota>Cada FILA es una réplica de una muestra y cada COLUMNA una dilución seriada (de pocillo a pocillo). Podés sembrar varias muestras en simultáneo: una por fila.</Nota></h2>
-        <Esquema96 s={s} />
-      </section>
-      <section className="tarjeta" style={{ marginBottom: 14 }}>
-        <h2>Una muestra por fila</h2>
-        <div className="fila-ctrl">
-          {LETRAS.map((L) => (
-            <Campo key={L} label={`Fila ${L}`}>
-              <select value={filas[L] ?? ''} onChange={(e) => setFilas({ ...filas, [L]: e.target.value })}>
-                <option value="">(sin cambio)</option>
-                {todas.map((m) => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </Campo>
-          ))}
-        </div>
-        <div className="fila-ctrl">
-          <button className="primario" onClick={aplicar}>Aplicar a las 12 columnas de cada fila</button>
-          <button onClick={() => setFilas({ A: todas[0], B: todas[1], C: todas[0], D: todas[1], E: todas[0], F: todas[1], G: todas[0], H: todas[1] })} disabled={todas.length < 2}>Alternar las dos primeras muestras</button>
-          <button className="peligro" onClick={() => s.setUfc((u) => ({ ...u, layout: [] }))} disabled={!s.ufc.layout.length}>Vaciar la placa</button>
-        </div>
-      </section>
-      <PlacaTab s={stub} />
-    </>
-  )
-}
 
 // ---------------------------------------------------------------
 // Placas de Petri: una fila por muestra, tiempo y réplica; una columna por dilución
@@ -201,7 +37,7 @@ function TablaPlacas({ s }) {
   const [pegar, setPegar] = useState(null)
   const importRef = useRef()
   const refs = useRef({})
-  const todas = [...new Set([...s.muestras, ...s.todasMuestras])]
+  const todas = [...new Set([...s.opcionesMuestra])]
   const ks = Array.from({ length: tb.nd }, (_, k) => k)
   const setTb = (f) => s.setUfc((u) => ({ ...u, tabla: typeof f === 'function' ? f(u.tabla) : { ...u.tabla, ...f } }))
   const nuevaFila = (extra = {}) => ({ id: nuevoId(), muestra: '', replica: 1, t: '', vol: '', c: {}, ...extra })
@@ -447,88 +283,51 @@ export function ConteoTab({ s }) {
   const par = ufc.par
   const o = s.opts.ufc
   const setO = (k, v) => s.setOpt('ufc', k, v)
-  const setPar = (k, v) => s.setUfc((u) => ({ ...u, par: { ...u.par, [k]: v } }))
-  const ts = [...par.tiempos].sort((a, b) => a - b)
-  const t = ts.includes(Number(o.t)) ? Number(o.t) : ts[0]
-  const k = claveT(t)
 
-  const agregarTiempo = () => {
-    const v = window.prompt('Tiempo en horas (por ejemplo 7 o 7.5)')
-    if (v === null) return
-    const n = Number(String(v).replace(',', '.'))
-    if (!Number.isFinite(n) || n < 0) return s.avisar('Tiempo inválido.', 'error')
-    if (ts.includes(n)) return s.avisar('Ese tiempo ya existe.', 'error')
-    setPar('tiempos', [...ts, n].sort((a, b) => a - b))
-    setO('t', n)
-  }
-  const quitarTiempo = () => {
-    if (ts.length < 2) return
-    const n = Object.keys(ufc.conteos[k] || {}).length
-    if (n && !window.confirm(`T=${t} h tiene ${n} conteos cargados. Si lo quitás se borran. ¿Continuar?`)) return
-    s.setUfc((u) => { const c = { ...u.conteos }; delete c[k]; return { ...u, conteos: c, par: { ...u.par, tiempos: u.par.tiempos.filter((x) => x !== t) } } })
-  }
-
-  // Importa una planilla: distribución de muestras (celdas con texto), conteos (celdas con números) y concentración esperada
+  // Importa una planilla con bloques «T=0, T=1…»: una placa por tiempo con las muestras por fila y los conteos
   const importar = async (file) => {
     try {
       const { hojas } = await hojasDe(file)
-      const L = new Map(), cont = {}, esp = {}, tiempos = new Set()
+      const layout = new Map(), conteos = {}, esperado = {}
       let ok = 0
       for (const h of hojas) {
         try {
           const r = leerPlantillaUfc(await leerCrudo(file, h))
           ok++
-          r.layout.forEach((c) => { if (!L.has(c.Pocillo)) L.set(c.Pocillo, c.Muestra) })
-          Object.entries(r.conteos).forEach(([kk, o2]) => { cont[kk] = { ...(cont[kk] || {}), ...o2 } })
-          Object.assign(esp, r.esperado)
-          r.tiempos.forEach((x) => tiempos.add(x))
+          r.layout.forEach((c) => { if (!layout.has(c.Pocillo)) layout.set(c.Pocillo, c.Muestra) })
+          Object.entries(r.conteos).forEach(([kk, o2]) => { conteos[kk] = { ...(conteos[kk] || {}), ...o2 } })
+          Object.assign(esperado, r.esperado)
         } catch { /* hoja sin bloques */ }
       }
       if (!ok) throw new Error('No encontré bloques «T=…» con la placa A..H en ninguna hoja.')
-      const nuevas = [...new Set([...L.values()])].filter((m) => !s.muestras.includes(m))
+      const lay = [...layout].map(([Pocillo, Muestra]) => ({ Pocillo, Muestra }))
+      const placas = placasDeGrilla(lay, conteos)
+      const nuevas = [...new Set(lay.map((c) => c.Muestra))].filter((m) => !s.muestras.includes(m))
       if (nuevas.length) s.setMuestras([...s.muestras, ...nuevas])
-      s.setUfc((u) => ({
-        ...u,
-        layout: L.size ? [...L].map(([Pocillo, Muestra]) => ({ Pocillo, Muestra })) : u.layout,
-        conteos: { ...u.conteos, ...Object.fromEntries(Object.entries(cont).map(([kk, v]) => [kk, { ...(u.conteos[kk] || {}), ...v }])) },
-        esperado: { ...u.esperado, ...esp },
-        par: { ...u.par, tiempos: [...new Set([...u.par.tiempos, ...tiempos])].sort((a, b) => a - b), esperadoDe: Object.keys(esp).length && !s.datos ? 'manual' : u.par.esperadoDe },
-      }))
-      const nC = Object.values(cont).reduce((n, v) => n + Object.keys(v).length, 0)
-      s.avisar(`Planilla importada: ${L.size} pocillos con muestra, ${nC} conteos, ${tiempos.size} tiempos${Object.keys(esp).length ? ', concentración esperada' : ''}.`)
+      s.setUfc((u) => ({ ...u, placasG: [...u.placasG, ...placas], esperado: { ...u.esperado, ...esperado }, par: { ...u.par, esperadoDe: Object.keys(esperado).length && !s.datos ? 'manual' : u.par.esperadoDe } }))
+      s.avisar(`Planilla importada: ${placas.length} placas.`)
     } catch (e) { s.avisar(e.message, 'error') }
   }
 
   const exportar = async () => {
-    const bloques = (conNombres) => {
-      const m = []
-      const de = Object.fromEntries(ufc.layout.map((c) => [c.Pocillo, c.Muestra]))
-      ts.forEach((tt) => {
-        const kk = claveT(tt)
-        const st = s.stock[kk]
-        m.push([`T=${tt}`, finito(st) ? Number(Math.log10(st).toFixed(2)) : '', ...COLS.map((c) => (finito(st) ? Math.round(st / par.factor ** c) : ''))])
-        m.push(['Conc esperada', finito(st) ? st : '', ...COLS.map((c) => (finito(st) ? st / par.factor ** c : ''))])
-        m.push(['', '', ...COLS.map((c) => -c)])
-        LETRAS.forEach((L) => m.push(['', L, ...COLS.map((c) => {
-          const p = L + c
-          if (conNombres) return de[p] || ''
-          const n = (ufc.conteos[kk] || {})[p]
-          return finito(n) ? n : ''
-        })]))
-        m.push([])
+    const hojas = ufc.placasG.map((p, i) => {
+      const m = [['Fila', 'Cepa', 'Tiempo (h)', 'Réplica', ...COLS.map((j) => `Pocillo ${j}`)]]
+      LETRAS.forEach((L) => {
+        const f = p.filas[L]
+        if (f && f.muestra) m.push([L, f.muestra, f.t, f.rep, ...COLS.map((j) => (finito(p.conteos[L + j]) ? p.conteos[L + j] : ''))])
       })
-      return m
-    }
-    const b = await excelMatriz([{ nombre: 'Distribucion', matriz: bloques(true) }, { nombre: 'Conteos', matriz: bloques(false) }])
+      return { nombre: (p.nombre || `Placa ${i + 1}`).replace(/[\/?*[\]:]/g, '_').slice(0, 30), matriz: m }
+    })
+    const b = await excelMatriz(hojas.length ? hojas : [{ nombre: 'Placa', matriz: [[]] }])
     descargarBlob(b, `recuento_ufc_${(s.a.nombre || 'experimento').replace(/[^\w-]+/g, '_')}.xlsx`)
   }
 
   const metodo = ufc.metodo
   const SUBS = metodo === 'extendida'
-    ? [['petri', 'Diseño por sectores'], ['placas', 'Tabla'], ['res', 'Resultados']]
-    : [['dist', 'Diseño de la placa'], ['gotas', 'Conteos por hora'], ['res', 'Resultados']]
+    ? [['petri', 'Diseño de placa'], ['placas', 'Tabla'], ['res', 'Resultados']]
+    : [['dist', 'Diseño de placa'], ['gotas', 'Conteos'], ['res', 'Resultados']]
   const sub0 = SUBS.some(([id]) => id === o.sub) ? o.sub : SUBS[0][0]
-  const sub = sub0 === 'gotas' && !ufc.layout.length ? 'dist' : sub0
+  const sub = sub0 === 'gotas' && !ufc.placasG.length ? 'dist' : sub0
   const p = metodo === 'extendida' ? ufc.tabla : null
   return (
     <div className="pagina">
@@ -537,13 +336,13 @@ export function ConteoTab({ s }) {
           {metodo === 'extendida' ? 'Siembra extendida' : 'Siembra por gota'}
         </span>
         <span className="chip-param">{metodo === 'extendida' ? `${p.vol} µL` : `${par.vol * 1000} µL`}</span>
-        <span className="chip-param" data-tip="Factor de dilución entre diluciones consecutivas">factor {metodo === 'extendida' ? p.factor : par.factor}</span>
+        <span className="chip-param" data-tip={metodo === 'extendida' ? 'Factor de dilución' : `Factor de dilución = volumen final / toma = ${par.final} / ${par.toma}`}>f = {Number((metodo === 'extendida' ? p.factor : par.factor).toPrecision(4))}</span>
         <span className="chip-param" data-tip="Colonias por placa (o gota) que se consideran contables">contable {metodo === 'extendida' ? `${p.min}–${p.max}` : `${par.min}–${par.max}`}</span>
         <button className="chico" onClick={() => s.irA('experimento')}>Editar en Experimento</button>
         {metodo === 'gota' && (
           <span className="chip-acciones">
             <button className="chico" onClick={() => importRef.current.click()}>Importar planilla</button>
-            <button className="chico" onClick={exportar} disabled={!ufc.layout.length}>Exportar a Excel</button>
+            <button className="chico" onClick={exportar} disabled={!ufc.placasG.length}>Exportar a Excel</button>
             <input ref={importRef} type="file" hidden accept={ACEPTA_LIBRO} onChange={(e) => { e.target.files[0] && importar(e.target.files[0]); e.target.value = '' }} />
           </span>
         )}
@@ -553,35 +352,8 @@ export function ConteoTab({ s }) {
           <button key={id} className={sub === id ? 'on' : ''} onClick={() => setO('sub', id)}>{tt}</button>
         ))}
       </div>
-      {sub === 'gotas' && (
-        !ufc.layout.length ? (
-          <Vacio texto="Primero definí qué muestra hay en cada fila de la placa de diluciones («Diseño de la placa»), o importá la planilla." />
-        ) : (
-          <section className="tarjeta">
-            <div className="titulo-fila">
-              <h2>Colonias por gota</h2>
-              <div className="fila-ctrl" style={{ margin: 0 }}>
-                {ts.map((x) => <button key={x} className={`chip-t ${x === t ? 'on' : ''}`} onClick={() => setO('t', x)}>T={x} h</button>)}
-                <button className="chico" onClick={agregarTiempo}>+ Tiempo</button>
-                <button className="chico peligro" onClick={quitarTiempo} disabled={ts.length < 2}>Quitar T={t}</button>
-              </div>
-            </div>
-            <div className="fila-ctrl" style={{ alignItems: 'flex-end' }}>
-              <Campo label={<>UFC/mL esperadas en T=0<Nota>Solo es una guía (números grises) para saber qué diluciones van a ser contables; no entra en el cálculo.</Nota></>}>
-                <Num value={par.c0} min={1} step={100000} onChange={(v) => setPar('c0', v === '' ? 1e6 : v)} />
-              </Campo>
-              <Campo label="Esperadas según">
-                <Select value={par.esperadoDe} onChange={(v) => setPar('esperadoDe', v)} opciones={[['od', 'Curva de OD'], ['manual', 'Planilla importada']]} />
-              </Campo>
-              <span className="chip-param" data-tip={`Concentración esperada en el pocillo de partida\nT = ${t} h\n${finito(s.stock[k]) ? `${sci(s.stock[k])} UFC/mL · log₁₀ = ${Math.log10(s.stock[k]).toFixed(2)}` : '–'}\n${par.esperadoDe === 'od' && s.curvaExp ? 'estimada con c0 × OD(T) / OD(0)' : 'valor cargado'}`}>
-                esperada T={t} h: {sci(s.stock[k])}
-              </span>
-            </div>
-            <GrillaConteos s={s} t={t} />
-          </section>
-        )
-      )}
-      {sub === 'dist' && <Distribucion s={s} />}
+      {sub === 'dist' && <DisenoGota s={s} />}
+      {sub === 'gotas' && <ConteosGota s={s} />}
       {sub === 'petri' && <PetriDiseno s={s} />}
       {sub === 'placas' && <TablaPlacas s={s} />}
       {sub === 'res' && <Resultados s={s} />}

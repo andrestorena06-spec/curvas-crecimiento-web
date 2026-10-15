@@ -31,7 +31,7 @@ export function OdManualTab({ s }) {
   const importRef = useRef()
   const refs = useRef({})
   const { filas, res } = useMemo(() => resumenOdManual(m), [m])
-  const todas = [...new Set([...s.muestras, ...s.todasMuestras])]
+  const todas = [...new Set([...s.opcionesMuestra])]
   const ks = Array.from({ length: m.nd }, (_, k) => k)
 
   const nuevaFila = (extra = {}) => ({ id: nuevoId(), muestra: '', replica: 1, t: '', od: {}, ...extra })

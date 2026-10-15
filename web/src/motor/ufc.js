@@ -15,7 +15,10 @@ import { tCuantil } from '../utils.js'
 // ---------- parámetros ----------
 export const ufcDef = () => ({
   vol: 0.02,            // mL por gota
-  factor: 5,            // cada columna está `factor` veces más diluida que la anterior
+  factor: 5,            // cada pocillo está `factor` veces más diluido que el anterior (= volumen final / toma)
+  toma: 40, final: 200, // µL que se pasan de un pocillo al siguiente y volumen final de cada pocillo
+  primero: 'dilucion',  // 'madre': el pocillo 1 es la solución madre · 'dilucion': el pocillo 1 ya es una dilución
+  madre: { usar: false, toma: 20, final: 200 },  // solución madre (opcional): se toma `toma` µL para llegar al pocillo 1 con volumen `final`
   c0: 1e6,              // UFC/mL esperadas en el pocillo de partida a T = 0 (solo guía)
   min: 3, max: 30,      // colonias por gota que se consideran contables
   tiempos: [0, 1, 2, 3, 4, 5, 6],
@@ -26,7 +29,37 @@ export const tablaDef = () => ({ vol: 100, factor: 10, min: 25, max: 250, nd: 6,
 
 // metodo: 'gota' (gotas sobre una placa de 96 con diluciones seriadas) o 'extendida' (placas de Petri, tabla o sectores)
 // petri: [{ id, nombre, n (sectores), sectores: [{ muestra, t, lineas: [{ id, k (dilución −k), rep, n (colonias) }] }] }]
-export const ufcVacio = () => ({ metodo: 'gota', par: ufcDef(), layout: [], conteos: {}, esperado: {}, tabla: tablaDef(), petri: [] })
+// placasG: placas de 96 con gotas: [{ id, nombre, filas: { A: { muestra, t, rep, desde, hasta } }, conteos: { A1: n } }]
+//   cada FILA es una réplica de una muestra a un tiempo; cada COLUMNA, una dilución seriada (de `desde` a `hasta`)
+export const ufcVacio = () => ({ metodo: 'gota', par: ufcDef(), placasG: [], esperado: {}, tabla: tablaDef(), petri: [] })
+
+// factor que hay que aplicar a la columna j respecto de la suspensión original: D(j) = mult × f^j
+export const multDe = (par) => {
+  const f = par.factor
+  if (par.primero === 'madre') return 1 / f
+  const f0 = par.madre?.usar && par.madre.toma > 0 ? par.madre.final / par.madre.toma : f
+  return f0 / f
+}
+export const dilucionDe = (par, j) => multDe(par) * par.factor ** j
+// «10^−x» con el orden de magnitud de la dilución (para los encabezados)
+export const potenciaDe = (par, j) => -Math.log10(dilucionDe(par, j))
+const SUP = { '-': '⁻', '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹', '.': '·' }
+export const texto10 = (x) => '10' + String(Number(x.toFixed(2))).replace(/[-0-9.]/g, (c) => SUP[c])
+
+// sesiones anteriores: una grilla de muestras por pocillo + un bloque de conteos por tiempo -> una placa por tiempo
+export function placasDeGrilla(layout, conteos, esperado) {
+  const filasLetra = [...new Set(layout.map((c) => c.Pocillo[0]))].sort()
+  const muestraDe = (L) => layout.find((c) => c.Pocillo[0] === L)?.Muestra
+  const repDe = {}
+  const reps = {}
+  filasLetra.forEach((L) => { const m = muestraDe(L); reps[m] = (reps[m] || 0) + 1; repDe[L] = reps[m] })
+  const ts = Object.keys(conteos).map(Number).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
+  return ts.map((t, i) => ({
+    id: 'g' + i + Math.random().toString(36).slice(2, 6), nombre: `Placa T=${t} h`,
+    filas: Object.fromEntries(filasLetra.map((L) => [L, { muestra: muestraDe(L), t, rep: repDe[L], desde: 1, hasta: 12 }])),
+    conteos: { ...(conteos[claveT(t)] || {}) },
+  }))
+}
 
 export const normalizarUfc = (u = {}) => {
   const d = ufcVacio()
@@ -35,9 +68,8 @@ export const normalizarUfc = (u = {}) => {
   return {
     metodo: u.metodo || (!(Array.isArray(u.layout) && u.layout.length) && (filasTabla.length || petri.length) ? 'extendida' : 'gota'),
     petri,
-    par: { ...d.par, ...(u.par || {}) },
-    layout: Array.isArray(u.layout) ? u.layout : [],
-    conteos: u.conteos && typeof u.conteos === 'object' ? u.conteos : {},
+    par: { ...d.par, ...(u.par || {}), madre: { ...d.par.madre, ...(u.par?.madre || {}) } },
+    placasG: Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : []),
     esperado: u.esperado && typeof u.esperado === 'object' ? u.esperado : {},
     tabla: { ...d.tabla, ...(u.tabla || {}), filas: Array.isArray(u.tabla?.filas) ? u.tabla.filas : [] },
   }
@@ -45,7 +77,7 @@ export const normalizarUfc = (u = {}) => {
 export const lineasPetri = (u) => (u.petri || []).flatMap((p) => (p.sectores || []).flatMap((s, i) => (s?.lineas || []).map((l) => ({ ...l, placa: p.nombre, sector: i + 1, muestra: s.muestra, t: s.t }))))
 export const hayConteos = (u) => (u.metodo === 'extendida'
   ? (u.tabla?.filas || []).some((f) => Object.values(f.c || {}).some(finito)) || lineasPetri(u).some((l) => finito(l.n))
-  : Object.values(u.conteos || {}).some((o) => Object.keys(o).length))
+  : (u.placasG || []).some((p) => Object.values(p.conteos || {}).some(finito)))
 
 const colDe = (p) => Number(p.slice(1))
 const filaDe = (p) => p[0]
@@ -96,7 +128,8 @@ export function estimarUfc(cont, par) {
   const e = Object.entries(cont || {}).map(([k, c]) => [Number(k), Number(c)]).filter(([k, c]) => finito(k) && finito(c) && c >= 0)
   const vacio = { ufc: NaN, lo: NaN, hi: NaN, estado: 'sin_datos', usados: [], S: 0, lim: NaN }
   if (!e.length) return vacio
-  const peso = (ks) => ks.reduce((s, k) => s + f ** -k, 0)
+  const inv = (k) => 1 / ((par.mult || 1) * f ** k)
+  const peso = (ks) => ks.reduce((s, k) => s + inv(k), 0)
   const enRango = e.filter(([, c]) => c >= par.min && c <= par.max)
   if (enRango.length) {
     const S = enRango.reduce((s, [, c]) => s + c, 0)
@@ -115,7 +148,7 @@ export function estimarUfc(cont, par) {
   const cand = bajo.length ? [bajo[0], 'bajo'] : sobre.length && sobre[0][1] <= 2 * par.max ? [sobre[0], 'alto'] : null
   if (!cand) return { ...vacio, estado: 'incontable' }
   const [k, c] = cand[0]
-  const D = par.vol * f ** -k
+  const D = par.vol * inv(k)
   const [a, b] = icPoisson(c)
   return { ufc: c / D, lo: a / D, hi: b / D, estado: cand[1], usados: [k], S: c, lim: NaN }
 }
@@ -124,20 +157,20 @@ export function estimarUfc(cont, par) {
 // Una fila por réplica: { Muestra, T_h, Replica, Fila, origen, cont, par }
 export function registrosConteo(u) {
   const out = []
-  const { par, layout, conteos } = u
-  const muestras = [...new Set(layout.map((c) => c.Muestra))]
-  const ts = [...new Set([...par.tiempos, ...Object.keys(conteos).map(Number)])].filter(finito).sort((a, b) => a - b)
-  for (const t of u.metodo === 'extendida' ? [] : ts) {
-    const cont = conteos[claveT(t)] || {}
-    for (const m of muestras) {
-      const wells = layout.filter((c) => c.Muestra === m)
-      const filas = [...new Set(wells.map((w) => filaDe(w.Pocillo)))].sort()
-      filas.forEach((L, i) => {
-        const c = {}
-        wells.filter((w) => filaDe(w.Pocillo) === L).forEach((w) => { const n = cont[w.Pocillo]; if (finito(n)) c[colDe(w.Pocillo)] = n })
-        out.push({ Muestra: m, T_h: t, Replica: i + 1, Fila: L, origen: 'gotas', cont: c, par: { vol: par.vol, factor: par.factor, min: par.min, max: par.max } })
-      })
-    }
+  const { par } = u
+  if (u.metodo !== 'extendida') {
+    const grupos = new Map()
+    const parG = { vol: par.vol, factor: par.factor, min: par.min, max: par.max, mult: multDe(par) }
+    ;(u.placasG || []).forEach((p) => Object.entries(p.filas || {}).forEach(([L, f]) => {
+      if (!f || !f.muestra || !finito(Number(f.t))) return
+      const c = {}
+      for (let j = Number(f.desde) || 1; j <= (Number(f.hasta) || 12); j++) { const n = (p.conteos || {})[L + j]; if (finito(n)) c[j] = n }
+      const k = `${f.muestra}|${Number(f.t)}|${Number(f.rep) || 1}`
+      if (grupos.has(k)) Object.assign(grupos.get(k).cont, c)
+      else grupos.set(k, { Muestra: f.muestra, T_h: Number(f.t), Replica: Number(f.rep) || 1, Fila: L, origen: 'gotas', cont: c, par: parG })
+    }))
+    grupos.forEach((g) => out.push(g))
+    return out
   }
   const tb = u.tabla
   if (u.metodo !== 'extendida') return out
@@ -242,10 +275,11 @@ export function crecimientoUfc(filas) {
 }
 
 // ---------- concentración esperada (guía de la grilla de gotas) ----------
+export const tiemposG = (u) => [...new Set((u.placasG || []).flatMap((p) => Object.values(p.filas || {}).filter((f) => f && f.muestra).map((f) => Number(f.t))))].filter(finito).sort((a, b) => a - b)
 export function esperadoStock(ufc, curva) {
   const out = {}
   const { par, esperado } = ufc
-  par.tiempos.forEach((t) => {
+  tiemposG(ufc).forEach((t) => {
     const k = claveT(t)
     if (par.esperadoDe === 'manual' && finito(esperado[k])) { out[k] = esperado[k]; return }
     if (par.esperadoDe === 'od' && curva && curva.t.length > 2) {
@@ -257,7 +291,7 @@ export function esperadoStock(ufc, curva) {
   })
   return out
 }
-export const coloniasEsperadas = (stock, j, par) => (stock / par.factor ** j) * par.vol
+export const coloniasEsperadas = (stock, j, par) => (stock / dilucionDe(par, j)) * par.vol
 export const contable = (n, par) => finito(n) && n >= par.min && n <= par.max
 
 // ------------------------------------------------------------

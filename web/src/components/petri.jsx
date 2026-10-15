@@ -122,7 +122,7 @@ export function PetriDiseno({ s }) {
   const setPlaca = (patch) => setPetri((ps) => ps.map((p) => (p.id === placa.id ? { ...p, ...(typeof patch === 'function' ? patch(p) : patch) } : p)))
   const setSector = (i, patch) => setPlaca((p) => ({ sectores: p.sectores.map((sc, j) => (j === i ? { ...sc, ...(typeof patch === 'function' ? patch(sc) : patch) } : sc)) }))
   const ts = useMemo(() => [...new Set([...ufc.par.tiempos, ...placas.flatMap((p) => p.sectores.map((x) => Number(x.t)))])].filter(finito).sort((a, b) => a - b), [ufc.par.tiempos, placas])
-  const todas = [...new Set([...s.muestras, ...s.todasMuestras])]
+  const todas = [...new Set([...s.opcionesMuestra])]
   const color = (m) => s.coloresGlobal[m] || '#c99a5b'
 
   const crear = () => {
@@ -252,60 +252,5 @@ export function PetriDiseno({ s }) {
         </div>
       )}
     </section>
-  )
-}
-
-// ===============================================================
-// ESQUEMA DE LA PLACA DE 96 (siembra por gota): diluciones seriadas de pocillo a pocillo y muestra de cada fila
-// ===============================================================
-const LET = 'ABCDEFGH'.split('')
-export function Esquema96({ s }) {
-  const { ufc } = s
-  const { factor, vol } = ufc.par
-  const filaDe = Object.fromEntries(LET.map((L) => [L, ufc.layout.find((c) => c.Pocillo[0] === L)?.Muestra || '']))
-  const muestras = [...new Set(Object.values(filaDe).filter(Boolean))]
-  const color = (m) => s.coloresGlobal[m] || '#c99a5b'
-  const X0 = 112, DX = 50, Y0 = 56, DY = 38, r = 15
-  const W = X0 + 12 * DX + 10, H = Y0 + 8 * DY + 14
-  const dil = (j) => factor ** j
-  const lbl = (j) => { const v = dil(j); return v >= 1e5 ? v.toExponential(1).replace('e+', 'E') : String(Number(v.toPrecision(6))) }
-  return (
-    <div className="esquema96">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Diluciones seriadas en la placa de 96 pocillos">
-        <rect x="2" y="2" width={W - 4} height={H - 4} rx="16" fill="#fffaf2" stroke="#e7d3b3" strokeWidth="1.5" />
-        {Array.from({ length: 12 }, (_, j) => (
-          <g key={j} data-tip={`Columna ${j + 1}: dilución −${j + 1}\n1 : ${dil(j + 1)} (${factor}^${j + 1})\nUFC/mL = colonias / ${vol} mL × ${dil(j + 1)}`}>
-            <text x={X0 + j * DX} y={22} textAnchor="middle" fontSize="12" fontWeight="700" fill="#7a4a1c">−{j + 1}</text>
-            <text x={X0 + j * DX} y={38} textAnchor="middle" fontSize="9.5" fill="#9a8168">1:{lbl(j + 1)}</text>
-          </g>
-        ))}
-        {LET.map((L, i) => {
-          const m = filaDe[L]
-          const y = Y0 + i * DY
-          return (
-            <g key={L}>
-              <text x={20} y={y + 4} fontSize="12" fontWeight="700" fill="#7a4a1c" textAnchor="middle">{L}</text>
-              <text x={34} y={y + 4} fontSize="10.5" fill={m ? '#3b2a1f' : '#b8a58d'} fontWeight={m ? 600 : 400}>{m ? (m.length > 11 ? m.slice(0, 10) + '…' : m) : 'sin muestra'}</text>
-              {/* transferencias de pocillo a pocillo */}
-              <g stroke="#c99a5b" strokeWidth="1.4" fill="none">
-                {Array.from({ length: 11 }, (_, j) => (
-                  <path key={j} d={`M ${X0 + j * DX + r + 2} ${y} L ${X0 + (j + 1) * DX - r - 3} ${y} M ${X0 + (j + 1) * DX - r - 8} ${y - 3.5} L ${X0 + (j + 1) * DX - r - 3} ${y} L ${X0 + (j + 1) * DX - r - 8} ${y + 3.5}`} />
-                ))}
-              </g>
-              {Array.from({ length: 12 }, (_, j) => (
-                <g key={j} data-tip={`${L}${j + 1}${m ? ` · ${m}` : ''}\nDilución −${j + 1} (1 : ${dil(j + 1)})\nGota de ${vol * 1000} µL`}>
-                  <circle cx={X0 + j * DX} cy={y} r={r} fill={m ? color(m) : '#f3ead9'} fillOpacity={m ? 0.45 : 1} stroke={m ? color(m) : '#d8c7a8'} strokeWidth="1.6" />
-                  <circle cx={X0 + j * DX} cy={y} r={r * 0.46} fill={m ? color(m) : '#e4d6bb'} fillOpacity={m ? 0.9 : 0.5} />
-                </g>
-              ))}
-            </g>
-          )
-        })}
-      </svg>
-      <div className="leyenda-petri">
-        {muestras.map((m) => <span key={m}><i style={{ background: color(m) }} />{m}</span>)}
-        <span className="suave">→ transferencia 1 : {factor} de un pocillo al siguiente · cada fila es una réplica</span>
-      </div>
-    </div>
   )
 }

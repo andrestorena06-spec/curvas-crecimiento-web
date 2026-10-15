@@ -11,6 +11,7 @@ import { signif } from '../ayuda.js'
 import { analizarCurva, desvio, finito, interpolar, media, regLineal } from '../motor/analisis.js'
 import { curvaMedia, opAnalisis, preprocesar } from '../motor/pipeline.js'
 import { calcularUfc } from '../motor/ufc.js'
+import { ajParaExp } from '../experimento.js'
 import { TIPOS_LINEA } from '../colores.js'
 import { tCuantil } from '../utils.js'
 
@@ -25,7 +26,7 @@ const errDe = (v, tipo) => {
 
 // OD (curva media por muestra, ya corregida) y UFC de un experimento
 export function datosExp(e, aj0) {
-  const aj = e.origenOd === 'manual' ? { ...aj0, corregir_blanco: false } : aj0
+  const aj = ajParaExp(aj0, e)
   const out = { id: e.id, nombre: e.nombre, od: {}, mu: {}, ufc: [] }
   if (e.modo !== 'conteo' && e.datos && e.config.length) {
     const pre = preprocesar({ datos: e.datos, config: e.config, E: e.E, aj, blancosSel: e.blancosSel })

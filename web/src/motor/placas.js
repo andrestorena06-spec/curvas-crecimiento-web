@@ -78,3 +78,33 @@ export function datosDeLecturas(lecturas) {
   }
   return { tiempos, pocillos }
 }
+
+// ------------------------------------------------------------
+// Placa de OD única: cada COLUMNA es un tiempo (t0 en la 1, t2 en la 2…) y cada FILA una réplica de una cepa.
+// Se convierte en curvas: una por fila, con la OD de cada columna que tenga tiempo asignado.
+// ------------------------------------------------------------
+export const disenoOdDef = () => ({ tiempos: Object.fromEntries([0, 2, 4, 6, 8, 10, 12].map((t, i) => [i + 1, t])), filas: {} })
+export const normalizarDisenoOd = (d) => ({ ...disenoOdDef(), ...(d || {}), tiempos: d?.tiempos || disenoOdDef().tiempos, filas: d?.filas || {} })
+
+export function placaADatos(lectura, d) {
+  if (!lectura || !lectura.datos?.length) return { datos: null, config: [] }
+  const cols = Object.entries(d.tiempos).filter(([, t]) => t !== '' && t !== null && finito(Number(t))).map(([c, t]) => [Number(c), Number(t)]).sort((a, b) => a[1] - b[1])
+  const filas = LETRAS.filter((L) => d.filas[L]?.muestra)
+  if (!cols.length || !filas.length) return { datos: null, config: [] }
+  const tiempos = [...new Set(cols.map(([, t]) => Math.round(t * 3600 * 1000) / 1000))]
+  const val = {}
+  lectura.datos.forEach((x) => { val[x.Pocillo] = x.OD })
+  const pocillos = {}, config = []
+  const cuenta = {}
+  filas.forEach((L) => {
+    const f = d.filas[L]
+    pocillos[L + '1'] = tiempos.map((ts) => {
+      const c = cols.find(([, t]) => Math.round(t * 3600 * 1000) / 1000 === ts)
+      const v = c ? val[L + c[0]] : NaN
+      return finito(v) ? v : NaN
+    })
+    cuenta[f.muestra] = (cuenta[f.muestra] || 0) + 1
+    config.push({ Pocillo: L + '1', Muestra: f.muestra, Replica: cuenta[f.muestra], EsBlanco: !!f.blanco, Fila: L })
+  })
+  return { datos: { tiempos, pocillos }, config }
+}

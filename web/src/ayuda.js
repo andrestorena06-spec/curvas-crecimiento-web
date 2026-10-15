@@ -169,7 +169,7 @@ export const MODELOS_ETQ = { gompertz: 'Gompertz modificado', logistico: 'Logís
 export const ajustesDef = () => ({
   corregir_blanco: false, blanco_metodo: 'tiempo', normalizar: 'ninguna', n_od0: 3, od0_metodo: 'auto',
   suavizado: 'ninguno', suav_k: 3, suav_span: 0.3,
-  hampel_on: false, hampel_k: 3, hampel_sigma: 3, hampel_min: 0.002, hampel_accion: 'excluir',
+  dixon_conf: 95, hampel_on: false, hampel_k: 3, hampel_sigma: 3, hampel_min: 0.002, hampel_accion: 'excluir',
   odmax_on: false, odmax: 1,
   pocillo_auto: false, pocillo_factor: 3, pocillo_min: 0.03, pocillo_div: 25,
   unidad_tiempo: 'h', modo_grafico: 'individual', escala_y: 'lineal', tipo_error: 'sd', mostrar_excluidos: true,

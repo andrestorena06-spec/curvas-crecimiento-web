@@ -296,6 +296,7 @@ function ExcluirPuntos({ s }) {
 export function PreprocTab({ s }) {
   const [sub, setSub] = useState('placa')
   const { aj, setAj } = s
+  const blancos = s.config.filter((c) => c.EsBlanco)
   if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
   const cuerpo = !s.config.length ? <Vacio texto="Configurá los pocillos para ver el preprocesado." />
     : s.pre?.error ? <Vacio texto={s.pre.error} />
@@ -303,7 +304,35 @@ export function PreprocTab({ s }) {
   return (
     <div className="con-lateral">
       <Panel titulo="Preprocesado">
-        <p className="ayuda"><Nota titulo="Ayuda">La corrección al blanco se configura en la pestaña «Gráfico». El orden es: blanco › exclusiones › suavizado › normalización.</Nota></p>
+        <Nota titulo="Orden">El orden es: blanco › exclusiones › suavizado › normalización.</Nota>
+        {s.a.origenOd !== 'manual' && (<>
+        <h3>Blanco</h3>
+        <Check label="Corregir al blanco" checked={aj.corregir_blanco} onChange={(v) => setAj('corregir_blanco', v)} />
+        {aj.corregir_blanco && (
+          <Campo label="Método de blanco">
+            <Select value={aj.blanco_metodo} onChange={(v) => setAj('blanco_metodo', v)}
+              opciones={[['tiempo', 'Promedio, tiempo a tiempo'], ['const_media', 'Constante: media de todo el blanco'], ['const_min', 'Constante: mínimo del blanco']]} />
+          </Campo>
+        )}
+        <p className="ayuda">{blancos.length
+          ? `Pocillos de blanco: ${blancos.map((b) => b.Pocillo).join(', ')}.`
+          : "No hay pocillos definidos como blanco (se definen al configurar cada pocillo, con la casilla «Definir como blanco»)."}</p>
+        {aj.corregir_blanco && blancos.length > 0 && (
+          <>
+            <label style={{ fontWeight: 600 }}>Réplicas del blanco usadas en el promedio</label>
+            {blancos.map((b) => {
+              const usados = s.blancosSel || blancos.map((x) => x.Pocillo)
+              return (
+                <label key={b.Pocillo} className="check">
+                  <input type="checkbox" checked={usados.includes(b.Pocillo)}
+                    onChange={() => s.setBlancosSel(usados.includes(b.Pocillo) ? usados.filter((x) => x !== b.Pocillo) : [...usados, b.Pocillo])} />
+                  <span>{nombreReplica(b.Muestra, b.Replica)} ({b.Pocillo})</span>
+                </label>
+              )
+            })}
+          </>
+        )}
+        </>)}
         <h3>OD inicial y normalización</h3>
         <Campo label="Cómo calcular OD₀">
           <Select value={aj.od0_metodo} onChange={(v) => setAj('od0_metodo', v)}
@@ -318,9 +347,14 @@ export function PreprocTab({ s }) {
         <Select value={aj.suavizado} onChange={(v) => setAj('suavizado', v)} opciones={[['ninguno', 'Ninguno'], ['media', 'Media móvil'], ['mediana', 'Mediana móvil'], ['loess', 'LOESS']]} />
         {(aj.suavizado === 'media' || aj.suavizado === 'mediana') && <Campo label="Ventana (puntos, impar)"><Num value={aj.suav_k} min={3} step={2} onChange={(v) => setAj('suav_k', v)} /></Campo>}
         {aj.suavizado === 'loess' && <Campo label="Span (0 a 1)"><Num value={aj.suav_span} min={0.05} max={1} step={0.05} onChange={(v) => setAj('suav_span', v)} /></Campo>}
-        <h3>Puntos aberrantes</h3>
-        <Check label="Filtro de Hampel" checked={aj.hampel_on} onChange={(v) => setAj('hampel_on', v)} />
-        {aj.hampel_on && (
+        <h3>Valores atípicos</h3>
+        {s.a.origenOd !== 'tecan' && (
+          <Campo label={<>Test Q de Dixon entre réplicas<Nota>Para lecturas de placa o cubeta se compara, en cada tiempo, cada réplica con las demás de su muestra (n de 3 a 10). El punto marcado se excluye; podés reincorporarlo con un clic.</Nota></>}>
+            <Select value={String(aj.dixon_conf || 95)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', 'Confianza 90 %'], ['95', 'Confianza 95 %'], ['99', 'Confianza 99 %']]} />
+          </Campo>
+        )}
+        {s.a.origenOd === 'tecan' && <Check label="Filtro de Hampel (cinéticas)" checked={aj.hampel_on} onChange={(v) => setAj('hampel_on', v)} />}
+        {s.a.origenOd === 'tecan' && aj.hampel_on && (
           <>
             <Campo label="Semiventana (puntos a cada lado)"><Num value={aj.hampel_k} min={2} onChange={(v) => setAj('hampel_k', v)} /></Campo>
             <Campo label="Umbral (múltiplos de MAD)"><Num value={aj.hampel_sigma} min={1} step={0.5} onChange={(v) => setAj('hampel_sigma', v)} /></Campo>

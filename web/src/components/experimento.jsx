@@ -4,11 +4,11 @@ import { Campo, Check, Modal, Num, Select } from './ui.jsx'
 import { Nota } from './tip.jsx'
 import { MODOS, ORIGENES_OD, hayConteo, hayOd, odPorPocillos } from '../experimento.js'
 import { aCSV, descargarBlob, descargarTexto, fmt, pocillos96 } from '../utils.js'
-import { hayConteos, lineasPetri } from '../motor/ufc.js'
+import { hayConteos, lineasPetri, texto10 } from '../motor/ufc.js'
 
 const nConteos = (u) => (u.metodo === 'extendida'
   ? u.tabla.filas.reduce((n, f) => n + Object.keys(f.c || {}).length, 0) + lineasPetri(u).filter((l) => Number.isFinite(l.n)).length
-  : Object.values(u.conteos).reduce((n, o) => n + Object.keys(o).length, 0))
+  : u.placasG.reduce((n, p) => n + Object.keys(p.conteos).length, 0))
 
 // ===============================================================
 // EXPERIMENTO: condiciones (primer cuadro), datos de OD y de conteo, muestras, sesión y layout
@@ -106,12 +106,32 @@ export function ExperimentoTab({ s }) {
               <Select value={a.origenOd} onChange={(v) => s.setOrigenOd(v)} opciones={Object.entries(ORIGENES_OD).map(([id, m]) => [id, m.titulo])} />
             </Campo>
           )}
-          <Campo label="Organismo / cepa"><input value={cond.organismo} onChange={(e) => setC('organismo', e.target.value)} placeholder="Ej.: S. aureus L100A1" /></Campo>
+          <Campo label="Organismo / especie"><input value={cond.organismo} onChange={(e) => setC('organismo', e.target.value)} placeholder="Ej.: S. aureus" /></Campo>
           <Campo label="Medio de cultivo"><input value={cond.medio} onChange={(e) => setC('medio', e.target.value)} placeholder="BHI, TSB, LB…" list="medios-sugeridos" /></Campo>
           <Campo label="Temperatura (°C)"><input value={cond.temperatura} onChange={(e) => setC('temperatura', e.target.value)} placeholder="37" /></Campo>
           {conOd && <Campo label="Equipo de OD"><input value={cond.equipo} onChange={(e) => setC('equipo', e.target.value)} placeholder="Tecan Sunrise, espectrofotómetro…" /></Campo>}
           {conOd && <Campo label="Longitud de onda (nm)"><Num value={cond.lambda} min={200} max={1000} step={5} onChange={(v) => setC('lambda', v)} /></Campo>}
           <Campo label="Fecha"><input type="date" value={cond.fecha} onChange={(e) => setC('fecha', e.target.value)} /></Campo>
+        </div>
+        <div className="campo">
+          <label>Cepas del experimento <Nota>Podés usar varias. Son las que después vas a poder elegir en las placas (OD y conteo). Las que escribas se agregan también a la lista general.</Nota></label>
+          <div className="fila-chips">
+            {a.cepas.map((c) => (
+              <span key={c} className="chip-cepa" style={{ borderColor: s.coloresGlobal[c] || '#c99a5b', background: (s.coloresGlobal[c] || '#c99a5b') + '26' }}>
+                <i style={{ background: s.coloresGlobal[c] || '#c99a5b' }} />{c}
+                <button aria-label={`Quitar ${c}`} onClick={() => s.setCepas((x) => x.filter((y) => y !== c))}>×</button>
+              </span>
+            ))}
+            <input className="entrada-cepa" list="cepas-lista" placeholder="Agregar cepa y Enter" onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              const v = e.currentTarget.value.trim()
+              if (!v) return
+              if (!s.muestras.includes(v)) s.setMuestras([...s.muestras, v])
+              if (!a.cepas.includes(v)) s.setCepas((x) => [...x, v])
+              e.currentTarget.value = ''
+            }} />
+            <datalist id="cepas-lista">{s.muestras.filter((m) => !a.cepas.includes(m)).map((m) => <option key={m} value={m} />)}</datalist>
+          </div>
         </div>
         <datalist id="medios-sugeridos">{['BHI', 'TSB', 'TSBye', 'LB', 'M9', 'MH'].map((m) => <option key={m} value={m} />)}</datalist>
         <Campo label="Notas"><textarea rows={2} value={cond.notas} onChange={(e) => setC('notas', e.target.value)} placeholder="Datos que quieras que figuren en el informe" /></Campo>
@@ -130,7 +150,12 @@ export function ExperimentoTab({ s }) {
               {!extendida ? (
                 <>
                   <Campo label="Volumen de la gota (µL)"><Num value={parG.vol * 1000} min={1} step={1} onChange={(v) => setParG('vol', v === '' ? 0.02 : v / 1000)} /></Campo>
-                  <Campo label="Factor de dilución (f)"><Num value={parG.factor} min={1.1} step={0.5} onChange={(v) => setParG('factor', v === '' ? 5 : v)} /></Campo>
+                  <Campo label="Toma de cada dilución (µL)"><Num value={parG.toma} min={1} step={5} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, toma: v === '' ? 40 : v, factor: u.par.final / (v === '' ? 40 : v) } }))} /></Campo>
+                  <Campo label="Volumen final por pocillo (µL)"><Num value={parG.final} min={2} step={10} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, final: v === '' ? 200 : v, factor: (v === '' ? 200 : v) / u.par.toma } }))} /></Campo>
+                  <Campo label="Factor de dilución (f)"><div className="valor-calculado" data-tip={`Factor de dilución\nf = volumen final / toma = ${parG.final} / ${parG.toma} = ${Number(parG.factor.toPrecision(4))}\n${texto10(Math.log10(1 / parG.factor))} por pocillo`}>{Number(parG.factor.toPrecision(4))} <small>= {texto10(Math.log10(1 / parG.factor))}</small></div></Campo>
+                  <Campo label="El pocillo 1 es…">
+                    <Select value={parG.primero} onChange={(v) => setParG('primero', v)} opciones={[['dilucion', 'La primera dilución'], ['madre', 'La solución madre (sin diluir)']]} />
+                  </Campo>
                   <Campo label="Contable desde (col./gota)"><Num value={parG.min} min={1} onChange={(v) => setParG('min', v === '' ? 3 : v)} /></Campo>
                   <Campo label="Contable hasta"><Num value={parG.max} min={2} onChange={(v) => setParG('max', v === '' ? 30 : v)} /></Campo>
                 </>
@@ -143,6 +168,13 @@ export function ExperimentoTab({ s }) {
                 </>
               )}
             </div>
+            {!extendida && parG.primero === 'dilucion' && (
+              <div className="rejilla-campos" style={{ marginTop: 6 }}>
+                <Check label={<>Partir de una solución madre<Nota>Opcional. Se toma un volumen de la solución madre para llegar al pocillo 1 con el volumen final indicado; ese paso puede tener un factor distinto del resto de la serie.</Nota></>} checked={!!parG.madre.usar} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, usar: v } } }))} />
+                {parG.madre.usar && <Campo label="Toma de la madre (µL)"><Num value={parG.madre.toma} min={1} step={5} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, toma: v === '' ? 20 : v } } }))} /></Campo>}
+                {parG.madre.usar && <Campo label="Volumen final del pocillo 1 (µL)"><Num value={parG.madre.final} min={2} step={10} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, final: v === '' ? 200 : v } } }))} /></Campo>}
+              </div>
+            )}
             <Check label="Incluir en las medias las estimaciones fuera del rango contable" checked={parG.estimados !== false} onChange={(v) => setParG('estimados', v)} />
             {conOd && (
               <Campo label="La OD se leyó en…">
@@ -197,25 +229,8 @@ export function ExperimentoTab({ s }) {
                 <strong>{cargando ? 'Leyendo…' : 'Soltá las placas leídas (una por tiempo) o hacé clic para elegirlas'}</strong>
                 <span>{ORIGENES_OD.placa.texto}</span>
               </div>
-              <input ref={lecturasRef} type="file" multiple hidden accept={ACEPTA_LIBRO} onChange={(e) => { abrirLecturas(e.target.files); e.target.value = '' }} />
-              {a.lecturas.length > 0 && (
-                <div className="tabla-scroll" style={{ marginTop: 12 }}>
-                  <table className="tabla">
-                    <thead><tr><th>Lectura</th><th>Tiempo (h)</th><th>Pocillos</th><th>λ</th><th /></tr></thead>
-                    <tbody>
-                      {[...a.lecturas].sort((x, y) => x.t - y.t).map((l) => (
-                        <tr key={l.id}>
-                          <td>{l.nombre}</td>
-                          <td><input type="number" step="any" style={{ width: 90 }} value={l.t} onChange={(e) => s.setLectura(l.id, { t: e.target.value === '' ? '' : Number(e.target.value) })}
-                            data-tip={'Tiempo de la lectura\nSe sugiere desde el nombre del archivo (t2h, T=3, 90 min) o por el orden.'} /></td>
-                          <td>{l.datos.length}</td><td>{l.onda ? `${l.onda} nm` : '–'}</td>
-                          <td style={{ textAlign: 'right' }}><button className="chico peligro" onClick={() => s.quitarLectura(l.id)}>Quitar</button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <input ref={lecturasRef} type="file" hidden accept={ACEPTA_LIBRO} onChange={(e) => { abrirLecturas(e.target.files); e.target.value = '' }} />
+              {a.lecturas.length > 0 && <p className="ayuda">Placa cargada: <b>{a.lecturas[0].nombre}</b>{a.lecturas[0].onda ? ` · ${a.lecturas[0].onda} nm` : ''}. Definí los tiempos de las columnas y las cepas de las filas en «Placa de OD».{' '}<button className="chico primario" onClick={() => s.irA('placa')}>Abrir Placa de OD</button></p>}
               {d && <p className="ayuda">Curva armada: {Object.keys(d.pocillos).length} pocillos × {d.tiempos.length} tiempos.</p>}
             </>
           )}
@@ -243,7 +258,7 @@ export function ExperimentoTab({ s }) {
           </div>
           <ul className="lista-muestras">
             {s.muestras.map((m, i) => {
-              const n = s.exps.reduce((t, x) => t + x.config.filter((c) => c.Muestra === m).length + x.ufc.layout.filter((c) => c.Muestra === m).length, 0)
+              const n = s.exps.reduce((t, x) => t + x.config.filter((c) => c.Muestra === m).length + x.ufc.placasG.reduce((q, p) => q + Object.values(p.filas).filter((f) => f.muestra === m).length, 0), 0)
               return (
                 <li key={m}>
                   <span><b>{m}</b>{n > 0 && <small> ({n} {n === 1 ? 'pocillo' : 'pocillos'})</small>}</span>

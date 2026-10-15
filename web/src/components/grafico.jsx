@@ -230,32 +230,6 @@ export function GraficoTab({ s }) {
         <Check label="Mostrar puntos excluidos (x roja)" checked={aj.mostrar_excluidos} onChange={(v) => setAj('mostrar_excluidos', v)} />
         <Check label="Clic en un punto = excluirlo / reincorporarlo (réplicas individuales)" checked={o.click} onChange={(v) => setO('click', v)} />
 
-        <h3>Blanco</h3>
-        <Check label="Corregir al blanco" checked={aj.corregir_blanco} onChange={(v) => setAj('corregir_blanco', v)} />
-        {aj.corregir_blanco && (
-          <Campo label="Método de blanco">
-            <Select value={aj.blanco_metodo} onChange={(v) => setAj('blanco_metodo', v)}
-              opciones={[['tiempo', 'Promedio, tiempo a tiempo'], ['const_media', 'Constante: media de todo el blanco'], ['const_min', 'Constante: mínimo del blanco']]} />
-          </Campo>
-        )}
-        <p className="ayuda">{blancos.length
-          ? `Pocillos de blanco: ${blancos.map((b) => b.Pocillo).join(', ')}.`
-          : "No hay pocillos definidos como blanco (se definen al configurar cada pocillo, con la casilla «Definir como blanco»)."}</p>
-        {aj.corregir_blanco && blancos.length > 0 && (
-          <>
-            <label style={{ fontWeight: 600 }}>Réplicas del blanco usadas en el promedio</label>
-            {blancos.map((b) => {
-              const usados = s.blancosSel || blancos.map((x) => x.Pocillo)
-              return (
-                <label key={b.Pocillo} className="check">
-                  <input type="checkbox" checked={usados.includes(b.Pocillo)}
-                    onChange={() => s.setBlancosSel(usados.includes(b.Pocillo) ? usados.filter((x) => x !== b.Pocillo) : [...usados, b.Pocillo])} />
-                  <span>{nombreReplica(b.Muestra, b.Replica)} ({b.Pocillo})</span>
-                </label>
-              )
-            })}
-          </>
-        )}
         <h3>Muestras</h3>
         <SelectorMuestras s={s} />
       </Panel>

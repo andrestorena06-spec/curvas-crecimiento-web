@@ -29,7 +29,9 @@ function textoOd(s) {
         : 'Se restó a cada lectura el promedio de los pocillos de blanco en el mismo tiempo.')
   } else p.push('No se corrigió por blanco.')
   if (E.puntosExcl.length) p.push(`Se excluyeron manualmente ${E.puntosExcl.length} puntos.`)
-  if (aj.hampel_on) {
+  if (s.a && s.a.origenOd !== 'tecan') {
+    p.push(`Los valores atípicos entre réplicas (misma muestra y mismo tiempo) se detectaron con el test Q de Dixon (Rorabacher, 1991; n de 3 a 10; confianza ${aj.dixon_conf || 95} %) y se excluyeron.`)
+  } else if (aj.hampel_on) {
     p.push(`Los puntos aberrantes se detectaron con un filtro de Hampel (semiventana de ${Math.round(num(aj.hampel_k, 3))} puntos, umbral de ${num(aj.hampel_sigma, 3)} MAD, diferencia mínima ${num(aj.hampel_min, 0.002)} OD) y se ${aj.hampel_accion === 'interpolar' ? 'reemplazaron por interpolación lineal' : 'excluyeron'}.`)
   }
   if (aj.odmax_on) p.push(`Se excluyeron las lecturas con OD mayor que ${num(aj.odmax, 1)}.`)
@@ -151,7 +153,7 @@ async function excelCompleto(s) {
     })
     if (cr.length) hojas.push({ nombre: 'UFC_crecimiento', columnas: Object.keys(cr[0]), filas: cr })
     const cs = []
-    if (s.ufc.metodo !== 'extendida') Object.entries(s.ufc.conteos).forEach(([k, o]) => Object.entries(o).forEach(([p, n]) => cs.push({ Tipo: 'Gota', T_h: Number(k), Muestra: (s.ufc.layout.find((c) => c.Pocillo === p) || {}).Muestra || '', Replica: p[0], Dilucion: -Number(p.slice(1)), Colonias: n })))
+    if (s.ufc.metodo !== 'extendida') s.ufc.placasG.forEach((p) => Object.entries(p.filas).forEach(([L, f]) => Object.entries(p.conteos).filter(([k]) => k[0] === L).forEach(([k, n]) => cs.push({ Tipo: 'Gota', T_h: Number(f.t), Muestra: f.muestra, Replica: f.rep, Dilucion: -Number(k.slice(1)), Colonias: n }))))
     if (s.ufc.metodo === 'extendida') lineasPetri(s.ufc).forEach((l) => { if (Number.isFinite(l.n)) cs.push({ Tipo: 'Sector de placa', T_h: Number(l.t), Muestra: l.muestra, Replica: l.rep, Dilucion: -Number(l.k), Colonias: l.n }) })
     if (s.ufc.metodo === 'extendida') s.ufc.tabla.filas.forEach((f) => Object.entries(f.c || {}).forEach(([k, n]) => cs.push({ Tipo: 'Placa', T_h: Number(f.t), Muestra: f.muestra, Replica: f.replica, Dilucion: -Number(k), Colonias: n })))
     hojas.push({ nombre: 'UFC_conteos', columnas: ['Tipo', 'T_h', 'Muestra', 'Replica', 'Dilucion', 'Colonias'], filas: cs })

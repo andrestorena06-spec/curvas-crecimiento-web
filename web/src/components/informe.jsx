@@ -8,7 +8,7 @@ import { analizarTodos, preprocesar } from '../motor/pipeline.js'
 import { calcularUfc, crecimientoUfc } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
 import { MODELOS_CALIB, ajustarCalibracion } from '../motor/calibracion.js'
-import { MODOS, ORIGENES_OD, hayConteo, hayOd } from '../experimento.js'
+import { MODOS, ORIGENES_OD, ajParaExp, hayConteo, hayOd } from '../experimento.js'
 
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const r4 = (x, d = 4) => (finito(x) ? signif(x, d) : '')
@@ -49,7 +49,7 @@ export function abrirInforme(s, metodos = '') {
       </tbody></table>`
 
     if (conOd) {
-      const ajE = e.origenOd === 'manual' ? { ...s.aj, corregir_blanco: false } : s.aj
+      const ajE = ajParaExp(s.aj, e)
       const pre = preprocesar({ datos: e.datos, config: e.config, E: e.E, aj: ajE, blancosSel: e.blancosSel })
       const series = Object.entries(d.od).map(([m, cu]) => ({ id: m, nombre: m, color: colorDe(m), grosor: 2.2, data: cu.t.map((t, k) => ({ x: t, y: cu.y[k] })).filter((p) => finito(p.y)) }))
       const xs = series.flatMap((x) => x.data.map((p) => p.x))

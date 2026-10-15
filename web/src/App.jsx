@@ -3,6 +3,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { ExperimentoTab } from './components/experimento.jsx'
 import { Elegir, NuevoExperimentoModal } from './components/inicio.jsx'
 import { PlacaTab } from './components/placa.jsx'
+import { PlacaOdTab } from './components/placaod.jsx'
 import { OdManualTab } from './components/odmanual.jsx'
 import { PreprocTab } from './components/preproc.jsx'
 import { GraficoTab } from './components/grafico.jsx'
@@ -21,9 +22,10 @@ import { hojasDe, leerArchivo, leerCrudo } from './motor/lectura.js'
 import { analizarTodos, clavePunto, curvaMedia, estadoVacio, preprocesar } from './motor/pipeline.js'
 import { calcularUfc, esperadoStock, ufcVacio } from './motor/ufc.js'
 import { manualADatos } from './motor/odmanual.js'
-import { datosDeLecturas, leerPlacaDeMatriz, tiempoDeNombre } from './motor/placas.js'
-import { MODOS, expVacio, expsDe, hayConteo, hayOd, nuevoId, odPorPocillos } from './experimento.js'
+import { leerPlacaDeMatriz, placaADatos, tiempoDeNombre } from './motor/placas.js'
+import { MODOS, ajParaExp, expVacio, expsDe, hayConteo, hayOd, nuevoId, odPorPocillos } from './experimento.js'
 
+const MUESTRAS_DEF = ['L100A1', 'L100A1 Rug', 'L100A1 SCV', 'L101B2', 'L101B2 Rug', 'L201', 'L201 Rug', 'BHI', 'TSBye']
 const CLAVE = 'curvas-crecimiento-v1'
 const CLAVE_VIEJA = 'crecimiento-ufc-v1'
 
@@ -32,7 +34,7 @@ const optsDef = () => ({
   det: { modo: 'pocillo', pocillo: '', muestra: '', replicas: true, modelo: 'ninguno', fases: true },
   mapa: { param: 'mu_max' },
   modelos: { sel: ['gompertz', 'logistico', 'richards', 'baranyi'] },
-  ufc: { sub: 'gotas', t: 0 },
+  ufc: { sub: 'dist', t: 0, cd: 1, ch: 12 },
   comp: { exps: null, muestras: null, modo: 'por_exp', od: true, ufc: true, escala: 'log10', error: 'sd' },
   calib: { modelo: 'clasico', exps: null, muestras: null, odEntrada: '', ufcEntrada: '' },
 })
@@ -47,7 +49,7 @@ function cargarGuardado() {
 
 const PESTANAS = {
   experimento: ['Experimento', 'Condiciones y datos', 'Condiciones, datos y muestras del experimento'],
-  placa: ['Pocillos', 'Placa de OD', 'Asigná muestra, réplica y blancos a cada pocillo'],
+  placa: ['Placa de OD', 'Diseño y pocillos', 'Cepas por fila, tiempos por columna y blancos'],
   odmanual: ['OD manual', 'Cubeta', 'Lecturas de espectrofotómetro con sus diluciones'],
   preproc: ['Preprocesado', 'Blanco y QC', 'Blanco, valores atípicos y calidad por pocillo'],
   grafico: ['Gráfico', 'Curvas', 'Curvas de crecimiento por réplica o por muestra'],
@@ -93,7 +95,7 @@ export default function App() {
   const [tab, setTab] = useState('experimento')
   const [exps, setExps] = useState(() => expsDe(gi))
   const [activeId, setActiveId] = useState(gi.activeId || null)
-  const [muestras, setMuestras] = useState(gi.muestras || [])
+  const [muestras, setMuestras] = useState(gi.muestras || MUESTRAS_DEF)
   const [aj, setAjObj] = useState(() => ({ ...ajustesDef(), ...(gi.aj || {}) }))
   const [estilo, setEstilo] = useState(() => normalizarEstilo(gi.estilo))
   const [ejes, setEjes] = useState(() => normalizarEjes(gi.ejes))
@@ -135,7 +137,7 @@ export default function App() {
     const es = expsDe(x)
     setExps(es)
     setActiveId(x.activeId && es.some((e) => e.id === x.activeId) ? x.activeId : es[0]?.id || null)
-    setMuestras(x.muestras || [])
+    setMuestras(x.muestras || MUESTRAS_DEF)
     setAjObj({ ...ajustesDef(), ...(x.aj || {}) })
     setEstilo(normalizarEstilo(x.estilo))
     setEjes(normalizarEjes(x.ejes))
@@ -242,22 +244,21 @@ export default function App() {
     }
     if (!lects.length) return
     const onda = lects.find((l) => l.onda)?.onda
-    upd(a.id, (e) => {
-      const lecturas = [...e.lecturas, ...lects]
-      const datos = datosDeLecturas(lecturas)
-      return {
-        lecturas, datos, config: datos ? e.config.filter((c) => datos.pocillos[c.Pocillo]) : e.config,
-        cond: onda && !e.lecturas.length ? { ...e.cond, lambda: onda } : e.cond,
-      }
-    })
-    avisar(`${lects.length} ${lects.length === 1 ? 'lectura agregada' : 'lecturas agregadas'}.`)
+    // la placa de OD es única: la última cargada reemplaza a la anterior
+    upd(a.id, (e) => ({ ...reconstruir(e, [lects[lects.length - 1]]), cond: onda ? { ...e.cond, lambda: onda } : e.cond }))
+    avisar('Placa de OD cargada: definí el tiempo de cada columna y la cepa de cada fila.')
   }
   const reconstruir = (e, lecturas) => {
-    const datos = datosDeLecturas(lecturas)
-    return { lecturas, datos, config: datos ? e.config.filter((c) => datos.pocillos[c.Pocillo]) : [], E: estadoVacio() }
+    const r = placaADatos(lecturas[0], e.disenoOd)
+    return { lecturas, datos: r.datos, config: r.config, E: estadoVacio() }
   }
-  const setLectura = (id, patch) => upd(a.id, (e) => reconstruir(e, e.lecturas.map((l) => (l.id === id ? { ...l, ...patch } : l))))
   const quitarLectura = (id) => upd(a.id, (e) => reconstruir(e, e.lecturas.filter((l) => l.id !== id)))
+  const setDisenoOd = (f) => upd(a.id, (e) => {
+    const disenoOd = typeof f === 'function' ? f(e.disenoOd) : f
+    const r = placaADatos(e.lecturas[0], disenoOd)
+    return { disenoOd, datos: r.datos, config: r.config }
+  })
+  const setCepas = (f) => upd(a.id, (e) => ({ cepas: typeof f === 'function' ? f(e.cepas) : f }))
 
   // OD manual: las filas se convierten en series «virtuales» para usar los mismos gráficos y análisis
   const setManual = (f) => {
@@ -280,7 +281,7 @@ export default function App() {
     if ((a.datos || a.lecturas.length || a.manual.filas.length) && !window.confirm('Cambiar el origen de la OD descarta la configuración de pocillos y las exclusiones. Los datos cargados se conservan en su origen. ¿Continuar?')) return
     delete archivosRef.current[a.id]
     upd(a.id, (e) => {
-      if (origen === 'placa') return { origenOd: origen, ...reconstruir(e, e.lecturas), config: [] }
+      if (origen === 'placa') return { origenOd: origen, ...reconstruir(e, e.lecturas) }
       if (origen === 'manual') { const r = manualADatos(e.manual); return { origenOd: origen, datos: r.datos, config: r.config, E: estadoVacio(), archivo: null, preview: null } }
       return { origenOd: origen, datos: null, config: [], E: estadoVacio(), archivo: null, preview: null }
     })
@@ -298,7 +299,7 @@ export default function App() {
 
   const quitarExp = (id) => {
     const e = exps.find((x) => x.id === id)
-    if (e && (e.config.length || e.manual.filas.length || e.ufc.tabla.filas.length || Object.keys(e.ufc.conteos).length) && !window.confirm(`Se quitará «${e.nombre}» con su configuración y sus datos. ¿Continuar?`)) return
+    if (e && (e.config.length || e.manual.filas.length || e.ufc.tabla.filas.length || e.ufc.placasG.length || e.ufc.petri.length) && !window.confirm(`Se quitará «${e.nombre}» con su configuración y sus datos. ¿Continuar?`)) return
     delete archivosRef.current[id]
     setExps((es) => es.filter((x) => x.id !== id))
   }
@@ -359,13 +360,15 @@ export default function App() {
   const todasMuestras = useMemo(() => {
     const st = new Set(muestras)
     exps.forEach((e) => {
-      e.config.forEach((c) => st.add(c.Muestra)); e.ufc.layout.forEach((c) => st.add(c.Muestra))
+      e.config.forEach((c) => st.add(c.Muestra)); e.ufc.placasG.forEach((p) => Object.values(p.filas).forEach((f) => f.muestra && st.add(f.muestra))); e.cepas.forEach((c) => st.add(c))
       e.ufc.tabla.filas.forEach((f) => f.muestra && st.add(f.muestra)); e.manual.filas.forEach((f) => f.muestra && st.add(f.muestra))
       e.ufc.petri.forEach((p) => p.sectores.forEach((x) => x.muestra && st.add(x.muestra)))
     })
     return [...st]
   }, [muestras, exps])
   const coloresGlobal = useMemo(() => paletaMuestras(todasMuestras), [todasMuestras])
+  // cepas que se pueden elegir en las placas: las del experimento (o todas, si todavía no se definieron)
+  const opcionesMuestra = useMemo(() => (a && a.cepas.length ? a.cepas : muestras), [a, muestras])
 
   const muestrasCfg = useMemo(() => {
     const pres = [...new Set(config.map((c) => c.Muestra))]
@@ -386,7 +389,7 @@ export default function App() {
 
   const ajD = useDeferredValue(aj)
   // con OD manual el blanco ya se resta en la tabla de lecturas: no se vuelve a restar
-  const ajEfec = useMemo(() => (a && a.origenOd === 'manual' ? { ...ajD, corregir_blanco: false } : ajD), [ajD, a?.origenOd]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ajEfec = useMemo(() => (a ? ajParaExp(ajD, a) : ajD), [ajD, a?.origenOd]) // eslint-disable-line react-hooks/exhaustive-deps
   const pre = useMemo(
     () => (datos && config.length ? preprocesar({ datos, config, E, aj: ajEfec, blancosSel }) : null),
     [datos, config, E, ajEfec, blancosSel],
@@ -417,7 +420,7 @@ export default function App() {
   const setE = (f) => { if (a) upd(a.id, (e) => ({ E: f(e.E) })) }
   const setUfc = (f) => { if (a) upd(a.id, (e) => ({ ufc: typeof f === 'function' ? f(e.ufc) : f })) }
 
-  const usosDe = (e, m) => e.config.filter((c) => c.Muestra === m).length + e.ufc.layout.filter((c) => c.Muestra === m).length
+  const usosDe = (e, m) => e.config.filter((c) => c.Muestra === m).length + e.ufc.placasG.reduce((t, p) => t + Object.values(p.filas).filter((f) => f.muestra === m).length, 0)
     + e.ufc.tabla.filas.filter((f) => f.muestra === m).length + e.manual.filas.filter((f) => f.muestra === m).length
     + e.ufc.petri.reduce((t, p) => t + p.sectores.filter((x) => x.muestra === m).length, 0)
   const borrarMuestra = (m) => {
@@ -428,8 +431,9 @@ export default function App() {
       const man = { ...e.manual, filas: e.manual.filas.filter((f) => f.muestra !== m) }
       const r = man.filas.length !== e.manual.filas.length ? manualADatos(man) : null
       return {
-        ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}),
-        ufc: { ...e.ufc, layout: e.ufc.layout.filter((c) => c.Muestra !== m), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) },
+        ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}), cepas: e.cepas.filter((c) => c !== m),
+        disenoOd: { ...e.disenoOd, filas: Object.fromEntries(Object.entries(e.disenoOd.filas).map(([L, f]) => [L, f.muestra === m ? { ...f, muestra: '' } : f])) },
+        ufc: { ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === m ? { ...f, muestra: '' } : f])) })), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) },
           petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === m ? { ...x, muestra: '' } : x)) })) },
       }
     }))
@@ -444,8 +448,10 @@ export default function App() {
       return {
         ...e,
         config: r ? r.config : e.config.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)), manual: man, ...(r ? { datos: r.datos } : {}),
+        cepas: e.cepas.map((c) => (c === viejo ? nuevoNombre : c)),
+        disenoOd: { ...e.disenoOd, filas: Object.fromEntries(Object.entries(e.disenoOd.filas).map(([L, f]) => [L, f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f])) },
         ufc: {
-          ...e.ufc, layout: e.ufc.layout.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)),
+          ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f])) })),
           tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) },
           petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === viejo ? { ...x, muestra: nuevoNombre } : x)) })),
         },
@@ -511,7 +517,7 @@ export default function App() {
 
   const s = {
     // experimentos
-    exps, a, setActiva: setActiveId, cargarArchivos, agregarLecturas, setLectura, quitarLectura, setManual, quitarExp, renombrarExp, reordenarExps, copiarConfig,
+    opcionesMuestra, setCepas, setDisenoOd, exps, a, setActiva: setActiveId, cargarArchivos, agregarLecturas, quitarLectura, setManual, quitarExp, renombrarExp, reordenarExps, copiarConfig,
     tieneArchivo: !!(a && archivosRef.current[a.id]), cambiarHoja, aplicarLayout, copiarLayoutDe, setModo, setOrigenOd, setCond, irA: setTab,
     // experimento activo (así las pestañas de curvas funcionan igual que en la app de una sola placa)
     archivo: a?.archivo || null, datos, preview: a?.preview || null,
@@ -528,7 +534,7 @@ export default function App() {
     exportarSesion, importarSesion,
   }
 
-  const Vista = { experimento: ExperimentoTab, placa: PlacaTab, odmanual: OdManualTab, preproc: PreprocTab, grafico: GraficoTab, analisis: AnalisisTab, conteo: ConteoTab, calibracion: CalibracionTab, comparar: CompararTab, datos: DatosTab, metodos: MetodosTab }[tabAct]
+  const Vista = { experimento: ExperimentoTab, placa: a && a.origenOd === 'placa' ? PlacaOdTab : PlacaTab, odmanual: OdManualTab, preproc: PreprocTab, grafico: GraficoTab, analisis: AnalisisTab, conteo: ConteoTab, calibracion: CalibracionTab, comparar: CompararTab, datos: DatosTab, metodos: MetodosTab }[tabAct]
 
   const cargarSesionArchivo = async (file) => {
     try { importarSesion(JSON.parse(await file.text())); avisar('Sesión cargada.') } catch { avisar('No se pudo leer la sesión.', 'error') }

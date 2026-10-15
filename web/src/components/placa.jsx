@@ -176,7 +176,7 @@ export function PlacaTab({ s }) {
               onChange={(e) => setMuestra(e.target.value)} />
           </Campo>
           {(() => {
-            const todas = [...new Set([...s.muestras, ...s.config.map((c) => c.Muestra)])]
+            const todas = [...new Set([...s.opcionesMuestra, ...s.config.map((c) => c.Muestra)])]
             const existe = todas.some((m) => m.toLowerCase() === muestra.trim().toLowerCase())
             return (
               <>

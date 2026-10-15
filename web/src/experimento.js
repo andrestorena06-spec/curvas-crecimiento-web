@@ -1,6 +1,7 @@
 import { estadoVacio } from './motor/pipeline.js'
 import { normalizarUfc, ufcVacio } from './motor/ufc.js'
 import { manualDef, normalizarManual } from './motor/odmanual.js'
+import { disenoOdDef, normalizarDisenoOd } from './motor/placas.js'
 
 export const MODOS = {
   od: { titulo: 'Solo OD', texto: 'Densidad óptica en el tiempo: μmax, tiempo de duplicación y lag.' },
@@ -26,7 +27,7 @@ let _n = 0
 export const nuevoId = () => Math.random().toString(36).slice(2, 10) + (_n++ % 10)
 
 export const expVacio = (nombre, modo = 'od', origenOd = 'tecan') => ({
-  id: nuevoId(), nombre, modo, origenOd, cond: condDef(),
+  id: nuevoId(), nombre, modo, origenOd, cond: condDef(), cepas: [], disenoOd: disenoOdDef(),
   archivo: null, datos: null, preview: null, lecturas: [], manual: manualDef(),
   config: [], E: estadoVacio(), blancosSel: null, selMuestras: null, selReps: {}, ufc: ufcVacio(),
 })
@@ -41,6 +42,17 @@ export const normExp = (x) => ({
   ...expVacio(x.nombre || 'Experimento', x.modo || (x.datos ? 'od' : 'conteo'), x.origenOd || 'tecan'), ...x,
   cond: { ...condDef(), ...(x.cond || {}) },
   datos: reviveDatos(x.datos), E: { ...estadoVacio(), ...(x.E || {}) }, config: x.config || [], selReps: x.selReps || {},
+  cepas: Array.isArray(x.cepas) ? x.cepas : [], disenoOd: normalizarDisenoOd(x.disenoOd),
   lecturas: Array.isArray(x.lecturas) ? x.lecturas : [], manual: normalizarManual(x.manual), ufc: normalizarUfc(x.ufc),
 })
 export const expsDe = (g) => (Array.isArray(g.exps) ? g.exps.map(normExp) : [])
+
+// Ajustes efectivos según el origen de la OD: Hampel solo para cinéticas (Tecan); placas y cubeta usan Dixon entre réplicas;
+// con OD manual el blanco ya se restó en la tabla de lecturas
+export const ajParaExp = (aj, e) => ({
+  ...aj,
+  corregir_blanco: e.origenOd === 'manual' ? false : aj.corregir_blanco,
+  hampel_on: e.origenOd === 'tecan' ? aj.hampel_on : false,
+  atipicos: e.origenOd === 'tecan' ? 'hampel' : 'dixon',
+  dixon_conf: aj.dixon_conf || 95,
+})

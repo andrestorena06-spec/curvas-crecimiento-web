@@ -105,11 +105,52 @@ function marcarPozo(datos, c, E, aj, blanco) {
   return { ...c, ReplicaNombre: nombreReplica(c.Muestra, c.Replica), filas }
 }
 
+// Test Q de Dixon (Rorabacher 1991, razón r10, n = 3 a 10)
+const Q_CRIT = { 90: [0.941, 0.765, 0.642, 0.56, 0.507, 0.468, 0.437, 0.412], 95: [0.97, 0.829, 0.71, 0.625, 0.568, 0.526, 0.493, 0.466], 99: [0.994, 0.926, 0.821, 0.74, 0.68, 0.634, 0.598, 0.568] }
+export function dixonQ(vals, conf = 95) {
+  const n = vals.length
+  if (n < 3 || n > 10) return null
+  const s = vals.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v)
+  const rango = s[n - 1].v - s[0].v
+  if (!(rango > 0)) return null
+  const qInf = (s[1].v - s[0].v) / rango, qSup = (s[n - 1].v - s[n - 2].v) / rango
+  const sup = qSup >= qInf
+  const q = sup ? qSup : qInf
+  const crit = (Q_CRIT[conf] || Q_CRIT[95])[n - 3]
+  return q > crit ? { i: (sup ? s[n - 1] : s[0]).i, lado: sup ? 'superior' : 'inferior', q, crit, n, conf } : null
+}
+
+// Valores atípicos entre réplicas (misma muestra y mismo tiempo) con el test Q de Dixon: para lecturas de placas y de cubeta
+function aplicarDixon(marcado, E, aj) {
+  const conf = Number(aj.dixon_conf) || 95
+  const forz = new Set(E.forzados)
+  const grupos = new Map()
+  marcado.forEach((w) => {
+    if (w.EsBlanco || E.pocillosExcl.includes(w.Pocillo)) return
+    w.filas.forEach((f) => {
+      if (f.marca) return
+      const k = w.Muestra + '|' + r3(f.t)
+      if (!grupos.has(k)) grupos.set(k, [])
+      grupos.get(k).push({ w, f })
+    })
+  })
+  grupos.forEach((g) => {
+    const d = dixonQ(g.map((x) => x.f.y), conf)
+    if (!d) return
+    const { w, f } = g[d.i]
+    f.marca = 'Aberrante (Dixon)'
+    f.detalle = `Test Q de Dixon (extremo ${d.lado}): Q = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n} réplicas, confianza ${d.conf} %).`
+    f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+  })
+}
+
 export function marcarTodo({ datos, config, E, aj, blanco }) {
-  return config
+  const res = config
     .filter((c) => datos.pocillos[c.Pocillo])
     .sort((a, b) => ORDEN[a.Pocillo] - ORDEN[b.Pocillo])
     .map((c) => marcarPozo(datos, c, E, aj, blanco))
+  if (aj.atipicos === 'dixon') aplicarDixon(res, E, aj)
+  return res
 }
 
 export const conservar = (f) => !f.motivo || f.motivo === 'Aberrante (interpolado)'
@@ -124,7 +165,7 @@ export function calcularQC({ marcado, config, E, aj }) {
   const porPoc = Object.fromEntries(marcado.map((w) => [w.Pocillo, w]))
 
   // puntos quitados con su tipo (automáticos, interpolados y manuales)
-  const tipoAuto = { 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
+  const tipoAuto = { 'Aberrante (Dixon)': 'Dixon', 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
   const quitados = {}
   marcado.forEach((w) => w.filas.forEach((f) => {
     if (f.motivo) (quitados[w.Pocillo] ||= []).push({ t: f.t, tipo: tipoAuto[f.motivo] })

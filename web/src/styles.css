@@ -445,3 +445,48 @@ textarea { width: 100%; padding: 8px 10px; border: 1px solid #ecdcc2; border-rad
 .esquema96 svg { width: 100%; height: auto; display: block; }
 @media (max-width: 1050px) { .petri-pagina { grid-template-columns: 1fr; } }
 .inicio { width: 100%; box-sizing: border-box; }
+
+/* fecha y cepas */
+input[type=date] { width: 100%; padding: 7px 10px; border: 1px solid #ecdcc2; border-radius: 10px; background: #fffefb; outline: none; font: inherit; min-height: 36px; }
+.fila-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.chip-cepa { display: inline-flex; align-items: center; gap: 7px; padding: 4px 6px 4px 10px; border-radius: 999px; border: 1.5px solid; font-size: 13px; font-weight: 600; color: #3b2a1f; }
+.chip-cepa i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.chip-cepa button { border: none; background: transparent; padding: 0 6px; font-size: 16px; line-height: 1; color: #8a7765; cursor: pointer; }
+.entrada-cepa { width: 210px !important; }
+.placa-od th, .placa-od td { text-align: center; }
+.placa-od .t-col input { width: 54px; padding: 3px 4px; text-align: center; }
+.placa-od .col-num { font-size: 11px; color: var(--suave); }
+.placa-od .col-sin-t { opacity: .55; }
+.placa-od select { min-width: 150px; padding: 4px 6px; }
+.placa-od .celda-od { font-variant-numeric: tabular-nums; font-size: 12px; min-width: 52px; }
+
+/* placa de gotas: diseño, vista plana y conteos */
+.valor-calculado { padding: 7px 10px; border-radius: 10px; background: #fff7ea; border: 1px dashed #ecd2a6; font-weight: 650; cursor: help; min-height: 36px; }
+.valor-calculado small { color: var(--suave); font-weight: 500; }
+.pasos-placa { margin: 0 0 14px 20px; padding: 0; color: #5b4636; font-size: 13.5px; line-height: 1.6; }
+.plano-placa { border-collapse: separate; border-spacing: 3px; font-size: 11px; width: 100%; }
+.plano-placa th { color: #7a5a3a; font-weight: 600; text-align: center; white-space: nowrap; }
+.plano-placa tbody th { text-align: left; min-width: 170px; }
+.plano-placa tbody th small { font-weight: 500; color: #6b5440; }
+.plano-placa .fila-pot th { font-size: 10px; color: #9a8168; font-weight: 500; }
+.plano-placa td { height: 24px; min-width: 38px; border-radius: 50%; border: 1.5px solid #e6d8c0; background: #f7f0e4; }
+.plano-placa td.pozo-libre { opacity: .55; }
+.plano-placa td.pozo-usado { border-width: 2px; }
+.grilla-conteo { border-collapse: separate; border-spacing: 5px; width: 100%; }
+.grilla-conteo th { text-align: center; color: #7a5a3a; font-weight: 600; padding: 4px 6px; white-space: nowrap; }
+.grilla-conteo th b { display: block; font-size: 14px; }
+.grilla-conteo th small { display: block; font-size: 10.5px; color: #9a8168; font-weight: 500; }
+.grilla-conteo thead th:first-child, .grilla-conteo tbody th { text-align: left; }
+.grilla-conteo tbody th small { display: block; font-weight: 500; color: #9a8168; }
+.grilla-conteo td { padding: 0; border-radius: 10px; min-width: 66px; }
+.grilla-conteo td input { width: 100%; min-width: 62px; height: 44px; text-align: center; font-size: 17px; font-weight: 650; border-radius: 10px; background: transparent; border: 1px solid #ecdcc2; }
+.grilla-conteo td input::placeholder { color: #b9a78f; font-weight: 500; }
+.grilla-conteo td input:disabled { opacity: .35; }
+.cepa-fila { white-space: nowrap; font-weight: 600; padding: 0 10px; }
+.cepa-fila i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 7px; }
+.cepa-fila small { color: var(--suave); font-weight: 500; }
+.grilla-conteo .res-fila { min-width: 92px; text-align: right; font-weight: 700; padding: 0 10px; font-variant-numeric: tabular-nums; }
+.leyenda-ufc { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; }
+.leyenda-ufc i { width: 13px; height: 13px; border-radius: 4px; display: inline-block; border: 1px solid rgba(0, 0, 0, .12); }
+.grilla-conteo th small { font-size: 12px !important; }
+.valor-calculado small { font-size: 15px; }
