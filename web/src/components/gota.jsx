@@ -9,8 +9,14 @@ import { nuevoId } from '../experimento.js'
 import { dUfc, sci } from '../calculos.js'
 
 const COLS = Array.from({ length: 12 }, (_, i) => i + 1)
-const filaVacia = () => ({ muestra: '', t: 0, rep: 1, desde: 1, hasta: 11 })
+const filaVacia = () => ({ muestra: '', desde: 1, hasta: 11 })
 const placaNueva = (n) => ({ id: nuevoId(), nombre: `Placa ${n}`, filas: {}, conteos: {} })
+// tiempo (h) de una placa de gotas; sesiones anteriores sin tiempo en la placa: el de su primera fila usada
+const tPlaca = (p) => {
+  if (p.t !== undefined && p.t !== '' && finito(Number(p.t))) return Number(p.t)
+  const t = Number(Object.values(p.filas || {}).find((f) => f?.muestra)?.t)
+  return finito(t) ? t : 0
+}
 const fondo = (n, par) => (!finito(n) ? undefined : contable(n, par) ? '#e3f1dc' : n > par.max ? '#f8d9d6' : n === 0 ? '#efece6' : '#fbf0cf')
 const num = (v) => { const t = String(v ?? '').trim().replace(',', '.'); if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? n : null }
 
@@ -37,78 +43,95 @@ export function DisenoGota({ s }) {
   const placa = placas.find((p) => p.id === pid) || placas[0] || null
   const cepas = s.opcionesMuestra
   const color = (m) => s.coloresGlobal[m] || '#c99a5b'
-  const setPlacas = (f) => s.setUfc((u) => ({ ...u, placasG: typeof f === 'function' ? f(u.placasG) : f }))
+  // cada placa es un tiempo: las filas toman el tiempo de su placa y la réplica se numera sola (por cepa, de la A a la H)
+  //   (si un tiempo ocupa más de una placa, la numeración sigue de una a la otra)
+  const ordenar = (ps) => {
+    const cuenta = {}
+    return ps.map((p) => {
+      const t = tPlaca(p)
+      const filas = {}
+      LETRAS.forEach((L) => {
+        const f = p.filas[L]
+        if (!f?.muestra) return
+        const k = `${t}|${f.muestra}`
+        cuenta[k] = (cuenta[k] || 0) + 1
+        filas[L] = { ...f, t, rep: cuenta[k] }
+      })
+      return { ...p, t, nombre: `T = ${t} h`, filas, conteos: Object.fromEntries(Object.entries(p.conteos || {}).filter(([k]) => filas[k[0]])) }
+    })
+  }
+  const setPlacas = (f) => s.setUfc((u) => ({ ...u, placasG: ordenar(typeof f === 'function' ? f(u.placasG) : f) }))
   const setFila = (L, patch) => setPlacas((ps) => ps.map((p) => (p.id === placa.id ? { ...p, filas: { ...p.filas, [L]: { ...(p.filas[L] || filaVacia()), ...patch } } } : p)))
   const quitarFila = (L) => setPlacas((ps) => ps.map((p) => {
     if (p.id !== placa.id) return p
     const filas = { ...p.filas }; delete filas[L]
-    const conteos = Object.fromEntries(Object.entries(p.conteos).filter(([k]) => k[0] !== L))
-    return { ...p, filas, conteos }
+    return { ...p, filas }
   }))
-  const crear = () => { const p = placaNueva(placas.length + 1); setPlacas((ps) => [...ps, p]); setPid(p.id) }
+  const setTiempo = (v) => setPlacas((ps) => ps.map((p) => (p.id === placa.id ? { ...p, t: v === '' ? 0 : v } : p)))
+  // nuevo tiempo: una placa con el mismo formato que la que se está viendo, sin conteos
+  const crear = () => {
+    const t = placas.length ? Math.max(...placas.map(tPlaca).filter(finito)) + 1 : 0
+    const p = { ...placaNueva(placas.length + 1), t, filas: placa ? JSON.parse(JSON.stringify(placa.filas)) : {} }
+    setPlacas((ps) => [...ps, p].sort((a, b) => tPlaca(a) - tPlaca(b))); setPid(p.id)
+  }
   const quitar = () => {
-    if (Object.keys(placa.conteos).length && !window.confirm(`«${placa.nombre}» tiene conteos cargados. ¿Quitarla?`)) return
+    if (Object.keys(placa.conteos).length && !window.confirm(`La placa de T = ${tPlaca(placa)} h tiene conteos cargados. ¿Quitarla?`)) return
     setPlacas((ps) => ps.filter((p) => p.id !== placa.id)); setPid(null)
   }
 
   // formato de la placa de OD: cada fila con una sola cepa (sin contar los blancos) pasa a esta placa
   const formatoOd = () => {
     const pc = s.a.disenoOd.pocillos
-    const tP = Object.values(placa.filas).find((f) => f?.muestra)?.t ?? 0
-    const cuenta = {}
     const filas = {}
     LETRAS.forEach((L) => {
       const ms = [...new Set(COLS.map((c) => pc[L + c]).filter((w) => w && !w.blanco).map((w) => w.muestra))]
-      if (ms.length !== 1) return
-      cuenta[ms[0]] = (cuenta[ms[0]] || 0) + 1
-      filas[L] = { ...filaVacia(), ...(placa.filas[L] || {}), muestra: ms[0], t: placa.filas[L]?.t ?? tP, rep: cuenta[ms[0]] }
+      if (ms.length === 1) filas[L] = { ...filaVacia(), ...(placa.filas[L] || {}), muestra: ms[0] }
     })
-    setPlacas((ps) => ps.map((p) => (p.id === placa.id ? { ...p, filas, conteos: Object.fromEntries(Object.entries(p.conteos).filter(([k]) => filas[k[0]])) } : p)))
+    setPlacas((ps) => ps.map((p) => (p.id === placa.id ? { ...p, filas } : p)))
     s.avisar('Formato copiado de la placa de OD.')
   }
-  // copia el formato de esta placa a las demás; cada una conserva su tiempo (el de su primera fila usada)
+  // copia el formato de esta placa a las demás; cada una conserva su tiempo
   const aTodas = () => {
     if (placas.some((p) => p.id !== placa.id && Object.keys(p.conteos).length) && !window.confirm('Otras placas tienen conteos: se conservan los de las filas que siguen usadas. ¿Continuar?')) return
-    setPlacas((ps) => ps.map((p) => {
-      if (p.id === placa.id) return p
-      const tP = Object.values(p.filas).find((f) => f?.muestra)?.t
-      const filas = Object.fromEntries(Object.entries(placa.filas).filter(([, f]) => f?.muestra).map(([L, f]) => [L, { ...f, t: tP ?? f.t }]))
-      return { ...p, filas, conteos: Object.fromEntries(Object.entries(p.conteos).filter(([k]) => filas[k[0]])) }
-    }))
+    setPlacas((ps) => ps.map((p) => (p.id === placa.id ? p : { ...p, filas: JSON.parse(JSON.stringify(placa.filas)) })))
     s.avisar('Formato aplicado a todas las placas. Podés editar cada una.')
   }
 
-  // genera filas: para cada tiempo y cada réplica una fila, ocupando las filas libres de las placas (y creando placas nuevas)
+  // genera filas: para cada tiempo, sus réplicas en las filas libres de la placa de ese tiempo (si no hay lugar, se crea otra)
   const generar = () => {
     const ts = gen.tiempos.split(/[;,\s]+/).map(num).filter((v) => v !== null && v >= 0)
     if (!gen.cepa) return s.avisar('Elegí la cepa.', 'error')
     if (!ts.length) return s.avisar('Escribí los tiempos en horas, separados por comas.', 'error')
-    const nuevas = []
     const esp = Math.max(0, Number(gen.espacio) || 0)
-    ts.forEach((t) => { for (let r = 1; r <= Math.max(1, gen.reps); r++) { if (nuevas.length) for (let k = 0; k < esp; k++) nuevas.push(null); nuevas.push({ muestra: gen.cepa, t, rep: r, desde: Number(gen.desde), hasta: Number(gen.hasta) }) } })
-    // null = fila vacía (espaciado): ocupa una fila libre y la deja sin cepa
     setPlacas((ps) => {
       const out = ps.map((p) => ({ ...p, filas: { ...p.filas } }))
-      let i = 0
-      for (const p of out) for (const L of LETRAS) if (i < nuevas.length && !p.filas[L]?.muestra) { if (nuevas[i]) p.filas[L] = nuevas[i]; i++ }
-      while (i < nuevas.length) {
-        const p = placaNueva(out.length + 1)
-        for (const L of LETRAS) if (i < nuevas.length) { if (nuevas[i]) p.filas[L] = nuevas[i]; i++ }
-        out.push(p)
-      }
-      return out
+      ts.forEach((t) => {
+        // null = fila vacía (espaciado): ocupa una fila libre y la deja sin cepa
+        const nuevas = []
+        for (let r = 1; r <= Math.max(1, gen.reps); r++) { if (nuevas.length) for (let k = 0; k < esp; k++) nuevas.push(null); nuevas.push({ muestra: gen.cepa, desde: Number(gen.desde), hasta: Number(gen.hasta) }) }
+        let i = 0
+        for (const p of out) if (tPlaca(p) === t) for (const L of LETRAS) if (i < nuevas.length && !p.filas[L]?.muestra) { if (nuevas[i]) p.filas[L] = nuevas[i]; i++ }
+        while (i < nuevas.length) {
+          const p = { ...placaNueva(out.length + 1), t }
+          for (const L of LETRAS) if (i < nuevas.length) { if (nuevas[i]) p.filas[L] = nuevas[i]; i++ }
+          out.push(p)
+        }
+      })
+      return out.sort((a, b) => tPlaca(a) - tPlaca(b))
     })
-    s.avisar(`${nuevas.filter(Boolean).length} filas generadas.`)
+    s.avisar(`${Math.max(1, gen.reps) * ts.length} filas generadas.`)
   }
+  const tPlacas = placas.map(tPlaca)
+  const etiqueta = (p, i) => `T = ${tPlacas[i]} h${tPlacas.filter((x) => x === tPlacas[i]).length > 1 ? ` (${tPlacas.slice(0, i + 1).filter((x) => x === tPlacas[i]).length})` : ''}`
 
   return (
     <>
       <section className="tarjeta">
         <div className="titulo-fila">
-          <h2>Diseño de placa <Nota>Cada FILA de la placa de 96 es una réplica de una cepa a un tiempo; cada COLUMNA, una dilución seriada. Podés usar varias cepas y varios tiempos: usá más de una placa si hace falta. Después, en «Conteos», elegís el tiempo y el rango de diluciones con el que vas a trabajar.</Nota></h2>
+          <h2>Diseño de placa <Nota>Cada placa de 96 es un tiempo. Cada FILA es una réplica de una cepa (la réplica se numera sola) y cada COLUMNA, una dilución seriada: elegí desde qué columna hasta cuál se sembró. Después, en «Conteos», elegís el tiempo y escribís las colonias.</Nota></h2>
           <div className="fila-ctrl" style={{ margin: 0 }}>
-            {placas.map((p) => <button key={p.id} className={`chip-t ${placa && p.id === placa.id ? 'on' : ''}`} onClick={() => setPid(p.id)}>{p.nombre}</button>)}
-            <button className="chico primario" onClick={crear}>+ Placa</button>
+            {placas.map((p, i) => <button key={p.id} className={`chip-t ${placa && p.id === placa.id ? 'on' : ''}`} onClick={() => setPid(p.id)}>{etiqueta(p, i)}</button>)}
+            <button className="chico primario" onClick={crear} data-tip={'Nuevo tiempo\nUna placa más, con el mismo formato que la que estás viendo.'}>+ Tiempo</button>
           </div>
         </div>
         <div className="fila-ctrl" style={{ alignItems: 'flex-end' }}>
@@ -125,35 +148,33 @@ export function DisenoGota({ s }) {
           <Campo label={<>Espaciado<Nota>Filas vacías entre una fila y la siguiente: deja lugar para sembrar las gotas de cada réplica con suficiente espacio.</Nota></>}>
             <Select value={String(gen.espacio)} onChange={(v) => setGen({ ...gen, espacio: Number(v) })} opciones={[['0', 'Sin espaciado'], ['1', '1 fila vacía'], ['2', '2 filas vacías'], ['3', '3 filas vacías']]} />
           </Campo>
-          <button className="primario" onClick={generar} data-tip={'Generar filas\nUna fila por tiempo y réplica, en las filas libres de las placas (se crean placas nuevas si hace falta).'}>Generar</button>
+          <button className="primario" onClick={generar} data-tip={'Generar filas\nPara cada tiempo, las réplicas en las filas libres de la placa de ese tiempo (se crea la placa si no existe).'}>Generar</button>
         </div>
-        {!placa ? <Vacio texto="Todavía no hay placas. Creá una con «+ Placa» o generá filas." /> : (
+        {!placa ? <Vacio texto="Todavía no hay placas. Creá una con «+ Tiempo» o generá filas." /> : (
           <>
-            <div className="fila-ctrl">
-              <input className="nombre-placa-in" value={placa.nombre} onChange={(e) => setPlacas((ps) => ps.map((p) => (p.id === placa.id ? { ...p, nombre: e.target.value } : p)))} aria-label="Nombre de la placa" />
+            <div className="fila-ctrl" style={{ alignItems: 'flex-end' }}>
+              <Campo label="Tiempo de esta placa (h)"><Num value={tPlaca(placa)} min={0} step={0.5} onChange={setTiempo} /></Campo>
               {s.a.disenoOd && Object.keys(s.a.disenoOd.pocillos).length > 0 && <button className="chico" onClick={formatoOd} data-tip={'Mismo formato que la placa de OD\nCada fila de esta placa toma la cepa de la misma fila de la placa de OD.'}>Usar formato de la placa de OD</button>}
-              {placas.length > 1 && <button className="chico" onClick={aTodas} data-tip={'Mismo formato en todas las placas\nCopia las cepas, réplicas y pocillos de esta placa a las demás (cada placa conserva su tiempo y sus conteos). Después se puede editar cada una, por ejemplo si en los primeros tiempos se hicieron menos diluciones.'}>Aplicar este formato a todas las placas</button>}
+              {placas.length > 1 && <button className="chico" onClick={aTodas} data-tip={'Mismo formato en todas las placas\nCopia las cepas y las columnas de esta placa a las demás (cada placa conserva su tiempo y sus conteos). Después se puede editar cada una, por ejemplo si en los primeros tiempos se hicieron menos diluciones.'}>Aplicar este formato a todas las placas</button>}
               <button className="chico peligro" onClick={quitar}>Quitar placa</button>
             </div>
             <div className="tabla-scroll" style={{ maxHeight: 'none' }}>
               <table className="tabla tabla-od">
-                <thead><tr><th>Fila</th><th>Cepa</th><th>Tiempo (h)</th><th>Réplica</th><th>Pocillo desde</th><th>hasta</th><th /></tr></thead>
+                <thead><tr><th>Fila</th><th>Cepa</th><th>Desde la columna</th><th>Hasta la columna</th><th /></tr></thead>
                 <tbody>
                   {LETRAS.map((L) => {
                     const f = placa.filas[L]
                     return (
                       <tr key={L}>
-                        <th>{L}</th>
+                        <th>{L}{f?.muestra && <small> R{f.rep}</small>}</th>
                         <td>
                           <select value={f?.muestra || ''} onChange={(e) => (e.target.value ? setFila(L, { muestra: e.target.value }) : quitarFila(L))}>
                             <option value="">(sin cepa)</option>
                             {[...new Set([...cepas, ...(f?.muestra ? [f.muestra] : [])])].map((m) => <option key={m} value={m}>{m}</option>)}
                           </select>
                         </td>
-                        <td><input type="number" step="any" min="0" style={{ width: 70 }} disabled={!f} value={f?.t ?? ''} onChange={(e) => setFila(L, { t: e.target.value === '' ? '' : Number(e.target.value) })} /></td>
-                        <td><input type="number" min="1" style={{ width: 56 }} disabled={!f} value={f?.rep ?? ''} onChange={(e) => setFila(L, { rep: Number(e.target.value) || 1 })} /></td>
-                        <td><input type="number" min="1" max="12" style={{ width: 56 }} disabled={!f} value={f?.desde ?? ''} onChange={(e) => setFila(L, { desde: Number(e.target.value) || 1 })} /></td>
-                        <td><input type="number" min="1" max="12" style={{ width: 56 }} disabled={!f} value={f?.hasta ?? ''} onChange={(e) => setFila(L, { hasta: Number(e.target.value) || 12 })} /></td>
+                        <td><input type="number" min="1" max="12" style={{ width: 64 }} disabled={!f} value={f?.desde ?? ''} onChange={(e) => setFila(L, { desde: Number(e.target.value) || 1 })} /></td>
+                        <td><input type="number" min="1" max="12" style={{ width: 64 }} disabled={!f} value={f?.hasta ?? ''} onChange={(e) => setFila(L, { hasta: Number(e.target.value) || 12 })} /></td>
                         <td>{f && <button className="chico peligro" aria-label="Vaciar fila" onClick={() => quitarFila(L)}>×</button>}</td>
                       </tr>
                     )
