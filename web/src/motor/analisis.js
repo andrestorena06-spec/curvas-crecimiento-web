@@ -152,12 +152,25 @@ export function regLineal(x, y) {
   return { a, b, r2: sst > 0 ? 1 - sse / sst : NaN }
 }
 
-export function ventanasLn(t, y, ancho, minPts, lnMin) {
+// Con lecturas espaciadas (placas leídas cada 1-2 h, cubeta) una ventana angosta no junta los puntos mínimos:
+// el ancho efectivo es el mayor entre el pedido y (puntos mínimos − 1) × el intervalo típico entre lecturas
+export function anchoEfectivo(t, ancho, minPts) {
+  const tt = t.filter(finito).sort((a, b) => a - b)
+  const dt = []
+  for (let i = 1; i < tt.length; i++) if (tt[i] > tt[i - 1]) dt.push(tt[i] - tt[i - 1])
+  if (!dt.length) return ancho
+  dt.sort((a, b) => a - b)
+  const med = dt[Math.floor(dt.length / 2)]
+  return Math.max(ancho, (minPts - 1) * med)
+}
+
+export function ventanasLn(t, y, anchoPedido, minPts, lnMin) {
   const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(y[i]) && y[i] > 0 && y[i] >= lnMin).sort((a, b) => t[a] - t[b])
   const tt = idx.map((i) => t[i])
   const ly = idx.map((i) => Math.log(y[i]))
   const n = tt.length
   if (n < minPts) return null
+  const ancho = anchoEfectivo(tt, anchoPedido, minPts)
   const filas = []
   for (let i = 0; i < n; i++) {
     const j = []

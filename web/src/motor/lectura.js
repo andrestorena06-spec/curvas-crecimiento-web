@@ -16,29 +16,6 @@ export function convertirNumero(x) {
   return s === '' ? NaN : Number(s)
 }
 
-// ---------- CSV ----------
-export function parsearCSV(texto) {
-  const limpio = texto.replace(/^﻿/, '')
-  const muestra = limpio.split(/\r?\n/).slice(0, 30)
-  const cuenta = [';', '\t', ','].map((s) => muestra.reduce((a, l) => a + (l.split(s).length - 1), 0))
-  const max = Math.max(...cuenta)
-  const sep = max === 0 ? ',' : [';', '\t', ','][cuenta.indexOf(max)]
-  const filas = []
-  let fila = [], campo = '', comillas = false
-  for (let i = 0; i < limpio.length; i++) {
-    const c = limpio[i]
-    if (comillas) {
-      if (c === '"') { if (limpio[i + 1] === '"') { campo += '"'; i++ } else comillas = false } else campo += c
-    } else if (c === '"') comillas = true
-    else if (c === sep) { fila.push(campo.trim()); campo = '' }
-    else if (c === '\n') { fila.push(campo.trim()); filas.push(fila); fila = []; campo = '' }
-    else if (c !== '\r') campo += c
-  }
-  if (campo !== '' || fila.length) { fila.push(campo.trim()); filas.push(fila) }
-  const ancho = Math.max(...filas.map((f) => f.length), 1)
-  return filas.map((f) => Array.from({ length: ancho }, (_, j) => f[j] ?? ''))
-}
-
 async function decodificar(file) {
   const buf = await file.arrayBuffer()
   try {

@@ -11,7 +11,6 @@ import { abrirInforme } from './informe.jsx'
 import { aCSV, descargarBlob, descargarTexto, tCuantil } from '../utils.js'
 import { excelDe } from '../excel.js'
 
-const n2 = (x) => (finito(x) ? Number(x.toPrecision(3)) : null)
 
 // ---------------------------------------------------------------
 // Texto de métodos con los criterios activos (equivale a texto_metodos de la app en R)
@@ -61,7 +60,11 @@ function textoManual(s) {
 
 function textoConteo(s) {
   const { par, tabla } = s.ufc
-  const partes = [`Los recuentos se expresan en UFC/mL. Cada placa (o gota) con C colonias y volumen V aporta C / V × f^k UFC/mL, con f el factor de dilución y k el número de diluciones. Se consideraron contables las placas con ${tabla.min} a ${tabla.max} colonias (gotas: ${par.min} a ${par.max}). Cuando más de una dilución estuvo en el rango se usó la media ponderada (ISO 7218; FDA BAM): UFC/mL = ΣC / (V × Σ f^−k). El intervalo de confianza del 95 % de cada recuento es el de Poisson exacto (Garwood) según las colonias contadas. Las réplicas se promediaron con la media geométrica (el error de un recuento es multiplicativo) y su dispersión se expresa como desviación estándar de log10(UFC/mL).`]
+  const gota = s.ufc.metodo !== 'extendida'
+  const siembra = gota
+    ? `Se sembraron gotas de ${par.vol * 1000} µL de diluciones seriadas en placa de 96 pocillos (factor ${Number(par.factor.toPrecision(4))} por paso)${par.primero === 'madre' ? ', con la suspensión sin diluir en el primer pocillo' : ''}. Se consideraron contables las gotas con ${par.min} a ${par.max} colonias.`
+    : `Se sembraron ${tabla.vol} µL de cada dilución (factor ${tabla.factor}) por extensión en placa. Se consideraron contables las placas con ${tabla.min} a ${tabla.max} colonias.`
+  const partes = [`Los recuentos se expresan en UFC/mL. ${siembra} Cada placa (o gota) con C colonias y volumen V aporta C / V × f^k UFC/mL, con f el factor de dilución y k el número de diluciones. Cuando más de una dilución estuvo en el rango se usó la media ponderada (ISO 7218; FDA BAM): UFC/mL = ΣC / (V × Σ f^−k). El intervalo de confianza del 95 % de cada recuento es el de Poisson exacto (Garwood) según las colonias contadas. Las réplicas se promediaron con la media geométrica (el error de un recuento es multiplicativo) y su dispersión se expresa como desviación estándar de log10(UFC/mL).`]
   partes.push(par.estimados === false ? 'Solo se promediaron las réplicas con diluciones dentro del rango contable.' : 'Las estimaciones fuera del rango contable (con la dilución más cercana) se incluyeron en las medias y se señalan en las tablas.')
   partes.push('La velocidad de crecimiento (μ) con los recuentos es la pendiente máxima de ln(UFC/mL) contra el tiempo en 3 o más tiempos consecutivos con R² ≥ 0,9; el lag es la intersección de esa recta con el nivel inicial.')
   return partes.join(' ')
@@ -71,8 +74,14 @@ function textoConteo(s) {
 export function textoMetodos(s) {
   const a = s.a
   const p = []
+  if (a) {
+    const c = a.cond
+    const partes = [c.medio && `en ${c.medio}`, c.temperatura && `a ${c.temperatura} °C`, c.agitacion === 'si' ? `con agitación${c.rpm ? ` (${c.rpm} rpm)` : ''}` : c.agitacion === 'no' ? 'sin agitación' : ''].filter(Boolean)
+    if (partes.length) p.push(`Los cultivos${a.cepas.length ? ` (${a.cepas.join(', ')})` : ''} se incubaron ${partes.join(', ')}.`)
+  }
   if (a && a.modo !== 'conteo') {
     if (a.origenOd === 'manual') p.push(textoManual(s))
+    if (a.origenOd === 'placa') p.push(`La OD${a.cond.lambda ? ` a ${a.cond.lambda} nm` : ''} se leyó en una placa de 96 pocillos en la que cada columna corresponde a un tiempo de muestreo; cada curva reúne los pocillos de una fila con la misma cepa.`)
     p.push(textoOd(s))
   }
   if (a && a.modo !== 'od') p.push(textoConteo(s))
@@ -227,7 +236,7 @@ const NT = [2, 3, 4, 5, 6, 8, 11, 21, 31]
 export function MetodosTab({ s }) {
   const op = opAnalisis(s.aj)
   const aj = s.aj
-  const texto = useMemo(() => textoMetodos(s), [s.aj, s.E, s.pre]) // eslint-disable-line react-hooks/exhaustive-deps
+  const texto = useMemo(() => textoMetodos(s), [s.aj, s.E, s.pre, s.ufc, s.a]) // eslint-disable-line react-hooks/exhaustive-deps
   const act = (cond, txt) => (cond ? <b> (activo: {txt})</b> : <i> (desactivado)</i>)
   return (
     <div className="pagina">
@@ -244,8 +253,8 @@ export function MetodosTab({ s }) {
         <h2>Cómo se calcula cada cosa</h2>
         <p className="ayuda">Explicación paso a paso, en lenguaje llano y con las fórmulas. Los ejemplos usan números simples para que puedas repetirlos con calculadora.</p>
 
-        <h3>1. Qué mide el lector y cómo se lee el archivo</h3>
-        <p>El lector de placas mide la <b>absorbancia (OD)</b> de cada pocillo a intervalos regulares. Cuanto más turbio el cultivo, mayor la OD. El archivo se convierte en una curva por pocillo: tiempo (en segundos, internamente) contra OD. Los datos originales <b>nunca se modifican</b>: todo lo que sigue (blanco, exclusiones, suavizado) se calcula sobre una copia y se puede deshacer.</p>
+        <h3>1. Qué se mide y cómo se arman las curvas</h3>
+        <p>Se mide la <b>absorbancia (OD)</b>: cuanto más turbio el cultivo, mayor la OD. {s.a?.origenOd === 'placa' ? 'En la placa de OD cada columna es un tiempo de muestreo y cada curva reúne los pocillos de una fila con la misma cepa.' : s.a?.origenOd === 'manual' ? 'En cubeta, cada lectura (muestra, réplica y tiempo) se corrige por el blanco y por la dilución.' : 'El lector mide cada pocillo a intervalos regulares y el archivo se convierte en una curva por pocillo.'} Internamente el tiempo se guarda en segundos. Los datos originales <b>nunca se modifican</b>: todo lo que sigue (blanco, exclusiones, suavizado) se calcula sobre una copia y se puede deshacer.</p>
 
         <h3>2. Corrección al blanco{act(aj.corregir_blanco, aj.blanco_metodo === 'tiempo' ? 'tiempo a tiempo' : aj.blanco_metodo === 'const_media' ? 'media constante' : 'mínimo constante')}</h3>
         <p>El <b>blanco</b> es medio de cultivo sin bacterias: su OD no es crecimiento sino el «ruido de fondo» del medio y la placa. Se le resta a todas las lecturas.</p>
@@ -346,7 +355,7 @@ export function MetodosTab({ s }) {
         <h3>9. Recuento de UFC</h3>
         <p>Cada placa (o gota) con <b>C</b> colonias, sembrada con un volumen <b>V</b> (mL) de una suspensión diluida <b>k</b> veces con factor <b>f</b>, aporta <code>C ÷ V × f^k</code> UFC/mL. Ejemplo: 8 colonias en una gota de 0,02 mL de la dilución −5 con factor 5: 8 ÷ 0,02 × 5⁵ = 400 × 3125 = 1,25 × 10⁶ UFC/mL. En la placa de 96 pocillos cada <b>fila</b> es una réplica y cada <b>columna</b> una dilución; en las placas de Petri cada fila de la tabla es una placa.</p>
         <ul>
-          <li><b>Rango contable</b>: placas con {s.ufc.tabla.min} a {s.ufc.tabla.max} colonias (gotas: {s.ufc.par.min} a {s.ufc.par.max}), ajustable en «Experimento». Con muy pocas colonias domina el azar del conteo (error de Poisson ≈ 1/√C) y con demasiadas se superponen y se cuentan mal.</li>
+          <li><b>Rango contable</b>: {s.ufc.metodo === 'extendida' ? `placas con ${s.ufc.tabla.min} a ${s.ufc.tabla.max} colonias` : `gotas con ${s.ufc.par.min} a ${s.ufc.par.max} colonias`}, ajustable en «Experimento». Con muy pocas colonias domina el azar del conteo (error de Poisson ≈ 1/√C) y con demasiadas se superponen y se cuentan mal.</li>
           <li><b>Varias diluciones en rango</b>: media ponderada de la ISO 7218 / FDA BAM, <code>UFC/mL = ΣC ÷ (V × Σ f^−k)</code>. Ejemplo: 168 colonias en −2 y 15 en −3 (V = 1 mL, f = 10): 183 ÷ (10⁻² + 10⁻³) = 183 ÷ 0,011 = 16 636 UFC/mL. Pesa más la dilución con más colonias, que es la más precisa.</li>
           <li><b>Fuera del rango</b>: si ninguna dilución es contable se estima con la más cercana (la de más colonias por debajo del rango, o la de menos colonias por encima si no supera el doble del máximo) y se marca como «estimado»; si todas dan 0 se informa el <b>límite de detección</b> (≈ 3 ÷ (V × Σ f^−k)); si todas se pasan se marca «incontable». La opción de «Experimento» decide si las estimaciones entran en las medias.</li>
           <li><b>IC 95 % del conteo</b>: Poisson exacto (Garwood) según el total de colonias S usadas: de χ²(0,025; 2S)/2 a χ²(0,975; 2S+2)/2, divididos por V × Σ f^−k. Con 10 colonias el intervalo va de 4,8 a 18,4: contar pocas colonias es poco preciso aunque se repita.</li>

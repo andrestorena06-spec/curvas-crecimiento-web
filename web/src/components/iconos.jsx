@@ -40,11 +40,3 @@ export function Ilustracion({ tipo }) {
   )
 }
 
-// Motivo decorativo de la cabecera de cada página
-export const Decoracion = () => (
-  <svg viewBox="0 0 260 90" className="deco-cabecera" aria-hidden>
-    <path d="M10 78 C70 78 90 70 130 46 S210 8 252 8" fill="none" stroke="#f0b06a" strokeWidth="3.5" strokeLinecap="round" strokeOpacity=".55" />
-    {[[40, 77], [88, 70], [130, 46], [176, 22], [222, 10]].map(([x, y], i) => <circle key={i} cx={x} cy={y} r="4.2" fill="#fffdf9" stroke="#e8933f" strokeWidth="2" />)}
-    {[[190, 62, 9], [214, 48, 6], [232, 70, 7], [176, 76, 5], [248, 52, 4]].map(([x, y, r], i) => <circle key={i} cx={x} cy={y} r={r} fill="#e8933f" fillOpacity={0.14 + i * 0.03} />)}
-  </svg>
-)

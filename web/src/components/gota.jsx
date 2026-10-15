@@ -149,6 +149,12 @@ export function ConteosGota({ s }) {
     }))
     Object.entries(porPlaca).forEach(([pid, m]) => { Object.keys(m).forEach((k) => m[k] === undefined && delete m[k]); poner(pid, m) })
   }
+  // colonias esperadas (solo guía): enteras, y nada si se espera menos de media colonia
+  const guia = (j) => {
+    if (!finito(stock)) return ''
+    const n = coloniasEsperadas(stock, j, par)
+    return n >= 0.5 ? String(n >= 10 ? Math.round(n) : Number(n.toPrecision(1))) : ''
+  }
   const repDe = (f) => res.reps.find((r) => r.Muestra === f.muestra && r.T_h === Number(f.t) && r.Replica === (Number(f.rep) || 1))
   const varias = vista.length > 1
 
@@ -203,7 +209,7 @@ export function ConteosGota({ s }) {
                     return (
                       <td key={j} style={{ background: activo ? fondo(n, par) : '#f4efe6' }}>
                         <input ref={(el) => { refs.current[`${i}|${j}`] = el }} type="number" min="0" step="1" disabled={!activo}
-                          value={finito(n) ? n : ''} placeholder={activo && finito(stock) ? String(Number(coloniasEsperadas(stock, j, par).toPrecision(2))) : ''}
+                          value={finito(n) ? n : ''} placeholder={activo ? guia(j) : ''}
                           onChange={(e) => poner(p.id, { [L + j]: e.target.value === '' ? null : Math.max(0, Math.round(Number(e.target.value))) })}
                           onKeyDown={(e) => tecla(e, i, j)} onPaste={(e) => pegar(e, i, j)} />
                       </td>

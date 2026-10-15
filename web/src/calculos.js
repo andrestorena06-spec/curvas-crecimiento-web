@@ -27,11 +27,6 @@ export function dUfc(r) {
     `IC 95 % (Poisson exacto, S = ${S}): ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`,
   ].join('\n')
 }
-export const dIcPoisson = (r) => (Number.isFinite(r.IC95_inf) ? `IC 95 % de Poisson exacto (Garwood)
-S = ${r._S} colonias contadas
-inferior = χ²(0.025; 2S) / 2 ; superior = χ²(0.975; 2S+2) / 2
-ambos divididos por V × Σ f⁻ᵏ
-→ ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL` : null)
 
 // media geométrica de las réplicas de una muestra en un tiempo
 export function dGeo(r) {

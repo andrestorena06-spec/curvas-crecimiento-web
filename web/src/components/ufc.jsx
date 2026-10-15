@@ -1,7 +1,7 @@
 import { ACEPTA_LIBRO } from '../libro.js'
 import { useMemo, useRef, useState } from 'react'
 import { LineChart } from './charts.jsx'
-import { Campo, Modal, Num, Select } from './ui.jsx'
+import { Campo, Modal } from './ui.jsx'
 import { Vacio } from './placa.jsx'
 import { ConteosGota } from './gota.jsx'
 import { TablaAvanzada } from './tabla.jsx'
@@ -14,7 +14,7 @@ import { nuevoId } from '../experimento.js'
 import { PetriDiseno } from './petri.jsx'
 import { Nota } from './tip.jsx'
 import { dGeo, dMuUfc, dUfc } from '../calculos.js'
-import { descargarBlob, fmt } from '../utils.js'
+import { descargarBlob } from '../utils.js'
 import { excelMatriz } from '../excel.js'
 
 const sci = (x) => (finito(x) ? x.toExponential(1).replace('e+', 'E+').replace('e-', 'E-') : '–')

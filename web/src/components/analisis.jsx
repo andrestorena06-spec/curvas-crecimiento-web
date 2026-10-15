@@ -7,7 +7,7 @@ import { TablaAvanzada } from './tabla.jsx'
 import { Vacio } from './placa.jsx'
 import { estiloCurvaDefecto, ejesDefecto } from './estilo.jsx'
 import { AYUDA, MODELOS_ETQ, PARAMS, explicarResultado, f4, signif } from '../ayuda.js'
-import { analizarCurva, desvio, finito, media, ventanasLn } from '../motor/analisis.js'
+import { analizarCurva, anchoEfectivo, desvio, finito, media, ventanasLn } from '../motor/analisis.js'
 import { ajustarModelo } from '../motor/modelos.js'
 import { curvaMedia, nombreReplica, opAnalisis } from '../motor/pipeline.js'
 import { LETRAS } from '../motor/lectura.js'
@@ -455,7 +455,8 @@ function Modelos({ s }) {
 // ANÁLISIS
 // ===============================================================
 export function AnalisisTab({ s }) {
-  const [sub, setSub] = useState('par')
+  const [sub0, setSub] = useState('par')
+  const sub = sub0 === 'mapa' && s.a.origenOd !== 'tecan' ? 'par' : sub0
   const { aj, setAj } = s
   if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
   if (!s.config.length) return <Vacio texto="Configurá los pocillos para analizar el crecimiento." />
@@ -467,6 +468,13 @@ export function AnalisisTab({ s }) {
         <h3>μmax por ventana deslizante de ln(OD)</h3>
         <Campo label="Ancho de la ventana (h)"><Num value={aj.an_ancho} min={0.1} step={0.25} onChange={(v) => setAj('an_ancho', v)} /></Campo>
         <Campo label="Puntos mínimos por ventana"><Num value={aj.an_minpts} min={3} onChange={(v) => setAj('an_minpts', v)} /></Campo>
+        {(() => {
+          const tH = s.datos.tiempos.map((x) => x / 3600)
+          const mp = Math.max(3, Math.round(Number(aj.an_minpts) || 4))
+          const ef = anchoEfectivo(tH, Number(aj.an_ancho) || 2, mp)
+          return ef > (Number(aj.an_ancho) || 2) + 1e-9
+            ? <p className="aviso-sel">Las lecturas están separadas: la ventana se amplía a {Number(ef.toPrecision(3))} h para juntar {mp} puntos.</p> : null
+        })()}
         <Campo label="OD mínima para usar ln"><Num value={aj.an_lnmin} min={0} step={0.005} onChange={(v) => setAj('an_lnmin', v)} /></Campo>
         <Campo label="R² mínimo de la ventana"><Num value={aj.an_r2} min={0} max={1} step={0.005} onChange={(v) => setAj('an_r2', v)} /></Campo>
         <Check label="Calcular también μmax por spline (no paramétrico)" checked={aj.an_spline} onChange={(v) => setAj('an_spline', v)} />
@@ -496,7 +504,7 @@ export function AnalisisTab({ s }) {
       </Panel>
       <div className="principal">
         <div className="subtabs">
-          {[['par', 'Parámetros'], ['det', 'Detalle'], ['mapa', 'Mapa de placa'], ['mod', 'Modelos']].map(([id, t]) => (
+          {[['par', 'Parámetros'], ['det', 'Detalle'], ...(s.a.origenOd === 'tecan' ? [['mapa', 'Mapa de placa']] : []), ['mod', 'Modelos']].map(([id, t]) => (
             <button key={id} className={sub === id ? 'on' : ''} onClick={() => setSub(id)}>{t}</button>
           ))}
         </div>

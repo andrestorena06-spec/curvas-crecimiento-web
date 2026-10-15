@@ -294,7 +294,10 @@ function ExcluirPuntos({ s }) {
 // PREPROCESADO Y QC
 // ===============================================================
 export function PreprocTab({ s }) {
-  const [sub, setSub] = useState('placa')
+  // la vista de placa muestra la disposición real de los pocillos: solo tiene sentido con el Excel del lector
+  const conPlaca = s.a.origenOd === 'tecan'
+  const [sub0, setSub] = useState(conPlaca ? 'placa' : 'qc')
+  const sub = !conPlaca && sub0 === 'placa' ? 'qc' : sub0
   const { aj, setAj } = s
   const blancos = s.config.filter((c) => c.EsBlanco)
   if (!s.datos) return <Vacio texto="Primero cargá los datos de OD en la pestaña Experimento." />
@@ -316,7 +319,11 @@ export function PreprocTab({ s }) {
         )}
         <p className="ayuda">{blancos.length
           ? `Pocillos de blanco: ${blancos.map((b) => b.Pocillo).join(', ')}.`
-          : "No hay pocillos definidos como blanco (se definen al configurar cada pocillo, con la casilla «Definir como blanco»)."}</p>
+          : 'No hay pocillos de blanco. Se definen en «Placa de OD».'}</p>
+        {!aj.corregir_blanco && blancos.length > 0 && (
+          <p className="aviso-sel">Hay pocillos de blanco pero no se están restando.{' '}
+            <button className="chico" onClick={() => setAj('corregir_blanco', true)}>Restar el blanco</button></p>
+        )}
         {aj.corregir_blanco && blancos.length > 0 && (
           <>
             <label style={{ fontWeight: 600 }}>Réplicas del blanco usadas en el promedio</label>
@@ -377,7 +384,7 @@ export function PreprocTab({ s }) {
       </Panel>
       <div className="principal">
         <div className="subtabs">
-          {[['placa', 'Vista de placa'], ['qc', 'Control de calidad por pocillo'], ['puntos', 'Excluir puntos']].map(([id, t]) => (
+          {[...(conPlaca ? [['placa', 'Vista de placa']] : []), ['qc', 'Control de calidad por pocillo'], ['puntos', 'Excluir puntos']].map(([id, t]) => (
             <button key={id} className={sub === id ? 'on' : ''} onClick={() => setSub(id)}>{t}</button>
           ))}
         </div>

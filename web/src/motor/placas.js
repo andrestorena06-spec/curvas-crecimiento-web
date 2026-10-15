@@ -61,24 +61,6 @@ export function tiempoDeNombre(nombre, indice) {
   return indice
 }
 
-// Une las lecturas (cada una con su tiempo en horas) en {tiempos (s), pocillos}
-export function datosDeLecturas(lecturas) {
-  const ok = lecturas.filter((l) => finito(Number(l.t)) && l.datos?.length)
-  if (!ok.length) return null
-  const tiempos = [...new Set(ok.map((l) => Math.round(Number(l.t) * 3600 * 1000) / 1000))].sort((a, b) => a - b)
-  const pocillos = {}
-  for (const p of pocillos96()) {
-    const fila = tiempos.map(() => NaN)
-    let hay = false
-    ok.forEach((l) => {
-      const d = l.datos.find((x) => x.Pocillo === p)
-      if (d && finito(d.OD)) { fila[tiempos.indexOf(Math.round(Number(l.t) * 3600 * 1000) / 1000)] = d.OD; hay = true }
-    })
-    if (hay) pocillos[p] = fila
-  }
-  return { tiempos, pocillos }
-}
-
 // ------------------------------------------------------------
 // Placa de OD única: cada COLUMNA es un tiempo (t0 en la 1, t2 en la 2…). Cada POCILLO tiene su cepa (o es blanco),
 // así una fila puede tener dos cepas o el blanco puede ir en cualquier lugar de la placa.

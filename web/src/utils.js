@@ -1,16 +1,6 @@
 export const FILAS = 'ABCDEFGH'.split('')
 export const pocillos96 = () => FILAS.flatMap((f) => Array.from({ length: 12 }, (_, i) => f + (i + 1)))
 
-export const CLASES = ['No productor', 'Productor débil', 'Productor moderado', 'Productor fuerte']
-export const COLOR_CLASE = {
-  'No productor': '#e15759',
-  'Productor débil': '#f2c94c',
-  'Productor moderado': '#a5d86e',
-  'Productor fuerte': '#2f9e44',
-  Blanco: '#b0bec5',
-  Excluido: '#eceff1',
-}
-
 // ---- Distribución t de Student (exacta, igual que qt() de R) ----
 function lgamma(z) {
   const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5]
@@ -80,24 +70,6 @@ export function paletaMuestras(muestras) {
   return out
 }
 
-// Colores de cada pocillo: tonos distintos para las réplicas de una misma muestra
-export function coloresPocillos(config) {
-  const muestras = [...new Set(config.map((c) => c.Muestra))]
-  const base = paletaMuestras(muestras)
-  const out = {}
-  muestras.forEach((m) => {
-    const reps = config.filter((c) => c.Muestra === m).sort((a, b) => a.Replica - b.Replica)
-    const k = reps.length
-    const hsl = base[m].match(/hsl\((\d+), (\d+)%, (\d+)%\)/)
-    reps.forEach((r, i) => {
-      const f = k === 1 ? 0.5 : i / (k - 1)
-      const l = 40 + 24 * f
-      out[r.Pocillo] = `hsl(${hsl[1]}, ${hsl[2]}%, ${l.toFixed(0)}%)`
-    })
-  })
-  return out
-}
-
 // Marcas "bonitas" para un eje numérico
 export function ticksBonitos(min, max, n = 6) {
   if (!(max > min)) return { ticks: [min], min, max: min + 1 }
@@ -124,9 +96,6 @@ export function medir(texto, size, bold = false, italic = false) {
   _ctx.font = `${italic ? 'italic ' : ''}${bold ? 'bold ' : ''}${size}px ${FUENTE}`
   return _ctx.measureText(String(texto)).width
 }
-
-export const anchoMax = (textos, size, bold, italic) =>
-  Math.max(0, ...textos.flatMap((t) => String(t).split('\n')).map((t) => medir(t, size, bold, italic)))
 
 export async function descargarBlob(blob, nombre) {
   // En Edge/Chrome se abre el cuadro «Guardar como» para elegir carpeta y nombre; en otros navegadores se descarga directo
@@ -162,33 +131,6 @@ export function aCSV(filas, columnas) {
     return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s
   }
   return [columnas.join(','), ...filas.map((f) => columnas.map((c) => esc(f[c])).join(','))].join('\n')
-}
-
-// Convierte un <svg> en PNG y lo descarga
-export function exportarSVG(svg, nombre, formato = 'png', escala = 3) {
-  const clon = svg.cloneNode(true)
-  const w = svg.viewBox.baseVal.width || svg.clientWidth
-  const h = svg.viewBox.baseVal.height || svg.clientHeight
-  clon.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-  clon.setAttribute('width', w)
-  clon.setAttribute('height', h)
-  const xml = new XMLSerializer().serializeToString(clon)
-  if (formato === 'svg') {
-    descargarBlob(new Blob([xml], { type: 'image/svg+xml' }), nombre + '.svg')
-    return
-  }
-  const img = new Image()
-  img.onload = () => {
-    const c = document.createElement('canvas')
-    c.width = w * escala
-    c.height = h * escala
-    const g = c.getContext('2d')
-    g.fillStyle = '#ffffff'
-    g.fillRect(0, 0, c.width, c.height)
-    g.drawImage(img, 0, 0, c.width, c.height)
-    c.toBlob((b) => descargarBlob(b, nombre + '.png'), 'image/png')
-  }
-  img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml)
 }
 
 const t = (size, color = '#1f2933', extra = {}) => ({

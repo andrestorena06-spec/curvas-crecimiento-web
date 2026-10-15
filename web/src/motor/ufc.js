@@ -104,8 +104,6 @@ export const hayConteos = (u) => (u.metodo === 'extendida'
   ? (u.tabla?.filas || []).some((f) => Object.values(f.c || {}).some(finito)) || lineasPetri(u).some((l) => finito(l.n))
   : (u.placasG || []).some((p) => Object.values(p.conteos || {}).some(finito)))
 
-const colDe = (p) => Number(p.slice(1))
-const filaDe = (p) => p[0]
 export const claveT = (t) => String(Math.round(Number(t) * 1000) / 1000)
 
 // ---------- Poisson exacto (Garwood) ----------

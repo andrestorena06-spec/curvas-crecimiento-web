@@ -78,7 +78,10 @@ export function CompararTab({ s }) {
 
   const g = useMemo(() => {
     if (!incl.length || !muestras.length) return null
-    const ofOn = o.od, uOn = o.ufc
+    // solo se dibuja (y se le da eje) lo que tiene datos para las muestras elegidas
+    const hayO = incl.some((d) => muestras.some((m) => d.od[m]))
+    const hayU = incl.some((d) => d.ufc.some((r) => muestras.includes(r.Muestra)))
+    const ofOn = o.od && hayO, uOn = o.ufc && hayU
     if (!ofOn && !uOn) return null
     const dos = ofOn && uOn
     const lin = o.escala === 'lineal'
@@ -156,7 +159,7 @@ export function CompararTab({ s }) {
     const yUfc = lin ? `UFC/mL${pot ? ` (×10^${pot})` : ''}` : 'log10 UFC/mL'
     return { series, xlim: [x0 - px, x1 + px], ylim, ylimDer,
       yTxt: ofOn ? (s.aj.corregir_blanco ? 'Absorbancia (corregida al blanco)' : 'Absorbancia (OD)') : yUfc, yTxtDer: dos ? yUfc : undefined,
-      titulo: o.modo === 'por_exp' ? 'Curvas de crecimiento: OD y recuento de UFC' : 'Curvas de crecimiento: promedio de los experimentos' }
+      titulo: o.modo === 'por_exp' ? `Curvas de crecimiento: ${dos ? 'OD y recuento de UFC' : ofOn ? 'OD' : 'recuento de UFC'}` : 'Curvas de crecimiento: promedio de los experimentos' }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [todos, o.exps, o.muestras, o.modo, o.od, o.ufc, o.escala, o.error, s.coloresGlobal, s.todasMuestras])
 
