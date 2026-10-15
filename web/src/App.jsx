@@ -34,7 +34,7 @@ const optsDef = () => ({
   det: { modo: 'pocillo', pocillo: '', muestra: '', replicas: true, modelo: 'ninguno', fases: true },
   mapa: { param: 'mu_max' },
   modelos: { sel: ['gompertz', 'logistico', 'richards', 'baranyi'] },
-  ufc: { sub: 'dist', t: 0, cd: 1, ch: 12 },
+  ufc: { sub: 'gotas', t: 0 },
   comp: { exps: null, muestras: null, modo: 'por_exp', od: true, ufc: true, escala: 'log10', error: 'sd' },
   calib: { modelo: 'clasico', exps: null, muestras: null, odEntrada: '', ufcEntrada: '' },
 })
