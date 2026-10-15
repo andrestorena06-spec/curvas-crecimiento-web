@@ -167,7 +167,7 @@ export default function App() {
 
   const crearExperimento = ({ modo, origenOd, nombre }) => {
     const e = expVacio(nombreUnico(nombre || 'Experimento', exps.map((x) => x.nombre)), modo, origenOd)
-    e.cepas = [...muestras]   // las cepas por defecto (las de Biofilm) ya vienen cargadas
+    // las cepas cargadas aparecen en «Experimento», pero hay que elegirlas para usarlas en el resto del experimento
     setExps((es) => [...es, e])
     setActiveId(e.id)
     setTab('experimento')
@@ -247,7 +247,7 @@ export default function App() {
     const onda = lects.find((l) => l.onda)?.onda
     // la placa de OD es única: la última cargada reemplaza a la anterior
     upd(a.id, (e) => ({ ...reconstruir(e, [lects[lects.length - 1]]), cond: onda ? { ...e.cond, lambda: onda } : e.cond }))
-    avisar('Placa de OD cargada: definí el tiempo de cada columna y la cepa de cada fila.')
+    avisar('Placa de OD cargada: definí el tiempo de cada columna y la cepa de cada pocillo o fila.')
   }
   const reconstruir = (e, lecturas) => {
     const r = placaADatos(lecturas[0], e.disenoOd)
@@ -368,8 +368,8 @@ export default function App() {
     return [...st]
   }, [muestras, exps])
   const coloresGlobal = useMemo(() => paletaMuestras(todasMuestras), [todasMuestras])
-  // cepas que se pueden elegir en las placas: las del experimento (o todas, si todavía no se definieron)
-  const opcionesMuestra = useMemo(() => (a && a.cepas.length ? a.cepas : muestras), [a, muestras])
+  // cepas que se pueden elegir en las placas: solo las elegidas en «Experimento»
+  const opcionesMuestra = useMemo(() => (a ? a.cepas : []), [a])
 
   const muestrasCfg = useMemo(() => {
     const pres = [...new Set(config.map((c) => c.Muestra))]
@@ -433,7 +433,7 @@ export default function App() {
       const r = man.filas.length !== e.manual.filas.length ? manualADatos(man) : null
       return {
         ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}), cepas: e.cepas.filter((c) => c !== m),
-        disenoOd: { ...e.disenoOd, filas: Object.fromEntries(Object.entries(e.disenoOd.filas).map(([L, f]) => [L, f.muestra === m ? { ...f, muestra: '' } : f])) },
+        disenoOd: { ...e.disenoOd, pocillos: Object.fromEntries(Object.entries(e.disenoOd.pocillos).filter(([, w]) => w.muestra !== m)) },
         ufc: { ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === m ? { ...f, muestra: '' } : f])) })), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) },
           petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === m ? { ...x, muestra: '' } : x)) })) },
       }
@@ -450,7 +450,7 @@ export default function App() {
         ...e,
         config: r ? r.config : e.config.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)), manual: man, ...(r ? { datos: r.datos } : {}),
         cepas: e.cepas.map((c) => (c === viejo ? nuevoNombre : c)),
-        disenoOd: { ...e.disenoOd, filas: Object.fromEntries(Object.entries(e.disenoOd.filas).map(([L, f]) => [L, f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f])) },
+        disenoOd: { ...e.disenoOd, pocillos: Object.fromEntries(Object.entries(e.disenoOd.pocillos).map(([p, w]) => [p, w.muestra === viejo ? { ...w, muestra: nuevoNombre } : w])) },
         ufc: {
           ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f])) })),
           tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) },

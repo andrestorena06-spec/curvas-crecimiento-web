@@ -18,7 +18,7 @@ export const ufcDef = () => ({
   factor: 5,            // cada pocillo está `factor` veces más diluido que el anterior (= volumen final / toma)
   toma: 40, final: 200, // µL que se pasan de un pocillo al siguiente y volumen final de cada pocillo
   primero: 'dilucion',  // 'madre': el pocillo 1 es la solución madre · 'dilucion': el pocillo 1 ya es una dilución
-  madre: { usar: false, toma: 20, final: 200 },  // solución madre (opcional): se toma `toma` µL para llegar al pocillo 1 con volumen `final`
+  madre: { toma: 40, final: 200 },  // pocillo 1 = primera dilución: se toman `toma` µL de la solución madre y se llevan a `final` µL
   c0: 1e6,              // UFC/mL esperadas en el pocillo de partida a T = 0 (solo guía)
   min: 3, max: 30,      // colonias por gota que se consideran contables
   tiempos: [0, 1, 2, 3, 4, 5, 6],
@@ -37,7 +37,7 @@ export const ufcVacio = () => ({ metodo: 'gota', par: ufcDef(), placasG: [], esp
 export const multDe = (par) => {
   const f = par.factor
   if (par.primero === 'madre') return 1 / f
-  const f0 = par.madre?.usar && par.madre.toma > 0 ? par.madre.final / par.madre.toma : f
+  const f0 = par.madre?.toma > 0 && par.madre?.final > 0 ? par.madre.final / par.madre.toma : f
   return f0 / f
 }
 export const dilucionDe = (par, j) => multDe(par) * par.factor ** j
@@ -61,6 +61,12 @@ export function placasDeGrilla(layout, conteos, esperado) {
   }))
 }
 
+// sesiones anteriores: «partir de una solución madre» era opcional; si no se usaba, el pocillo 1 tenía el mismo factor que la serie
+const parNormal = (par, madre) => {
+  const { usar, ...m } = madre || {}
+  return { ...par, madre: madre && usar !== false ? { ...ufcDef().madre, ...m } : { toma: par.toma, final: par.final } }
+}
+
 export const normalizarUfc = (u = {}) => {
   const d = ufcVacio()
   const petri = Array.isArray(u.petri) ? u.petri : []
@@ -68,7 +74,7 @@ export const normalizarUfc = (u = {}) => {
   return {
     metodo: u.metodo || (!(Array.isArray(u.layout) && u.layout.length) && (filasTabla.length || petri.length) ? 'extendida' : 'gota'),
     petri,
-    par: { ...d.par, ...(u.par || {}), madre: { ...d.par.madre, ...(u.par?.madre || {}) } },
+    par: parNormal({ ...d.par, ...(u.par || {}) }, u.par?.madre),
     placasG: Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : []),
     esperado: u.esperado && typeof u.esperado === 'object' ? u.esperado : {},
     tabla: { ...d.tabla, ...(u.tabla || {}), filas: Array.isArray(u.tabla?.filas) ? u.tabla.filas : [] },

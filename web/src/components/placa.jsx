@@ -63,6 +63,7 @@ export function PlacaTab({ s }) {
     if (!m) return s.avisar('Tenés que indicar una muestra.', 'error')
     const nombre = s.muestras.find((x) => x.toLowerCase() === m.toLowerCase()) || m
     if (!s.muestras.includes(nombre)) s.setMuestras([...s.muestras, nombre])
+    if (s.a && !s.a.cepas.includes(nombre)) s.setCepas((x) => [...x, nombre])
     let cfg = [...s.config]
     for (const p of sel) {
       const previo = cfg.find((c) => c.Pocillo === p)

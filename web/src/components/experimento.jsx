@@ -108,6 +108,10 @@ export function ExperimentoTab({ s }) {
           )}
           <Campo label="Medio de cultivo"><input value={cond.medio} onChange={(e) => setC('medio', e.target.value)} placeholder="BHI, TSB, LB…" list="medios-sugeridos" /></Campo>
           <Campo label="Temperatura (°C)"><input value={cond.temperatura} onChange={(e) => setC('temperatura', e.target.value)} placeholder="37" /></Campo>
+          <Campo label="Agitación">
+            <Select value={cond.agitacion} onChange={(v) => setC('agitacion', v)} opciones={[['', 'Elegí…'], ['si', 'Con agitación'], ['no', 'Sin agitación (estático)']]} />
+          </Campo>
+          {cond.agitacion === 'si' && <Campo label="Agitación (rpm)"><input value={cond.rpm} onChange={(e) => setC('rpm', e.target.value)} placeholder="150" /></Campo>}
           {conOd && (
             <Campo label="Equipo de OD">
               <select value={cond.equipo} onChange={(e) => setC('equipo', e.target.value)}>
@@ -123,7 +127,7 @@ export function ExperimentoTab({ s }) {
           <Campo label="Fecha"><input type="date" value={cond.fecha} onChange={(e) => setC('fecha', e.target.value)} /></Campo>
         </div>
         <div className="campo">
-          <label>Cepas y especies del experimento <Nota>Tocá una para usarla o quitarla. Son las que después vas a poder elegir en las placas de OD y de conteo. Si escribís una nueva y apretás Enter, se agrega a la lista general y queda elegida.</Nota></label>
+          <label>Cepas y especies del experimento <Nota>Las cepas cargadas aparecen acá, pero ninguna viene elegida: tocá las que uses en este experimento. Solo las elegidas aparecen después en las placas de OD y de conteo. Si escribís una nueva y apretás Enter, se agrega a la lista general y queda elegida.</Nota></label>
           <div className="fila-chips">
             {[...new Set([...s.muestras, ...a.cepas])].map((c) => {
               const on = a.cepas.includes(c)
@@ -155,7 +159,7 @@ export function ExperimentoTab({ s }) {
               <span className="etq-campo">Método de siembra</span>
               <div className="seg">
                 <button className={!extendida ? 'on' : ''} onClick={() => setMetodo('gota')} data-tip={'Siembra por gota\nGotas de volumen fijo sobre agar, una por pocillo de una placa de 96 con diluciones seriadas.'}>Por gota</button>
-                <button className={extendida ? 'on' : ''} onClick={() => setMetodo('extendida')} data-tip={'Siembra extendida\nUn volumen esparcido sobre el agar de cada placa de Petri (se puede dividir en sectores).'}>Extendida</button>
+                <button className={extendida ? 'on' : ''} onClick={() => setMetodo('extendida')} data-tip={'Siembra extendida\nUn volumen esparcido sobre toda la superficie del agar de cada placa de Petri.'}>Extendida</button>
               </div>
             </div>
             <div className="rejilla-campos">
@@ -182,9 +186,9 @@ export function ExperimentoTab({ s }) {
             </div>
             {!extendida && parG.primero === 'dilucion' && (
               <div className="rejilla-campos" style={{ marginTop: 6 }}>
-                <Check label={<>Partir de una solución madre<Nota>Opcional. Se toma un volumen de la solución madre para llegar al pocillo 1 con el volumen final indicado; ese paso puede tener un factor distinto del resto de la serie.</Nota></>} checked={!!parG.madre.usar} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, usar: v } } }))} />
-                {parG.madre.usar && <Campo label="Toma de la madre (µL)"><Num value={parG.madre.toma} min={1} step={5} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, toma: v === '' ? 20 : v } } }))} /></Campo>}
-                {parG.madre.usar && <Campo label="Volumen final del pocillo 1 (µL)"><Num value={parG.madre.final} min={2} step={10} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, final: v === '' ? 200 : v } } }))} /></Campo>}
+                <Campo label={<>Toma de la solución madre (µL)<Nota>Se toma este volumen de la solución madre y se lleva al volumen final del pocillo 1; ese paso puede tener un factor distinto del resto de la serie.</Nota></>}><Num value={parG.madre.toma} min={1} step={5} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, toma: v === '' ? u.par.toma : v } } }))} /></Campo>
+                <Campo label="Volumen final del pocillo 1 (µL)"><Num value={parG.madre.final} min={2} step={10} onChange={(v) => s.setUfc((u) => ({ ...u, par: { ...u.par, madre: { ...u.par.madre, final: v === '' ? u.par.final : v } } }))} /></Campo>
+                <Campo label="Dilución del pocillo 1"><div className="valor-calculado">1 : {Number((parG.madre.final / parG.madre.toma).toPrecision(4))} <small>= {texto10(-Math.log10(parG.madre.final / parG.madre.toma))}</small></div></Campo>
               </div>
             )}
             <Check label="Incluir en las medias las estimaciones fuera del rango contable" checked={parG.estimados !== false} onChange={(v) => setParG('estimados', v)} />

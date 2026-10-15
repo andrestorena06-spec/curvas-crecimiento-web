@@ -8,7 +8,7 @@ import { analizarTodos, preprocesar } from '../motor/pipeline.js'
 import { calcularUfc, crecimientoUfc } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
 import { MODELOS_CALIB, ajustarCalibracion } from '../motor/calibracion.js'
-import { MODOS, ORIGENES_OD, ajParaExp, hayConteo, hayOd } from '../experimento.js'
+import { MODOS, ORIGENES_OD, ajParaExp, hayConteo, hayOd, textoAgitacion } from '../experimento.js'
 
 const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const r4 = (x, d = 4) => (finito(x) ? signif(x, d) : '')
@@ -44,7 +44,7 @@ export function abrirInforme(s, metodos = '') {
     const c = e.cond
     let html = `<section class="${i ? 'salto' : ''}"><h2>${esc(e.nombre)} <small>· ${esc(MODOS[e.modo].titulo)}</small></h2>
       <table class="cond"><tbody>
-        ${[['Cepas y especies', e.cepas.join(', ')], ['Medio de cultivo', c.medio], ['Temperatura (°C)', c.temperatura], ...(hayOd(e) ? [['Equipo de OD', c.equipo], ['Longitud de onda (nm)', c.lambda], ['Origen de la OD', ORIGENES_OD[e.origenOd].titulo]] : []), ['Fecha', c.fecha], ['Notas', c.notas]]
+        ${[['Cepas y especies', e.cepas.join(', ')], ['Medio de cultivo', c.medio], ['Temperatura (°C)', c.temperatura], ['Agitación', textoAgitacion(c)], ...(hayOd(e) ? [['Equipo de OD', c.equipo], ['Longitud de onda (nm)', c.lambda], ['Origen de la OD', ORIGENES_OD[e.origenOd].titulo]] : []), ['Fecha', c.fecha], ['Notas', c.notas]]
     .filter(([, v]) => v !== '' && v !== null && v !== undefined).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}
       </tbody></table>`
 
