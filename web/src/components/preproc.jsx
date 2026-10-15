@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Nota } from './tip.jsx'
 import { LineChart } from './charts.jsx'
 import { Campo, Check, Modal, Num, Panel, Select } from './ui.jsx'
 import { Vacio } from './placa.jsx'
@@ -103,7 +104,7 @@ function ModalPocillo({ s, p, onClose }) {
       <LineChart series={series} extras={extras} xlim={[Math.min(...tms) - 0.01, Math.max(...tms) + 0.01]} ylim={[a - pad, b + pad]}
         est={est} ejes={ejesDefecto()} xTxt="Tiempo (h)" yTxt={est.leyendaY.texto} leyenda={false} altoBase={300}
         onPuntoClick={s.alternarPunto} />
-      <p className="ayuda">Clic en un punto: lo excluye o lo reincorpora. Pasá el mouse sobre una x roja para ver por qué se quitó.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Clic en un punto: lo excluye o lo reincorpora. Pasá el mouse sobre una x roja para ver por qué se quitó.</Nota></p>
       <h4>Puntos que no están en el análisis</h4>
       {noUsados.length === 0 ? <p className="ayuda">Todos los puntos de este pocillo están en el análisis.</p> : (
         <div className="tabla-scroll chica"><table className="tabla">
@@ -158,7 +159,7 @@ function VistaPlaca({ s }) {
   }
   return (
     <>
-      <p className="ayuda">Curvas de los 96 pocillos con el blanco aplicado. Gris: pocillo excluido. Rojo: puntos excluidos. Línea punteada: pocillo de blanco. Pasá el mouse por una curva para ver el detalle del punto. Clic en un pocillo para ampliarlo, ver sus puntos quitados y excluirlos o reincorporarlos.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Curvas de los 96 pocillos con el blanco aplicado. Gris: pocillo excluido. Rojo: puntos excluidos. Línea punteada: pocillo de blanco. Pasá el mouse por una curva para ver el detalle del punto. Clic en un pocillo para ampliarlo, ver sus puntos quitados y excluirlos o reincorporarlos.</Nota></p>
       <div className="placa-wrap" style={{ position: 'relative' }}>
         {hover && <div className="tip-grafico" style={{ left: hover.px + 14, top: hover.py + 6 }}><i className="punto-color" style={{ background: hover.color }} />{hover.tip}</div>}
         <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, minWidth: 720 }} fontFamily="'Segoe UI', system-ui, sans-serif" onMouseMove={mover} onMouseLeave={() => setHover(null)}>
@@ -260,7 +261,7 @@ function ExcluirPuntos({ s }) {
     .sort((a, b) => LETRAS.indexOf(a.p[0]) * 100 + Number(a.p.slice(1)) - (LETRAS.indexOf(b.p[0]) * 100 + Number(b.p.slice(1))) || a.h - b.h)
   return (
     <>
-      <p className="ayuda">Podés excluir un punto con un clic en el gráfico (activá la opción en la pestaña «Gráfico») o un tramo de tiempo de un pocillo desde acá. Los datos originales no se modifican y todo se puede revertir.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Podés excluir un punto con un clic en el gráfico (activá la opción en la pestaña «Gráfico») o un tramo de tiempo de un pocillo desde acá. Los datos originales no se modifican y todo se puede revertir.</Nota></p>
       <div className="fila-ctrl">
         <Campo label="Pocillo">
           <select value={p} onChange={(e) => setPoc(e.target.value)}>
@@ -302,14 +303,14 @@ export function PreprocTab({ s }) {
   return (
     <div className="con-lateral">
       <Panel titulo="Preprocesado">
-        <p className="ayuda">La corrección al blanco se configura en la pestaña «Gráfico». El orden es: blanco › exclusiones › suavizado › normalización.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">La corrección al blanco se configura en la pestaña «Gráfico». El orden es: blanco › exclusiones › suavizado › normalización.</Nota></p>
         <h3>OD inicial y normalización</h3>
         <Campo label="Cómo calcular OD₀">
           <Select value={aj.od0_metodo} onChange={(v) => setAj('od0_metodo', v)}
             opciones={[['auto', 'Automática (meseta inicial de ln OD, modelo de tres fases)'], ['primeros', 'Media de los primeros N puntos']]} />
         </Campo>
         <Campo label="Puntos iniciales (respaldo y normalización)"><Num value={aj.n_od0} min={1} onChange={(v) => setAj('n_od0', v)} /></Campo>
-        <p className="ayuda">La automática usa todos los puntos de la fase lag y no depende de un solo valor. La normalización (restar/dividir) siempre usa los primeros N puntos.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">La automática usa todos los puntos de la fase lag y no depende de un solo valor. La normalización (restar/dividir) siempre usa los primeros N puntos.</Nota></p>
         <Campo label="Normalizar curvas">
           <Select value={aj.normalizar} onChange={(v) => setAj('normalizar', v)} opciones={[['ninguna', 'Sin normalizar'], ['restar', 'Restar OD₀'], ['dividir', 'Dividir por OD₀']]} />
         </Campo>
@@ -324,7 +325,7 @@ export function PreprocTab({ s }) {
             <Campo label="Semiventana (puntos a cada lado)"><Num value={aj.hampel_k} min={2} onChange={(v) => setAj('hampel_k', v)} /></Campo>
             <Campo label="Umbral (múltiplos de MAD)"><Num value={aj.hampel_sigma} min={1} step={0.5} onChange={(v) => setAj('hampel_sigma', v)} /></Campo>
             <Campo label="Diferencia mínima para marcar (OD)"><Num value={aj.hampel_min} min={0} step={0.001} onChange={(v) => setAj('hampel_min', v)} /></Campo>
-            <p className="ayuda">Es un piso en unidades de OD: solo se marcan desvíos mayores que esto. Tiene que ser menor que el desvío que querés detectar (con OD cerca de 0,1, un valor de 0,002 a 0,005 es razonable; con OD cerca de 1, subilo).</p>
+            <p className="ayuda"><Nota titulo="Ayuda">Es un piso en unidades de OD: solo se marcan desvíos mayores que esto. Tiene que ser menor que el desvío que querés detectar (con OD cerca de 0,1, un valor de 0,002 a 0,005 es razonable; con OD cerca de 1, subilo).</Nota></p>
             <Campo label="Qué hacer con los puntos marcados">
               <Select value={aj.hampel_accion} onChange={(v) => setAj('hampel_accion', v)} opciones={[['excluir', 'Excluir'], ['interpolar', 'Reemplazar por interpolación']]} />
             </Campo>
@@ -332,13 +333,13 @@ export function PreprocTab({ s }) {
         )}
         <Check label="Excluir puntos por encima de una OD máxima confiable" checked={aj.odmax_on} onChange={(v) => setAj('odmax_on', v)} />
         <Campo label="OD máxima confiable"><Num value={aj.odmax} min={0} step={0.1} onChange={(v) => setAj('odmax', v)} /></Campo>
-        <p className="ayuda">Por encima de ~1 la OD de lector de placas deja de ser lineal. Aunque no excluyas, la tabla de QC cuenta los puntos que la superan.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">Por encima de ~1 la OD de lector de placas deja de ser lineal. Aunque no excluyas, la tabla de QC cuenta los puntos que la superan.</Nota></p>
         <h3>Pocillos que no concuerdan con sus réplicas</h3>
         <Campo label="Factor de desvío (× la de las otras réplicas)"><Num value={aj.pocillo_factor} min={1} step={0.5} onChange={(v) => setAj('pocillo_factor', v)} /></Campo>
         <Campo label="Desvío mínimo para marcar (OD)"><Num value={aj.pocillo_min} min={0} step={0.01} onChange={(v) => setAj('pocillo_min', v)} /></Campo>
         <Campo label="Con 2 réplicas: diferencia de AUC para marcar (%)"><Num value={aj.pocillo_div} min={1} step={5} onChange={(v) => setAj('pocillo_div', v)} /></Campo>
         <Check label="Excluir automáticamente los pocillos «Sospechosos»" checked={aj.pocillo_auto} onChange={(v) => setAj('pocillo_auto', v)} />
-        <p className="ayuda">Con 3 o más réplicas se puede identificar cuál se aparta. Con 2 solo se puede avisar que divergen: decidí vos cuál excluir.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">Con 3 o más réplicas se puede identificar cuál se aparta. Con 2 solo se puede avisar que divergen: decidí vos cuál excluir.</Nota></p>
       </Panel>
       <div className="principal">
         <div className="subtabs">

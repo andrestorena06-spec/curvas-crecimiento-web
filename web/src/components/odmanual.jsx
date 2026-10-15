@@ -1,4 +1,5 @@
 import { ACEPTA_LIBRO } from '../libro.js'
+import { Nota } from './tip.jsx'
 import { useMemo, useRef, useState } from 'react'
 import { Campo, Modal } from './ui.jsx'
 import { TablaAvanzada } from './tabla.jsx'
@@ -8,6 +9,7 @@ import { leerCrudo, hojasDe } from '../motor/lectura.js'
 import { leerTablaConteos } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
 import { nuevoId } from '../experimento.js'
+import { dOdManual } from '../calculos.js'
 
 const num = (v) => {
   const t = String(v ?? '').trim().replace(',', '.')
@@ -114,11 +116,13 @@ export function OdManualTab({ s }) {
             <input ref={importRef} type="file" hidden accept={ACEPTA_LIBRO} onChange={(e) => { e.target.files[0] && importar(e.target.files[0]); e.target.value = '' }} />
           </div>
         </div>
-        <p className="ayuda" style={{ marginTop: 0 }}>
-          Cada fila es una muestra, una réplica y un tiempo. Si la suspensión se salió de la zona lineal del equipo, diluí y anotá la lectura en la columna de esa dilución (−1, −2…): la OD final es la media de las lecturas
-          que cayeron dentro de la ventana lineal ({m.vmin} a {m.vmax}{usaBlanco ? `, blanco ${m.blanco}` : ', ya corregidas por el blanco'}) multiplicadas por el factor {m.factor}<sup>k</sup>.{' '}
-          <button className="chico" onClick={() => s.irA('experimento')}>Cambiar factor, ventana o blanco</button>
-        </p>
+        <div className="barra-parametros" style={{ marginBottom: 6 }}>
+          <span className="chip-param" data-tip="Ventana lineal del equipo (OD neta)">ventana {m.vmin}–{m.vmax}</span>
+          <span className="chip-param" data-tip="Factor de dilución entre lecturas">f = {m.factor}</span>
+          <span className="chip-param" data-tip="OD del medio estéril">{usaBlanco ? `blanco ${m.blanco}` : 'ya corregida por blanco'}</span>
+          <button className="chico" onClick={() => s.irA('experimento')}>Editar</button>
+          <Nota>Cada fila es una muestra, una réplica y un tiempo. Si la OD se sale de la zona lineal, diluí y anotá la lectura en la columna de esa dilución (−1, −2…). La OD final es la media de las lecturas dentro de la ventana, multiplicadas por f<sup>k</sup>.</Nota>
+        </div>
         <div className="fila-ctrl" style={{ alignItems: 'flex-end' }}>
           <Campo label="Agregar una serie: muestra">
             <input list="muestras-om" value={serie.muestra} onChange={(e) => setSerie({ ...serie, muestra: e.target.value })} placeholder="Ej.: L100A1" />
@@ -163,7 +167,7 @@ export function OdManualTab({ s }) {
                           txt.trim().split('\t').forEach((v, j) => { const n = num(v); if (n !== null && k + j < m.nd) setOd(f.id, k + j, n) })
                         }} /></td>
                     ))}
-                    <td><b>{finito(c.od) ? signif(c.od, 4) : ''}</b></td>
+                    <td data-tip={dOdManual(f, m, c) || undefined} className="con-calculo"><b>{finito(c.od) ? signif(c.od, 4) : ''}</b></td>
                     <td style={{ background: COLOR_ESTADO[c.estado] }} title={TEXTO_OD[c.estado]}><small>{Object.keys(f.od).length ? TEXTO_OD[c.estado] : ''}</small></td>
                     <td><button className="chico peligro" onClick={() => quitarFila(f.id)} aria-label="Quitar fila">×</button></td>
                   </tr>
@@ -179,14 +183,14 @@ export function OdManualTab({ s }) {
       {filasRes.length > 0 && (
         <section className="tarjeta">
           <TablaAvanzada id="od_manual_resumen" titulo="OD por muestra y tiempo (media de las réplicas)" columnas={['Muestra', 'T_h', 'N', 'OD', 'DE']} filas={filasRes} onVista={s.onVista} />
-          <p className="ayuda">Con estas lecturas se arma una curva por muestra y réplica: las pestañas «Gráfico» y «Análisis» calculan μmax, el tiempo de duplicación y el lag igual que con una placa.</p>
+          <p className="ayuda"><Nota titulo="Ayuda">Con estas lecturas se arma una curva por muestra y réplica: las pestañas «Gráfico» y «Análisis» calculan μmax, el tiempo de duplicación y el lag igual que con una placa.</Nota></p>
         </section>
       )}
 
       {pegar !== null && (
         <Modal titulo="Pegar lecturas desde Excel" onClose={() => setPegar(null)} ancho={640}
           pie={<><button onClick={() => setPegar(null)}>Cancelar</button><button className="primario" onClick={aplicarPegado}>Agregar filas</button></>}>
-          <p className="ayuda" style={{ marginTop: 0 }}>Copiá en Excel las columnas <b>Muestra · Réplica · Tiempo (h) · Sin diluir · −1 · −2 …</b> (sin encabezados) y pegalas acá.</p>
+          <p className="ayuda" style={{ marginTop: 0 }}><Nota titulo="Ayuda">Copiá en Excel las columnas <b>Muestra · Réplica · Tiempo (h) · Sin diluir · −1 · −2 …</b> (sin encabezados) y pegalas acá.</Nota></p>
           <textarea autoFocus rows={10} style={{ width: '100%', fontFamily: 'monospace' }} value={pegar} onChange={(e) => setPegar(e.target.value)} />
         </Modal>
       )}

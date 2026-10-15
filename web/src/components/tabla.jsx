@@ -66,7 +66,7 @@ function PopoverFiltro({ col, pos, valor, onChange, onClose }) {
   )
 }
 
-export function TablaAvanzada({ id, titulo, columnas, filas, onVista }) {
+export function TablaAvanzada({ id, titulo, columnas, filas, onVista, tips }) {
   const [orden, setOrden] = useState(columnas)
   const [filtros, setFiltros] = useState({})
   const [abierto, setAbierto] = useState(null)
@@ -136,7 +136,7 @@ export function TablaAvanzada({ id, titulo, columnas, filas, onVista }) {
             </tr>
           </thead>
           <tbody>
-            {vista.slice(0, limite).map((f, i) => <tr key={i}>{orden.map((c) => <td key={c}>{f[c]}</td>)}</tr>)}
+            {vista.slice(0, limite).map((f, i) => <tr key={i}>{orden.map((c) => { const t = tips ? tips(f, c) : null; return <td key={c} data-tip={t || undefined} className={t ? 'con-calculo' : undefined}>{f[c]}</td> })}</tr>)}
             {!vista.length && <tr><td colSpan={orden.length} className="ayuda">Ninguna fila cumple los filtros.</td></tr>}
           </tbody>
         </table>

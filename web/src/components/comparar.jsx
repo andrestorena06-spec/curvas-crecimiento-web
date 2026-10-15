@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { Nota } from './tip.jsx'
 import { LineChart } from './charts.jsx'
 import { Campo, Check, MenuContextual, Panel, Select, useMenuContextual } from './ui.jsx'
 import { ExportDialog } from './exportar.jsx'
@@ -202,7 +203,7 @@ export function CompararTab({ s }) {
   return (
     <div className="con-lateral">
       <Panel titulo="Comparar">
-        <p className="ayuda">Junta la curva de OD y el recuento de UFC de los experimentos que elijas. Las muestras se emparejan por nombre.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">Junta la curva de OD y el recuento de UFC de los experimentos que elijas. Las muestras se emparejan por nombre.</Nota></p>
         <Campo label="Cómo juntar los experimentos">
           <Select value={o.modo} onChange={(v) => setO('modo', v)} opciones={[['por_exp', 'Cada experimento por separado'], ['promedio', 'Promedio de los experimentos']]} />
         </Campo>
@@ -261,7 +262,7 @@ export function CompararTab({ s }) {
           <>
             <TablaAvanzada id="relacion_od_ufc" titulo="OD y UFC en los mismos tiempos" columnas={Object.keys(tablas.rel[0])} filas={tablas.rel} onVista={s.onVista} />
             {tablas.reg.length > 0 && <TablaAvanzada id="regresion_od_ufc" titulo="Regresión: log10(UFC/mL) = intercepto + pendiente × ln(OD)" columnas={Object.keys(tablas.reg[0])} filas={tablas.reg} onVista={s.onVista} />}
-            <p className="ayuda">Si la OD y las UFC crecieran en proporción, la pendiente de log10(UFC/mL) frente a ln(OD) sería 1/ln(10) = 0,434. Un valor muy distinto indica que la OD deja de seguir a las células viables (por ejemplo por células muertas o fuera del rango lineal del lector).</p>
+            <p className="ayuda"><Nota titulo="Ayuda">Si la OD y las UFC crecieran en proporción, la pendiente de log10(UFC/mL) frente a ln(OD) sería 1/ln(10) = 0,434. Un valor muy distinto indica que la OD deja de seguir a las células viables (por ejemplo por células muertas o fuera del rango lineal del lector).</Nota></p>
           </>
         )}
       </div>

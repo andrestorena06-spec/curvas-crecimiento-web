@@ -107,7 +107,7 @@ export function abrirInforme(s, metodos = '') {
         .map(({ m, c }) => ({ Muestra: m, 'μ (h⁻¹)': r4(c.mu), 'td (min)': r4(c.td_min), 'lag (h)': r4(c.lag_h, 3), R2: r4(c.r2, 3), Ventana: c.ventana, Generaciones: r4(c.generaciones, 3) }))
       if (cr.length) html += `<h3>Crecimiento según los recuentos</h3>${tabla(Object.keys(cr[0]), cr)}`
       const filasRep = rU.reps.filter((r) => r.Conteos > 0).map((r) => ({
-        Muestra: r.Muestra, T_h: r.T_h, Replica: r.Replica, Origen: r.Origen === 'tabla' ? 'Placa' : `Gotas ${r.Fila}`, Diluciones_usadas: r.Diluciones_usadas || '–', UFC_mL: r4(r.UFC_mL), Estado: r.Estado,
+        Muestra: r.Muestra, T_h: r.T_h, Replica: r.Replica, Origen: r.Origen === 'tabla' ? 'Placa' : r.Origen === 'petri' ? 'Sector de placa' : `Gotas ${r.Fila}`, Diluciones_usadas: r.Diluciones_usadas || '–', UFC_mL: r4(r.UFC_mL), Estado: r.Estado,
       }))
       html += `<h3 class="salto">UFC/mL por réplica</h3>${tabla(Object.keys(filasRep[0]), filasRep)}`
     }

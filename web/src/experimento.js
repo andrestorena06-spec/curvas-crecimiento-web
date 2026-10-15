@@ -3,14 +3,14 @@ import { normalizarUfc, ufcVacio } from './motor/ufc.js'
 import { manualDef, normalizarManual } from './motor/odmanual.js'
 
 export const MODOS = {
-  od: { titulo: 'Solo OD', texto: 'Curvas de crecimiento por densidad óptica: lector de microplacas (Tecan u otro), placas leídas por separado o lecturas manuales con cubeta.' },
-  ambos: { titulo: 'OD + conteo', texto: 'Curva de OD y recuento de UFC de las mismas muestras: se comparan, se calibra la OD contra las UFC y se estiman UFC/mL desde la OD.' },
-  conteo: { titulo: 'Solo conteo', texto: 'Recuento de UFC por placa o por gota con diluciones seriadas: UFC/mL con su intervalo de confianza, curvas y parámetros de crecimiento.' },
+  od: { titulo: 'Solo OD', texto: 'Densidad óptica en el tiempo: μmax, tiempo de duplicación y lag.' },
+  ambos: { titulo: 'OD + conteo', texto: 'OD y UFC/mL de las mismas muestras: comparación y calibración OD–UFC.' },
+  conteo: { titulo: 'Solo conteo', texto: 'UFC/mL por diluciones seriadas: IC 95 %, curva y parámetros de crecimiento.' },
 }
 export const ORIGENES_OD = {
-  tecan: { titulo: 'Excel del lector (Tecan u otro)', texto: 'Cinética: una curva por pocillo (A1 a H12) con el tiempo. Formatos «Time [s]», columna de tiempo, o bloques T=0, T=1…' },
-  placa: { titulo: 'Excel por pocillos (formato Biofilm)', texto: 'Una placa de 96 por lectura (matriz A–H × 1–12); cada archivo u hoja es un tiempo. Con varias lecturas se arma la curva de cada pocillo.' },
-  manual: { titulo: 'Manual (espectrofotómetro, cubeta)', texto: 'Escribís o pegás la OD de cada muestra, réplica y tiempo, con las diluciones que hagan falta para quedar en la zona lineal del equipo.' },
+  tecan: { titulo: 'Excel del lector (Tecan)', texto: 'Cinética: una curva por pocillo (A1–H12).' },
+  placa: { titulo: 'Excel por pocillos (formato Biofilm)', texto: 'Una placa de 96 por lectura; cada archivo u hoja es un tiempo.' },
+  manual: { titulo: 'Manual (espectrofotómetro)', texto: 'Cubeta: OD por muestra, réplica y tiempo, con diluciones.' },
 }
 
 export const condDef = () => ({

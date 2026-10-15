@@ -24,11 +24,17 @@ export const ufcDef = () => ({
 })
 export const tablaDef = () => ({ vol: 100, factor: 10, min: 25, max: 250, nd: 6, filas: [] })  // vol en µL
 
-export const ufcVacio = () => ({ par: ufcDef(), layout: [], conteos: {}, esperado: {}, tabla: tablaDef() })
+// metodo: 'gota' (gotas sobre una placa de 96 con diluciones seriadas) o 'extendida' (placas de Petri, tabla o sectores)
+// petri: [{ id, nombre, n (sectores), sectores: [{ muestra, t, lineas: [{ id, k (dilución −k), rep, n (colonias) }] }] }]
+export const ufcVacio = () => ({ metodo: 'gota', par: ufcDef(), layout: [], conteos: {}, esperado: {}, tabla: tablaDef(), petri: [] })
 
 export const normalizarUfc = (u = {}) => {
   const d = ufcVacio()
+  const petri = Array.isArray(u.petri) ? u.petri : []
+  const filasTabla = Array.isArray(u.tabla?.filas) ? u.tabla.filas : []
   return {
+    metodo: u.metodo || (!(Array.isArray(u.layout) && u.layout.length) && (filasTabla.length || petri.length) ? 'extendida' : 'gota'),
+    petri,
     par: { ...d.par, ...(u.par || {}) },
     layout: Array.isArray(u.layout) ? u.layout : [],
     conteos: u.conteos && typeof u.conteos === 'object' ? u.conteos : {},
@@ -36,7 +42,10 @@ export const normalizarUfc = (u = {}) => {
     tabla: { ...d.tabla, ...(u.tabla || {}), filas: Array.isArray(u.tabla?.filas) ? u.tabla.filas : [] },
   }
 }
-export const hayConteos = (u) => Object.values(u.conteos || {}).some((o) => Object.keys(o).length) || (u.tabla?.filas || []).some((f) => Object.values(f.c || {}).some(finito))
+export const lineasPetri = (u) => (u.petri || []).flatMap((p) => (p.sectores || []).flatMap((s, i) => (s?.lineas || []).map((l) => ({ ...l, placa: p.nombre, sector: i + 1, muestra: s.muestra, t: s.t }))))
+export const hayConteos = (u) => (u.metodo === 'extendida'
+  ? (u.tabla?.filas || []).some((f) => Object.values(f.c || {}).some(finito)) || lineasPetri(u).some((l) => finito(l.n))
+  : Object.values(u.conteos || {}).some((o) => Object.keys(o).length))
 
 const colDe = (p) => Number(p.slice(1))
 const filaDe = (p) => p[0]
@@ -118,7 +127,7 @@ export function registrosConteo(u) {
   const { par, layout, conteos } = u
   const muestras = [...new Set(layout.map((c) => c.Muestra))]
   const ts = [...new Set([...par.tiempos, ...Object.keys(conteos).map(Number)])].filter(finito).sort((a, b) => a - b)
-  for (const t of ts) {
+  for (const t of u.metodo === 'extendida' ? [] : ts) {
     const cont = conteos[claveT(t)] || {}
     for (const m of muestras) {
       const wells = layout.filter((c) => c.Muestra === m)
@@ -131,6 +140,16 @@ export function registrosConteo(u) {
     }
   }
   const tb = u.tabla
+  if (u.metodo !== 'extendida') return out
+  // sectores de placas de Petri: cada línea es una dilución de una réplica
+  const grupos = new Map()
+  lineasPetri(u).forEach((l) => {
+    if (!l.muestra || !finito(Number(l.t)) || !finito(l.n)) return
+    const k = `${l.muestra}|${Number(l.t)}|${Number(l.rep) || 1}`
+    if (!grupos.has(k)) grupos.set(k, { Muestra: l.muestra, T_h: Number(l.t), Replica: Number(l.rep) || 1, cont: {} })
+    grupos.get(k).cont[Number(l.k)] = Number(l.n)
+  })
+  grupos.forEach((g) => out.push({ ...g, Fila: '', origen: 'petri', par: { vol: tb.vol / 1000, factor: tb.factor, min: tb.min, max: tb.max } }))
   ;(tb?.filas || []).forEach((f) => {
     if (!f.muestra || !finito(Number(f.t))) return
     const c = {}
@@ -158,6 +177,7 @@ export function calcularUfc(u) {
       Diluciones_usadas: est.usados.map((k) => `−${k} (${r.cont[k]})`).join(', '),
       UFC_mL: est.ufc, IC95_inf: est.lo, IC95_sup: est.hi, Estado: textoEstado(est.estado), _estado: est.estado,
       log10: finito(est.ufc) && est.ufc > 0 ? Math.log10(est.ufc) : NaN, Colonias_usadas: est.S, Limite: est.lim,
+      _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S,
     }
   })
   const incluirEst = u.par.estimados !== false
@@ -175,7 +195,7 @@ export function calcularUfc(u) {
     const sd = n > 1 ? desvio(vals.map((r) => r.UFC_mL)) : NaN
     const estados = [...new Set(g.map((r) => r._estado))]
     res.push({
-      Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: n,
+      Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: n, _vals: vals.map((r) => r.UFC_mL), _t95: t95,
       UFC_mL: n ? 10 ** mLog : NaN, DE: sd, log10: mLog, DE_log10: sdLog,
       IC95_inf: n > 1 ? 10 ** (mLog - t95 * sdLog / Math.sqrt(n)) : NaN, IC95_sup: n > 1 ? 10 ** (mLog + t95 * sdLog / Math.sqrt(n)) : NaN,
       Media_aritmetica: arit, CV_pct: n > 1 && arit ? (100 * sd) / arit : NaN,

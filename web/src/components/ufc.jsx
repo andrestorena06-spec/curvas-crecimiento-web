@@ -1,7 +1,7 @@
 import { ACEPTA_LIBRO } from '../libro.js'
 import { useMemo, useRef, useState } from 'react'
 import { LineChart } from './charts.jsx'
-import { Campo, Modal, Num, Panel, Select } from './ui.jsx'
+import { Campo, Modal, Num, Select } from './ui.jsx'
 import { PlacaTab, Vacio } from './placa.jsx'
 import { TablaAvanzada } from './tabla.jsx'
 import { estiloCurvaDefecto, ejesDefecto } from './estilo.jsx'
@@ -10,6 +10,9 @@ import { finito } from '../motor/analisis.js'
 import { hojasDe, LETRAS, leerCrudo } from '../motor/lectura.js'
 import { claveT, coloniasEsperadas, contable, crecimientoUfc, estimarUfc, leerPlantillaUfc, leerTablaConteos, textoEstado } from '../motor/ufc.js'
 import { nuevoId } from '../experimento.js'
+import { Esquema96, PetriDiseno } from './petri.jsx'
+import { Nota } from './tip.jsx'
+import { dGeo, dMuUfc, dUfc } from '../calculos.js'
 import { descargarBlob, fmt } from '../utils.js'
 import { excelMatriz } from '../excel.js'
 
@@ -155,7 +158,11 @@ function Distribucion({ s }) {
   return (
     <>
       <section className="tarjeta" style={{ marginBottom: 14 }}>
-        <h2>Atajo: una muestra por fila</h2>
+        <h2>Diseño de la placa <Nota>Cada FILA es una réplica de una muestra y cada COLUMNA una dilución seriada (de pocillo a pocillo). Podés sembrar varias muestras en simultáneo: una por fila.</Nota></h2>
+        <Esquema96 s={s} />
+      </section>
+      <section className="tarjeta" style={{ marginBottom: 14 }}>
+        <h2>Una muestra por fila</h2>
         <div className="fila-ctrl">
           {LETRAS.map((L) => (
             <Campo key={L} label={`Fila ${L}`}>
@@ -335,7 +342,7 @@ function TablaPlacas({ s }) {
                         </td>
                       )
                     })}
-                    <td><b>{finito(e.ufc) ? sci(e.ufc) : e.estado === 'cero' ? `< ${sci(e.lim)}` : ''}</b></td>
+                    <td data-tip={dUfc({ _cont: f.c, _par: { vol: (num(f.vol) || tb.vol) / 1000, factor: tb.factor, min: tb.min, max: tb.max }, _usados: e.usados, _S: e.S, _estado: e.estado, UFC_mL: e.ufc, IC95_inf: e.lo, IC95_sup: e.hi, Limite: e.lim }) || undefined} className="con-calculo"><b>{finito(e.ufc) ? sci(e.ufc) : e.estado === 'cero' ? `< ${sci(e.lim)}` : ''}</b></td>
                     <td><small>{finito(e.lo) ? `${sci(e.lo)} – ${sci(e.hi)}` : ''}</small></td>
                     <td><small>{Object.keys(f.c).length ? textoEstado(e.estado) : ''}</small></td>
                     <td><button className="chico peligro" aria-label="Quitar fila" onClick={() => setTb((t) => ({ ...t, filas: t.filas.filter((x) => x.id !== f.id) }))}>×</button></td>
@@ -350,7 +357,7 @@ function TablaPlacas({ s }) {
       {pegar !== null && (
         <Modal titulo="Pegar conteos desde Excel" onClose={() => setPegar(null)} ancho={640}
           pie={<><button onClick={() => setPegar(null)}>Cancelar</button><button className="primario" onClick={aplicarPegado}>Agregar filas</button></>}>
-          <p className="ayuda" style={{ marginTop: 0 }}>Copiá en Excel las columnas <b>Muestra · Réplica · Tiempo (h) · Sin diluir · −1 · −2 …</b> (sin encabezados) y pegalas acá.</p>
+          <p className="ayuda" style={{ marginTop: 0 }}><Nota titulo="Ayuda">Copiá en Excel las columnas <b>Muestra · Réplica · Tiempo (h) · Sin diluir · −1 · −2 …</b> (sin encabezados) y pegalas acá.</Nota></p>
           <textarea autoFocus rows={10} style={{ width: '100%', fontFamily: 'monospace' }} value={pegar} onChange={(e) => setPegar(e.target.value)} />
         </Modal>
       )}
@@ -365,14 +372,14 @@ function Resultados({ s }) {
   const { reps, res } = s.ufcRes
   const [escala, setEscala] = useState('log10')
   const filasRes = useMemo(() => res.filter((r) => r.Con_conteos > 0).map((r) => ({
-    Muestra: r.Muestra, T_h: r.T_h, Replicas_con_conteos: r.Con_conteos, Replicas_validas: r.N,
+    _r: r, Muestra: r.Muestra, T_h: r.T_h, Replicas_con_conteos: r.Con_conteos, Replicas_validas: r.N,
     UFC_mL: finito(r.UFC_mL) ? signif(r.UFC_mL, 4) : null, IC95_inf: finito(r.IC95_inf) ? signif(r.IC95_inf, 3) : null, IC95_sup: finito(r.IC95_sup) ? signif(r.IC95_sup, 3) : null,
     log10_UFC_mL: finito(r.log10) ? signif(r.log10, 4) : null, DE_log10: finito(r.DE_log10) ? signif(r.DE_log10, 3) : null,
     Media_aritmetica: finito(r.Media_aritmetica) ? signif(r.Media_aritmetica, 4) : null, CV_pct: finito(r.CV_pct) ? signif(r.CV_pct, 3) : null,
     Estado: r.Estado || '', Limite_deteccion: finito(r.Limite) ? signif(r.Limite, 3) : null,
   })), [res])
   const filasRep = useMemo(() => reps.filter((r) => r.Conteos > 0).map((r) => ({
-    Muestra: r.Muestra, T_h: r.T_h, Replica: r.Replica, Origen: r.Origen === 'tabla' ? 'Placa de Petri' : `Gotas (fila ${r.Fila})`,
+    _r: r, Muestra: r.Muestra, T_h: r.T_h, Replica: r.Replica, Origen: r.Origen === 'tabla' ? 'Placa de Petri' : r.Origen === 'petri' ? 'Sector de placa' : `Gotas (fila ${r.Fila})`,
     Diluciones_usadas: r.Diluciones_usadas || '(ninguna contable)',
     UFC_mL: finito(r.UFC_mL) ? signif(r.UFC_mL, 4) : null, IC95_inf: finito(r.IC95_inf) ? signif(r.IC95_inf, 3) : null, IC95_sup: finito(r.IC95_sup) ? signif(r.IC95_sup, 3) : null,
     log10_UFC_mL: finito(r.log10) ? signif(r.log10, 4) : null, Estado: r.Estado, Limite_deteccion: finito(r.Limite) ? signif(r.Limite, 3) : null,
@@ -384,7 +391,7 @@ function Resultados({ s }) {
       const c = crecimientoUfc(rs)
       if (!c) return null
       return finito(c.mu) ? {
-        Muestra: m, mu_h: signif(c.mu, 4), td_min: signif(c.td_min, 4), lag_h: signif(c.lag_h, 3), R2: signif(c.r2, 3), Ventana: c.ventana,
+        _c: c, Muestra: m, mu_h: signif(c.mu, 4), td_min: signif(c.td_min, 4), lag_h: signif(c.lag_h, 3), R2: signif(c.r2, 3), Ventana: c.ventana,
         log10_N0: signif(c.log10_N0, 3), Crecimiento_log10: signif(c.crecimiento_log10, 3), Generaciones: signif(c.generaciones, 3),
       } : { Muestra: m, mu_h: null, td_min: null, lag_h: null, R2: null, Ventana: c.aviso, log10_N0: null, Crecimiento_log10: null, Generaciones: null }
     }).filter(Boolean)
@@ -420,10 +427,13 @@ function Resultados({ s }) {
         <LineChart series={series} xlim={[x0 - 0.3, x1 + 0.3]} ylim={[lin ? Math.min(0, a - pad) : a - pad, b + pad]} est={est} ejes={ejesDefecto()}
           xTxt="Tiempo (h)" yTxt={lin ? `UFC/mL${pot ? ` (×10^${pot})` : ''}` : 'log10 UFC/mL (media geométrica ± DE)'} altoBase={320} />
       )}
-      <p className="ayuda">Cada punto es la <b>media geométrica</b> de las réplicas (el error de un recuento es multiplicativo); la barra es la desviación estándar en log10. De cada réplica se usan las diluciones con colonias dentro del rango contable, ponderadas (ISO 7218). El IC 95 % de cada réplica es el de Poisson exacto (Garwood) según las colonias contadas.</p>
-      <TablaAvanzada id="ufc_muestras" titulo="UFC/mL por muestra y tiempo" columnas={Object.keys(filasRes[0])} filas={filasRes} onVista={s.onVista} />
-      {crec.length > 0 && <TablaAvanzada id="ufc_crecimiento" titulo="Crecimiento según los recuentos" columnas={Object.keys(crec[0])} filas={crec} onVista={s.onVista} />}
-      <TablaAvanzada id="ufc_replicas" titulo="UFC/mL por réplica" columnas={Object.keys(filasRep[0] || { Muestra: 1 })} filas={filasRep} onVista={s.onVista} />
+      <p className="ayuda"><Nota titulo="Ayuda">Media geométrica ± DE (log₁₀) <Nota>Cada punto es la media geométrica de las réplicas (el error de un recuento es multiplicativo); la barra es la desviación estándar en log₁₀. De cada réplica se usan las diluciones dentro del rango contable, ponderadas (ISO 7218). Pasá el mouse por cualquier número de las tablas para ver su cálculo.</Nota></Nota></p>
+      <TablaAvanzada id="ufc_muestras" titulo="UFC/mL por muestra y tiempo" columnas={Object.keys(filasRes[0]).filter((k) => k[0] !== '_')} filas={filasRes} onVista={s.onVista}
+        tips={(f, c) => (['UFC_mL', 'IC95_inf', 'IC95_sup', 'log10_UFC_mL', 'DE_log10'].includes(c) ? dGeo(f._r) : null)} />
+      {crec.length > 0 && <TablaAvanzada id="ufc_crecimiento" titulo="Crecimiento según los recuentos" columnas={Object.keys(crec[0]).filter((k) => k[0] !== '_')} filas={crec} onVista={s.onVista}
+        tips={(f, c) => (f._c && ['mu_h', 'td_min', 'lag_h', 'R2', 'Generaciones'].includes(c) ? dMuUfc(f._c) : null)} />}
+      <TablaAvanzada id="ufc_replicas" titulo="UFC/mL por réplica" columnas={Object.keys(filasRep[0] || { Muestra: 1 }).filter((k) => k[0] !== '_')} filas={filasRep} onVista={s.onVista}
+        tips={(f, c) => (['UFC_mL', 'IC95_inf', 'IC95_sup', 'log10_UFC_mL', 'Diluciones_usadas', 'Estado'].includes(c) ? dUfc(f._r) : null)} />
     </>
   )
 }
@@ -513,60 +523,68 @@ export function ConteoTab({ s }) {
     descargarBlob(b, `recuento_ufc_${(s.a.nombre || 'experimento').replace(/[^\w-]+/g, '_')}.xlsx`)
   }
 
-  const sub = o.sub === 'conteos' ? 'gotas' : o.sub
+  const metodo = ufc.metodo
+  const SUBS = metodo === 'extendida'
+    ? [['petri', 'Diseño por sectores'], ['placas', 'Tabla'], ['res', 'Resultados']]
+    : [['dist', 'Diseño de la placa'], ['gotas', 'Conteos por hora'], ['res', 'Resultados']]
+  const sub0 = SUBS.some(([id]) => id === o.sub) ? o.sub : SUBS[0][0]
+  const sub = sub0 === 'gotas' && !ufc.layout.length ? 'dist' : sub0
+  const p = metodo === 'extendida' ? ufc.tabla : null
   return (
-    <div className="con-lateral">
-      <Panel titulo="Recuento de UFC">
-        <p className="ayuda">Las diluciones, el volumen sembrado y el rango contable se definen en <b>Experimento</b> (primer cuadro).</p>
-        <dl className="datos">
-          <dt>Gotas</dt><dd>{par.vol * 1000} µL · factor {par.factor} · {par.min} a {par.max} col.</dd>
-          <dt>Placas</dt><dd>{ufc.tabla.vol} µL · factor {ufc.tabla.factor} · {ufc.tabla.min} a {ufc.tabla.max} col.</dd>
-        </dl>
-        <button className="chico" onClick={() => s.irA('experimento')}>Cambiar parámetros</button>
-        {(sub === 'gotas' || sub === 'dist') && (
-          <>
-            <h3>Guía de la grilla de gotas</h3>
-            <Campo label="UFC/mL esperadas en el pocillo de partida a T=0"><Num value={par.c0} min={1} step={100000} onChange={(v) => setPar('c0', v === '' ? 1e6 : v)} /></Campo>
-            <Campo label="Concentración esperada en cada hora">
-              <Select value={par.esperadoDe} onChange={(v) => setPar('esperadoDe', v)}
-                opciones={[['od', 'Según la curva de OD (c0 × OD(T)/OD(0))'], ['manual', 'La de la planilla importada']]} />
-            </Campo>
-            <p className="ayuda">La concentración esperada solo sirve de guía (números grises) para saber qué diluciones van a ser contables; <b>no entra en el cálculo</b>.</p>
-            <h3>Planilla de Excel</h3>
-            <p className="ayuda">Importá una planilla con bloques «T=0, T=1…» (muestras por pocillo, concentración esperada y, si ya los tiene, los conteos).</p>
-            <div className="fila-ctrl">
-              <button onClick={() => importRef.current.click()}>Importar planilla</button>
-              <button onClick={exportar} disabled={!ufc.layout.length}>Exportar a Excel</button>
-            </div>
+    <div className="pagina">
+      <div className="barra-parametros">
+        <span className="chip-param" data-tip={metodo === 'extendida' ? 'Siembra extendida: se esparce un volumen sobre agar en una placa de Petri' : 'Siembra por gota: gotas de volumen fijo sobre agar, una por pocillo de la placa de diluciones'}>
+          {metodo === 'extendida' ? 'Siembra extendida' : 'Siembra por gota'}
+        </span>
+        <span className="chip-param">{metodo === 'extendida' ? `${p.vol} µL` : `${par.vol * 1000} µL`}</span>
+        <span className="chip-param" data-tip="Factor de dilución entre diluciones consecutivas">factor {metodo === 'extendida' ? p.factor : par.factor}</span>
+        <span className="chip-param" data-tip="Colonias por placa (o gota) que se consideran contables">contable {metodo === 'extendida' ? `${p.min}–${p.max}` : `${par.min}–${par.max}`}</span>
+        <button className="chico" onClick={() => s.irA('experimento')}>Editar en Experimento</button>
+        {metodo === 'gota' && (
+          <span className="chip-acciones">
+            <button className="chico" onClick={() => importRef.current.click()}>Importar planilla</button>
+            <button className="chico" onClick={exportar} disabled={!ufc.layout.length}>Exportar a Excel</button>
             <input ref={importRef} type="file" hidden accept={ACEPTA_LIBRO} onChange={(e) => { e.target.files[0] && importar(e.target.files[0]); e.target.value = '' }} />
-          </>
+          </span>
         )}
-      </Panel>
-      <div className="principal">
-        <div className="subtabs">
-          {[['gotas', 'Gotas: conteos por hora'], ['dist', 'Gotas: distribución de muestras'], ['placas', 'Placas de Petri'], ['res', 'Resultados']].map(([id, tt]) => (
-            <button key={id} className={sub === id ? 'on' : ''} onClick={() => setO('sub', id)}>{tt}</button>
-          ))}
-        </div>
-        {sub === 'gotas' && (
-          !ufc.layout.length ? (
-            <Vacio texto="Para contar gotas definí primero qué muestra hay en cada pocillo de la placa de diluciones («Gotas: distribución de muestras»), o importá la planilla. Si contaste placas de Petri, usá la pestaña «Placas de Petri»." />
-          ) : (
-            <>
-              <div className="fila-ctrl">
+      </div>
+      <div className="subtabs">
+        {SUBS.map(([id, tt]) => (
+          <button key={id} className={sub === id ? 'on' : ''} onClick={() => setO('sub', id)}>{tt}</button>
+        ))}
+      </div>
+      {sub === 'gotas' && (
+        !ufc.layout.length ? (
+          <Vacio texto="Primero definí qué muestra hay en cada fila de la placa de diluciones («Diseño de la placa»), o importá la planilla." />
+        ) : (
+          <section className="tarjeta">
+            <div className="titulo-fila">
+              <h2>Colonias por gota</h2>
+              <div className="fila-ctrl" style={{ margin: 0 }}>
                 {ts.map((x) => <button key={x} className={`chip-t ${x === t ? 'on' : ''}`} onClick={() => setO('t', x)}>T={x} h</button>)}
                 <button className="chico" onClick={agregarTiempo}>+ Tiempo</button>
                 <button className="chico peligro" onClick={quitarTiempo} disabled={ts.length < 2}>Quitar T={t}</button>
               </div>
-              <p className="ayuda">Concentración esperada en el pocillo de partida a T={t} h: <b>{sci(s.stock[k])} UFC/mL</b> (log10 = {finito(s.stock[k]) ? Math.log10(s.stock[k]).toFixed(2) : '–'}) · {par.esperadoDe === 'od' && s.curvaExp ? 'estimada con la curva de OD' : 'valor cargado'}.</p>
-              <GrillaConteos s={s} t={t} />
-            </>
-          )
-        )}
-        {sub === 'dist' && <Distribucion s={s} />}
-        {sub === 'placas' && <TablaPlacas s={s} />}
-        {sub === 'res' && <Resultados s={s} />}
-      </div>
+            </div>
+            <div className="fila-ctrl" style={{ alignItems: 'flex-end' }}>
+              <Campo label={<>UFC/mL esperadas en T=0<Nota>Solo es una guía (números grises) para saber qué diluciones van a ser contables; no entra en el cálculo.</Nota></>}>
+                <Num value={par.c0} min={1} step={100000} onChange={(v) => setPar('c0', v === '' ? 1e6 : v)} />
+              </Campo>
+              <Campo label="Esperadas según">
+                <Select value={par.esperadoDe} onChange={(v) => setPar('esperadoDe', v)} opciones={[['od', 'Curva de OD'], ['manual', 'Planilla importada']]} />
+              </Campo>
+              <span className="chip-param" data-tip={`Concentración esperada en el pocillo de partida\nT = ${t} h\n${finito(s.stock[k]) ? `${sci(s.stock[k])} UFC/mL · log₁₀ = ${Math.log10(s.stock[k]).toFixed(2)}` : '–'}\n${par.esperadoDe === 'od' && s.curvaExp ? 'estimada con c0 × OD(T) / OD(0)' : 'valor cargado'}`}>
+                esperada T={t} h: {sci(s.stock[k])}
+              </span>
+            </div>
+            <GrillaConteos s={s} t={t} />
+          </section>
+        )
+      )}
+      {sub === 'dist' && <Distribucion s={s} />}
+      {sub === 'petri' && <PetriDiseno s={s} />}
+      {sub === 'placas' && <TablaPlacas s={s} />}
+      {sub === 'res' && <Resultados s={s} />}
     </div>
   )
 }

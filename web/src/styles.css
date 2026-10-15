@@ -327,3 +327,121 @@ code { background: #f6ebdb; }
 .tabla-od input { padding: 3px 5px; }
 .tabla-od td { padding: 2px 4px; }
 .aviso-error { color: var(--peligro); font-weight: 600; }
+
+/* ======================= TEMA v2: más elevación, un solo lenguaje visual ======================= */
+:root { --radio: 16px; --sombra: 0 1px 2px rgba(120, 70, 20, .06), 0 8px 24px rgba(120, 70, 20, .08); --sombra-alta: 0 2px 4px rgba(120, 70, 20, .08), 0 14px 34px rgba(120, 70, 20, .12); --ambar: #e8933f; --ambar-osc: #c2661a; --crema: #fff7ea; }
+body { background: var(--fondo); }
+.contenido {
+  background:
+    radial-gradient(circle at 88% -6%, rgba(240, 176, 106, .28) 0, transparent 36%),
+    radial-gradient(circle at 4% 104%, rgba(232, 147, 63, .12) 0, transparent 30%),
+    radial-gradient(circle, rgba(201, 154, 91, .14) 1.4px, transparent 1.6px) 0 0 / 26px 26px,
+    var(--fondo);
+  padding: 22px 30px 48px;
+}
+.pagina { max-width: 1240px; gap: 20px; }
+
+/* cabecera de cada página */
+.cabecera-pagina { position: relative; display: flex; align-items: center; gap: 16px; padding: 18px 24px; margin: 0 0 18px; border-radius: var(--radio); overflow: hidden;
+  background: linear-gradient(120deg, #fff7ea 0%, #fde9cc 100%); border: 1px solid #f0d9b6; box-shadow: var(--sombra); }
+.cabecera-pagina h1 { margin: 0; font-size: 22px; letter-spacing: -.01em; color: #5a2e12; }
+.cabecera-pagina p { margin: 2px 0 0; color: #8a6a49; font-size: 13.5px; }
+.ico-cabecera { width: 48px; height: 48px; border-radius: 14px; display: grid; place-items: center; color: #fff; flex: none;
+  background: linear-gradient(145deg, #f0a24f, #cf6a14); box-shadow: 0 6px 14px rgba(207, 106, 20, .35); }
+.deco-cabecera { position: absolute; right: 0; top: 0; height: 100%; width: auto; max-width: 46%; pointer-events: none; }
+
+/* tarjetas: todas iguales */
+.tarjeta { position: relative; border-radius: var(--radio); border: 1px solid #f0e2cc; box-shadow: var(--sombra); padding: 20px 24px 22px; background: #fffdf9; }
+.tarjeta::before { content: ''; position: absolute; left: 24px; top: -1px; width: 54px; height: 3px; border-radius: 0 0 4px 4px; background: linear-gradient(90deg, #f0a24f, #d9731f); }
+.tarjeta > h2:first-child, .tarjeta > .titulo-fila > h2 { font-size: 16px; color: #5a2e12; margin-bottom: 14px; display: flex; align-items: center; gap: 4px; }
+.subseccion { margin-top: 18px; padding: 16px 18px 6px; border-radius: 12px; background: var(--crema); border: 1px solid #f3e1c3; }
+.subseccion h3 { margin: 0 0 10px; font-size: 14px; color: #6a3a14; }
+.etq-campo { font-weight: 550; font-size: 13px; color: var(--suave); margin-right: 4px; }
+.columna-tarjetas { display: flex; flex-direction: column; gap: 20px; }
+.campo label { color: #7a634d; font-size: 12.5px; letter-spacing: .01em; }
+.rejilla-campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 18px; }
+
+/* paneles laterales como tarjetas y zona principal sin caja dentro de caja */
+.con-lateral { background: none; border: none; box-shadow: none; gap: 20px; min-height: 0; align-items: start; }
+.con-lateral .lateral { position: sticky; top: 0; background: #fffdf9; border: 1px solid #f0e2cc; border-radius: var(--radio); box-shadow: var(--sombra); padding: 20px 20px 22px; max-height: calc(100vh - 36px); }
+.con-lateral .principal { background: #fffdf9; border: 1px solid #f0e2cc; border-radius: var(--radio); box-shadow: var(--sombra); padding: 22px 26px; }
+.principal .tarjeta { border: none; box-shadow: none; padding: 18px 0 4px; border-top: 1px solid #f3e6d1; border-radius: 0; background: transparent; }
+.principal .tarjeta::before { display: none; }
+.principal > .tarjeta:first-child { border-top: none; padding-top: 0; }
+.lateral h2 { color: #5a2e12; font-size: 16px; }
+
+/* navegación con íconos */
+.nav .num { width: 30px; height: 30px; border-radius: 9px; }
+.nav.activa .num { box-shadow: 0 3px 8px rgba(0, 0, 0, .25); }
+.barra { box-shadow: 4px 0 24px rgba(74, 35, 18, .25); }
+
+/* botones, campos y selectores */
+button { border-radius: 10px; transition: background .12s, box-shadow .12s, transform .06s; }
+button:active:not(:disabled) { transform: translateY(1px); }
+button.primario { background: linear-gradient(180deg, #ea8a33, #cf6a14); border-color: #c2661a; box-shadow: 0 2px 6px rgba(207, 106, 20, .3); }
+button.primario:hover:not(:disabled) { background: linear-gradient(180deg, #ef9446, #d6721d); border-color: #c2661a; box-shadow: 0 4px 10px rgba(207, 106, 20, .35); }
+input[type=text], input[type=number], input:not([type]), input[type=date], select, textarea, input.grande { border-radius: 10px; border-color: #ecdcc2; background: #fffefb; }
+input:focus, select:focus, textarea:focus { border-color: var(--ambar); box-shadow: 0 0 0 3px rgba(232, 147, 63, .2); }
+textarea { width: 100%; padding: 8px 10px; border: 1px solid #ecdcc2; border-radius: 10px; font: inherit; resize: vertical; outline: none; background: #fffefb; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 10px 0 0 10px; } .seg button:last-child { border-radius: 0 10px 10px 0; }
+.seg button.on { background: var(--acento-claro); border-color: var(--ambar); color: var(--acento-osc); }
+
+/* tablas */
+.tabla th { background: #f8ecda; color: #7a5a3a; }
+.tabla tbody tr:hover { background: #fff1dc; }
+.tabla-scroll { border-radius: 12px; border-color: #f0e2cc; }
+.dropzone { border-color: #e8c999; background: linear-gradient(180deg, #fffaf0, #fff3de); border-radius: 14px; padding: 30px 16px; }
+.dropzone strong { color: #6a3a14; }
+
+/* barra de experimentos y subpestañas */
+.barra-placas { border-bottom: none; padding-bottom: 0; margin: 0 0 16px; }
+.chip-placa { border-radius: 999px; padding: 6px 8px 6px 14px; box-shadow: 0 1px 3px rgba(120, 70, 20, .08); }
+.chip-placa.activa { background: linear-gradient(180deg, #fff1dc, #fde2bf); }
+.subtabs { border-bottom: none; padding: 5px; border-radius: 14px; background: #f8ecda; display: inline-flex; margin-bottom: 4px; }
+.subtabs button { border-radius: 10px; padding: 7px 16px; }
+.subtabs button.on { background: #fffdf9; color: var(--acento-osc); border-color: transparent; box-shadow: 0 2px 6px rgba(120, 70, 20, .15); }
+.barra-parametros { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chip-param { padding: 5px 12px; border-radius: 999px; background: #fffdf9; border: 1px solid #efdcba; font-size: 12.5px; font-weight: 600; color: #7a4a1c; cursor: default; }
+.chip-acciones { margin-left: auto; display: inline-flex; gap: 8px; }
+
+/* pantalla inicial */
+.inicio { max-width: 960px; margin: 22px auto; background: #fffdf9; border: 1px solid #f0e2cc; border-radius: 22px; padding: 28px 32px 30px; box-shadow: var(--sombra-alta); }
+.inicio h2 { font-size: 26px; color: #5a2e12; margin: 0 0 4px; text-align: center; }
+.inicio h3 { text-transform: none; letter-spacing: 0; font-size: 15px; margin: 22px 0 6px; color: #7a4a1c; text-align: center; }
+.tarjetas-modo { gap: 16px; margin-top: 18px; }
+.tarjeta-modo { align-items: center; text-align: center; gap: 8px; padding: 18px 16px 16px; border-radius: 18px; border: 1.5px solid #f0e2cc; background: linear-gradient(180deg, #fffdf9, #fff6e8); transition: transform .12s, box-shadow .12s, border-color .12s; }
+.tarjeta-modo:hover { transform: translateY(-3px); box-shadow: var(--sombra-alta); }
+.tarjeta-modo.on { border-color: var(--ambar); background: linear-gradient(180deg, #fff6e8, #fde5c4); box-shadow: 0 0 0 3px rgba(232, 147, 63, .25), var(--sombra-alta); }
+.ilustracion { width: 150px; height: auto; margin-bottom: 4px; }
+.ico-origen { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: #fde5c4; color: var(--ambar-osc); }
+
+/* información al pasar el mouse */
+.globo-info { position: fixed; z-index: 9999; pointer-events: none; background: #3b2a1f; color: #fff6e8; padding: 8px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.4; box-shadow: 0 10px 28px rgba(40, 20, 5, .38); }
+.globo-info b { display: block; font-weight: 650; color: #ffd9a8; }
+.globo-cuerpo { margin-top: 4px; white-space: pre-line; font-family: 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; color: #fbeedd; }
+.nota { position: relative; display: inline-flex; align-items: center; gap: 4px; vertical-align: middle; cursor: help; color: var(--suave); font-size: 13px; margin-left: 6px; font-weight: 400; text-transform: none; letter-spacing: 0; }
+.nota i { font-style: normal; font-size: 13px; width: 18px; height: 18px; line-height: 17px; text-align: center; border-radius: 50%; border: 1px solid #e6cfa7; background: #fff6e4; color: #a8782f; }
+.nota:hover i, .nota:focus i { background: var(--acento-claro); border-color: var(--ambar); color: var(--acento-osc); }
+.nota-cont { display: none; position: absolute; z-index: 60; left: 0; top: 100%; margin-top: 6px; width: 340px; max-width: 80vw; background: #3b2a1f; color: #fff6e8; padding: 10px 13px; border-radius: 10px; font-size: 12.5px; line-height: 1.45; box-shadow: 0 10px 28px rgba(40, 20, 5, .38); text-align: left; font-weight: 400; }
+.nota:hover .nota-cont, .nota:focus .nota-cont { display: block; }
+.nota-cont code { background: rgba(255, 255, 255, .14); color: #ffe3c2; padding: 0 4px; border-radius: 4px; }
+.nota-t { font-size: 12px; }
+.con-calculo { cursor: help; }
+.tabla td.con-calculo:hover { background: #ffe9c9; }
+
+/* diseño de placas de Petri y esquema de la placa de 96 */
+.petri-pagina { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 28px; align-items: start; }
+.petri-izq { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.petri-svg { width: 100%; max-width: 400px; height: auto; filter: drop-shadow(0 8px 14px rgba(120, 70, 20, .18)); }
+.petri-der { min-width: 0; }
+.nombre-placa-in { width: 130px !important; font-weight: 650; text-align: center; }
+.leyenda-petri { display: flex; flex-wrap: wrap; gap: 6px 16px; justify-content: center; font-size: 12.5px; color: #6b5440; }
+.leyenda-petri span { display: inline-flex; align-items: center; gap: 6px; }
+.leyenda-petri i { width: 13px; height: 13px; border-radius: 50%; border: 1px solid rgba(0, 0, 0, .18); display: inline-block; }
+.leyenda-petri i.colonia { background: #8a4b1d; width: 8px; height: 8px; }
+.leyenda-petri .suave { color: var(--suave); }
+.res-sector { margin-top: 12px; padding: 10px 14px; border-radius: 10px; background: var(--crema); border: 1px solid #f3e1c3; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.esquema96 svg { width: 100%; height: auto; display: block; }
+@media (max-width: 1050px) { .petri-pagina { grid-template-columns: 1fr; } }
+.inicio { width: 100%; box-sizing: border-box; }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Nota } from './tip.jsx'
 import { LineChart } from './charts.jsx'
 import { Campo, Check, Modal, Num, Panel, Select } from './ui.jsx'
 import { SelectorMuestras } from './grafico.jsx'
@@ -227,7 +228,7 @@ function Detalle({ s }) {
       </div>
       <h3 style={{ margin: '6px 0', fontSize: 16, color: 'var(--texto)' }}>{dc.titulo}</h3>
       <DetalleChart dc={dc} fases={o.fases} modelo={o.modelo} onBrush={(a, b) => setBrush([Number(a.toFixed(3)), Number(b.toFixed(3))])} />
-      <p className="ayuda">Para fijar a mano la fase exponencial, arrastrá un rectángulo horizontal sobre los puntos del gráfico y elegí a qué curvas aplicarlo. En modo «Muestra» los parámetros se calculan sobre la curva promedio.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Para fijar a mano la fase exponencial, arrastrá un rectángulo horizontal sobre los puntos del gráfico y elegí a qué curvas aplicarlo. En modo «Muestra» los parámetros se calculan sobre la curva promedio.</Nota></p>
       {brush ? (
         <div className="fila-ctrl">
           <b>Ventana seleccionada: {brush[0].toFixed(2)} a {brush[1].toFixed(2)} h</b>
@@ -342,7 +343,7 @@ function MapaPlaca({ s }) {
           <text x={W - 42} y={34 + 8 * CS - 6} fontSize="11" fill="#6b5d4f">{g3(a)}</text>
         </svg>
       </div>
-      <p className="ayuda">Los pocillos del borde (filas A y H, columnas 1 y 12) evaporan más. Si el borde se separa sistemáticamente del interior, desconfiá de esos pocillos. Hacé clic en un pocillo para ver qué significa el valor, cómo se calculó y su error.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Los pocillos del borde (filas A y H, columnas 1 y 12) evaporan más. Si el borde se separa sistemáticamente del interior, desconfiá de esos pocillos. Hacé clic en un pocillo para ver qué significa el valor, cómo se calculó y su error.</Nota></p>
       {abierto && <ModalMapa s={s} p={abierto} param={param} onClose={() => setAbierto(null)} />}
     </>
   )
@@ -379,7 +380,7 @@ function Parametros({ s }) {
   return (
     <>
       {nAv > 0 && <div className="aviso-sel">{nAv} de {s.res.length} pocillos tienen avisos (ver la columna «aviso»). Revisalos en «Detalle».</div>}
-      <p className="ayuda">El resumen por muestra usa solo las réplicas seleccionadas en «Gráfico». Cada columna numérica tiene un botón <code>▾</code> para filtrar.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">El resumen por muestra usa solo las réplicas seleccionadas en «Gráfico». Cada columna numérica tiene un botón <code>▾</code> para filtrar.</Nota></p>
       <TablaAvanzada id="resumen_muestras" titulo="Resumen por muestra (media ± SD)" columnas={colsRes} filas={resumen} onVista={s.onVista} />
       <TablaAvanzada id="parametros_pocillos" titulo="Parámetros por pocillo" columnas={colsPoc} filas={porPoc} onVista={s.onVista} />
       <div className="fila-ctrl">
@@ -428,7 +429,7 @@ function Modelos({ s }) {
   const cols = m && m.length ? Object.keys(m[0]) : []
   return (
     <>
-      <p className="ayuda">Ajuste de modelos de crecimiento sobre ln(OD): Gompertz, logístico y Richards (Zwietering) y Baranyi-Roberts. Se parte de los valores estimados por la ventana deslizante. Un ajuste que no converge se informa como tal, no se oculta.</p>
+      <p className="ayuda"><Nota titulo="Ayuda">Ajuste de modelos de crecimiento sobre ln(OD): Gompertz, logístico y Richards (Zwietering) y Baranyi-Roberts. Se parte de los valores estimados por la ventana deslizante. Un ajuste que no converge se informa como tal, no se oculta.</Nota></p>
       <div className="fila-ctrl">
         <label style={{ fontWeight: 600 }}>Modelos a ajustar</label>
         {NOMBRES_MODELO.map((k) => (

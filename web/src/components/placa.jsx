@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Nota } from './tip.jsx'
 import { Campo, Modal, Panel } from './ui.jsx'
 import { LETRAS } from '../motor/lectura.js'
 import { nombreReplica } from '../motor/pipeline.js'
@@ -92,7 +93,7 @@ export function PlacaTab({ s }) {
     <div className="con-lateral lateral-der">
       <div className="principal">
         <h1>{s.tituloPlaca || 'Placa de 96 pocillos'}</h1>
-        <p className="ayuda">{s.ayudaPlaca || 'Hacé clic en un pocillo, o clic y arrastrá para seleccionar varios. Elegí una muestra de la lista o escribí una nueva; la réplica se asigna sola. Si es medio sin inocular (blanco), marcá «Definir como blanco». El color de cada pocillo es el de su curva en el gráfico.'}</p>
+        <p className="ayuda"><Nota titulo="Ayuda">{s.ayudaPlaca || 'Hacé clic en un pocillo, o clic y arrastrá para seleccionar varios. Elegí una muestra de la lista o escribí una nueva; la réplica se asigna sola. Si es medio sin inocular (blanco), marcá «Definir como blanco». El color de cada pocillo es el de su curva en el gráfico.'}</Nota></p>
         <div className="placa-wrap">
           <table className="placa">
             <thead><tr><th />{Array.from({ length: 12 }, (_, i) => <th key={i}>{i + 1}</th>)}</tr></thead>

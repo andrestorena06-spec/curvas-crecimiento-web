@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { Nota } from './tip.jsx'
 import { LineChart } from './charts.jsx'
 import { Campo, Panel, Select } from './ui.jsx'
 import { TablaAvanzada } from './tabla.jsx'
@@ -94,7 +95,7 @@ export function CalibracionTab({ s }) {
   return (
     <div className="con-lateral">
       <Panel titulo="Calibración OD–UFC">
-        <p className="ayuda">Ajusta una curva a los pares (OD, UFC/mL) de los mismos tiempos para <b>estimar las UFC/mL a partir de la OD</b> (por ejemplo, en los tiempos donde no contaste). Solo es válida dentro del rango de OD calibrado, con el mismo organismo, medio y equipo.</p>
+        <p className="ayuda"><Nota titulo="Ayuda">Ajusta una curva a los pares (OD, UFC/mL) de los mismos tiempos para <b>estimar las UFC/mL a partir de la OD</b> (por ejemplo, en los tiempos donde no contaste). Solo es válida dentro del rango de OD calibrado, con el mismo organismo, medio y equipo.</Nota></p>
         <Campo label="Modelo de calibración">
           <Select value={o.modelo} onChange={(v) => setO('modelo', v)} opciones={Object.entries(MODELOS_CALIB)} />
         </Campo>

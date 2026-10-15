@@ -12,6 +12,8 @@ import { CalibracionTab } from './components/calibracion.jsx'
 import { CompararTab } from './components/comparar.jsx'
 import { DatosTab, MetodosTab } from './components/datos.jsx'
 import { Modal } from './components/ui.jsx'
+import { GloboInfo } from './components/tip.jsx'
+import { Icono } from './components/iconos.jsx'
 import { normalizarEjes, normalizarEstilo } from './components/estilo.jsx'
 import { ajustesDef } from './ayuda.js'
 import { estilosPocillos, paletaMuestras } from './colores.js'
@@ -44,17 +46,17 @@ function cargarGuardado() {
 }
 
 const PESTANAS = {
-  experimento: ['Experimento', 'Condiciones y datos'],
-  placa: ['Configurar pocillos', 'Placa de densidad óptica'],
-  odmanual: ['OD manual', 'Lecturas con cubeta'],
-  preproc: ['Preprocesado y QC', 'Blanco, filtros y calidad'],
-  grafico: ['Gráfico', 'Curvas de crecimiento'],
-  analisis: ['Análisis', 'μmax, lag, K, modelos'],
-  conteo: ['Recuento', 'Diluciones y UFC/mL'],
-  calibracion: ['Calibración', 'OD frente a UFC/mL'],
-  comparar: ['Comparar', 'OD y UFC de todo'],
-  datos: ['Datos', 'Tablas, Excel e informe'],
-  metodos: ['Métodos', 'Cómo se calcula'],
+  experimento: ['Experimento', 'Condiciones y datos', 'Condiciones, datos y muestras del experimento'],
+  placa: ['Pocillos', 'Placa de OD', 'Asigná muestra, réplica y blancos a cada pocillo'],
+  odmanual: ['OD manual', 'Cubeta', 'Lecturas de espectrofotómetro con sus diluciones'],
+  preproc: ['Preprocesado', 'Blanco y QC', 'Blanco, valores atípicos y calidad por pocillo'],
+  grafico: ['Gráfico', 'Curvas', 'Curvas de crecimiento por réplica o por muestra'],
+  analisis: ['Análisis', 'μmax, lag, K', 'Parámetros de crecimiento y modelos'],
+  conteo: ['Recuento', 'UFC/mL', 'Siembra, conteo de colonias y UFC/mL'],
+  calibracion: ['Calibración', 'OD ↔ UFC/mL', 'Relación entre la OD y las UFC/mL'],
+  comparar: ['Comparar', 'OD y UFC', 'Experimentos y muestras en un mismo gráfico'],
+  datos: ['Datos', 'Excel e informe', 'Tablas, Excel completo e informe en PDF'],
+  metodos: ['Métodos', 'Cálculos', 'Cómo se calcula cada resultado'],
 }
 // pestañas de un experimento según lo que se analiza
 export function pestanasDe(e) {
@@ -359,6 +361,7 @@ export default function App() {
     exps.forEach((e) => {
       e.config.forEach((c) => st.add(c.Muestra)); e.ufc.layout.forEach((c) => st.add(c.Muestra))
       e.ufc.tabla.filas.forEach((f) => f.muestra && st.add(f.muestra)); e.manual.filas.forEach((f) => f.muestra && st.add(f.muestra))
+      e.ufc.petri.forEach((p) => p.sectores.forEach((x) => x.muestra && st.add(x.muestra)))
     })
     return [...st]
   }, [muestras, exps])
@@ -416,6 +419,7 @@ export default function App() {
 
   const usosDe = (e, m) => e.config.filter((c) => c.Muestra === m).length + e.ufc.layout.filter((c) => c.Muestra === m).length
     + e.ufc.tabla.filas.filter((f) => f.muestra === m).length + e.manual.filas.filter((f) => f.muestra === m).length
+    + e.ufc.petri.reduce((t, p) => t + p.sectores.filter((x) => x.muestra === m).length, 0)
   const borrarMuestra = (m) => {
     const n = exps.reduce((t, e) => t + usosDe(e, m), 0)
     if (n > 0 && !window.confirm(`La muestra '${m}' se usa en ${n} lugar(es) (pocillos y filas de tablas). Si la borrás, esos pocillos y filas se quitan. ¿Continuar?`)) return
@@ -425,7 +429,8 @@ export default function App() {
       const r = man.filas.length !== e.manual.filas.length ? manualADatos(man) : null
       return {
         ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}),
-        ufc: { ...e.ufc, layout: e.ufc.layout.filter((c) => c.Muestra !== m), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) } },
+        ufc: { ...e.ufc, layout: e.ufc.layout.filter((c) => c.Muestra !== m), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) },
+          petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === m ? { ...x, muestra: '' } : x)) })) },
       }
     }))
   }
@@ -442,6 +447,7 @@ export default function App() {
         ufc: {
           ...e.ufc, layout: e.ufc.layout.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)),
           tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) },
+          petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === viejo ? { ...x, muestra: nuevoNombre } : x)) })),
         },
         selMuestras: e.selMuestras ? e.selMuestras.map((m) => (m === viejo ? nuevoNombre : m)) : e.selMuestras,
         selReps: e.selReps[viejo] ? { ...Object.fromEntries(Object.entries(e.selReps).filter(([k]) => k !== viejo)), [nuevoNombre]: e.selReps[viejo] } : e.selReps,
@@ -537,7 +543,7 @@ export default function App() {
         </div>
         {tabs.map((id, i) => (
           <button key={id} className={`nav ${tabAct === id ? 'activa' : ''}`} onClick={() => setTab(id)}>
-            <span className="num">{i + 1}</span>
+            <span className="num"><Icono n={id} size={17} /></span>
             <span><b>{PESTANAS[id][0]}</b><small>{PESTANAS[id][1]}</small></span>
           </button>
         ))}
@@ -595,12 +601,13 @@ export default function App() {
           </p>
           <ul className="resumen-guardado">
             {g.exps.map((p) => (
-              <li key={p.id}><b>{p.nombre}</b> <small>{p.datos ? `${Object.keys(p.datos.pocillos).length} curvas de OD` : 'sin OD'} · {p.config?.length || 0} configuradas · {Object.values(p.ufc?.conteos || {}).reduce((n, o) => n + Object.keys(o).length, 0) + (p.ufc?.tabla?.filas?.length || 0)} conteos de UFC</small></li>
+              <li key={p.id}><b>{p.nombre}</b> <small>{p.datos ? `${Object.keys(p.datos.pocillos).length} curvas de OD` : 'sin OD'} · {p.config?.length || 0} configuradas · {Object.values(p.ufc?.conteos || {}).reduce((n, o) => n + Object.keys(o).length, 0) + (p.ufc?.tabla?.filas?.length || 0) + (p.ufc?.petri || []).length} conteos de UFC</small></li>
             ))}
           </ul>
           <p className="ayuda">«Continuar con lo anterior» recupera todo tal como lo dejaste. «Empezar de cero» borra ese trabajo guardado del navegador y arranca vacío (si querés conservarlo antes, cargá un archivo de sesión que hayas descargado).</p>
         </Modal>
       )}
+      <GloboInfo />
       <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
     </div>
   )

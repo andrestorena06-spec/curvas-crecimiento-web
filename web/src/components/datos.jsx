@@ -4,7 +4,7 @@ import { Vacio } from './placa.jsx'
 import { ETIQUETAS_AJUSTE, MODELOS_ETQ, PARAMS, signif } from '../ayuda.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { opAnalisis } from '../motor/pipeline.js'
-import { crecimientoUfc, hayConteos } from '../motor/ufc.js'
+import { crecimientoUfc, hayConteos, lineasPetri } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
 import { MODOS, ORIGENES_OD } from '../experimento.js'
 import { abrirInforme } from './informe.jsx'
@@ -151,8 +151,9 @@ async function excelCompleto(s) {
     })
     if (cr.length) hojas.push({ nombre: 'UFC_crecimiento', columnas: Object.keys(cr[0]), filas: cr })
     const cs = []
-    Object.entries(s.ufc.conteos).forEach(([k, o]) => Object.entries(o).forEach(([p, n]) => cs.push({ Tipo: 'Gota', T_h: Number(k), Muestra: (s.ufc.layout.find((c) => c.Pocillo === p) || {}).Muestra || '', Replica: p[0], Dilucion: -Number(p.slice(1)), Colonias: n })))
-    s.ufc.tabla.filas.forEach((f) => Object.entries(f.c || {}).forEach(([k, n]) => cs.push({ Tipo: 'Placa', T_h: Number(f.t), Muestra: f.muestra, Replica: f.replica, Dilucion: -Number(k), Colonias: n })))
+    if (s.ufc.metodo !== 'extendida') Object.entries(s.ufc.conteos).forEach(([k, o]) => Object.entries(o).forEach(([p, n]) => cs.push({ Tipo: 'Gota', T_h: Number(k), Muestra: (s.ufc.layout.find((c) => c.Pocillo === p) || {}).Muestra || '', Replica: p[0], Dilucion: -Number(p.slice(1)), Colonias: n })))
+    if (s.ufc.metodo === 'extendida') lineasPetri(s.ufc).forEach((l) => { if (Number.isFinite(l.n)) cs.push({ Tipo: 'Sector de placa', T_h: Number(l.t), Muestra: l.muestra, Replica: l.rep, Dilucion: -Number(l.k), Colonias: l.n }) })
+    if (s.ufc.metodo === 'extendida') s.ufc.tabla.filas.forEach((f) => Object.entries(f.c || {}).forEach(([k, n]) => cs.push({ Tipo: 'Placa', T_h: Number(f.t), Muestra: f.muestra, Replica: f.replica, Dilucion: -Number(k), Colonias: n })))
     hojas.push({ nombre: 'UFC_conteos', columnas: ['Tipo', 'T_h', 'Muestra', 'Replica', 'Dilucion', 'Colonias'], filas: cs })
     hojas.push({ nombre: 'UFC_parametros', columnas: ['Parametro', 'Valor'], filas: [
       { Parametro: 'Gotas: volumen (mL)', Valor: String(s.ufc.par.vol) }, { Parametro: 'Gotas: factor de dilución', Valor: String(s.ufc.par.factor) },
