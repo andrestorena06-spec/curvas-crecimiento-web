@@ -81,6 +81,8 @@ function placasPorTiempo(ps) {
         conteos: Object.fromEntries(Object.entries(p.conteos || {}).filter(([k]) => filas[k[0]])) })
     })
   })
+  // las diluciones que no se cuentan quedan vacías: toda la fila (1 a 12) se puede usar
+  out.forEach((p, i) => { out[i] = { ...p, filas: Object.fromEntries(Object.entries(p.filas || {}).map(([L, f]) => [L, f ? { ...f, desde: 1, hasta: 12 } : f])) } })
   return out.sort((a, b) => (finito(Number(a.t)) ? Number(a.t) : 0) - (finito(Number(b.t)) ? Number(b.t) : 0))
 }
 

@@ -3,7 +3,7 @@ import { useMemo, useRef, useState } from 'react'
 import { LineChart } from './charts.jsx'
 import { Campo, Modal, Num, Select } from './ui.jsx'
 import { Vacio } from './placa.jsx'
-import { ConteosGota, DisenoGota } from './gota.jsx'
+import { ConteosGota } from './gota.jsx'
 import { TablaAvanzada } from './tabla.jsx'
 import { estiloCurvaDefecto, ejesDefecto } from './estilo.jsx'
 import { signif } from '../ayuda.js'
@@ -326,9 +326,9 @@ export function ConteoTab({ s }) {
   const SUBS = metodo === 'extendida'
     // la siembra extendida cubre toda la placa: no lleva diseño (solo se muestra si una sesión anterior tiene sectores cargados)
     ? [...(lineasPetri(ufc).length ? [['petri', 'Sectores (sesión anterior)']] : []), ['placas', 'Tabla'], ['res', 'Resultados']]
-    : [['dist', 'Diseño de placa'], ['gotas', 'Conteos'], ['res', 'Resultados']]
+    : [['gotas', 'Conteos'], ['res', 'Resultados']]
   const sub0 = SUBS.some(([id]) => id === o.sub) ? o.sub : SUBS[0][0]
-  const sub = sub0 === 'gotas' && !ufc.placasG.length ? 'dist' : sub0
+  const sub = sub0
   const p = metodo === 'extendida' ? ufc.tabla : null
   return (
     <div className="pagina">
@@ -353,7 +353,6 @@ export function ConteoTab({ s }) {
           <button key={id} className={sub === id ? 'on' : ''} onClick={() => setO('sub', id)}>{tt}</button>
         ))}
       </div>
-      {sub === 'dist' && <DisenoGota s={s} />}
       {sub === 'gotas' && <ConteosGota s={s} />}
       {sub === 'petri' && <PetriDiseno s={s} />}
       {sub === 'placas' && <TablaPlacas s={s} />}

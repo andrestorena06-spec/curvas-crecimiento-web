@@ -499,3 +499,8 @@ button.chip-cepa:not(.on) { color: #8a7765; font-weight: 500; }
 .placa-od .sel-od.sel { outline: 2px solid #f0ad4e; outline-offset: -2px; background: #fbe3bf !important; }
 .placa-od .marca-t { position: absolute; top: 3px; right: 3px; width: 5px; height: 5px; border-radius: 50%; background: var(--acento-osc); }
 .punto-cepa { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.grilla-conteo td.cepa-fila { min-width: 230px; }
+.cepa-fila select { width: 160px; min-width: 160px; padding: 3px 6px; font-weight: 600; }
+.grilla-conteo tr.fila-libre th, .grilla-conteo tr.fila-libre .cepa-fila select { color: var(--suave); font-weight: 450; }
+.como-placa { margin-top: 10px; }
+.como-placa summary { cursor: pointer; font-weight: 600; color: var(--acento-osc); margin-bottom: 8px; }
