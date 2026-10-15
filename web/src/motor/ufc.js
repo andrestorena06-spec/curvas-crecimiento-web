@@ -55,7 +55,7 @@ export function placasDeGrilla(layout, conteos, esperado) {
   filasLetra.forEach((L) => { const m = muestraDe(L); reps[m] = (reps[m] || 0) + 1; repDe[L] = reps[m] })
   const ts = Object.keys(conteos).map(Number).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
   return ts.map((t, i) => ({
-    id: 'g' + i + Math.random().toString(36).slice(2, 6), nombre: `Placa T=${t} h`,
+    id: 'g' + i + Math.random().toString(36).slice(2, 6), nombre: `T = ${t} h`, t,
     filas: Object.fromEntries(filasLetra.map((L) => [L, { muestra: muestraDe(L), t, rep: repDe[L], desde: 1, hasta: 12 }])),
     conteos: { ...(conteos[claveT(t)] || {}) },
   }))
@@ -67,6 +67,23 @@ const parNormal = (par, madre) => {
   return { ...par, madre: madre && usar !== false ? { ...ufcDef().madre, ...m } : { toma: par.toma, final: par.final } }
 }
 
+// cada placa de gotas es un tiempo: las placas de sesiones anteriores con filas de varios tiempos se separan
+// en una placa por tiempo (mismas filas y conteos)
+function placasPorTiempo(ps) {
+  const out = []
+  ps.forEach((p) => {
+    const usadas = Object.entries(p.filas || {}).filter(([, f]) => f?.muestra)
+    const ts = [...new Set(usadas.map(([, f]) => Number(f.t)))]
+    if (p.t !== undefined || ts.length <= 1) { out.push(p.t !== undefined || !ts.length ? p : { ...p, t: ts[0], nombre: `T = ${ts[0]} h` }); return }
+    ts.forEach((t, i) => {
+      const filas = Object.fromEntries(usadas.filter(([, f]) => Number(f.t) === t))
+      out.push({ ...p, id: i ? p.id + '_' + i : p.id, t, nombre: `T = ${t} h`, filas,
+        conteos: Object.fromEntries(Object.entries(p.conteos || {}).filter(([k]) => filas[k[0]])) })
+    })
+  })
+  return out.sort((a, b) => (finito(Number(a.t)) ? Number(a.t) : 0) - (finito(Number(b.t)) ? Number(b.t) : 0))
+}
+
 export const normalizarUfc = (u = {}) => {
   const d = ufcVacio()
   const petri = Array.isArray(u.petri) ? u.petri : []
@@ -75,7 +92,7 @@ export const normalizarUfc = (u = {}) => {
     metodo: u.metodo || (!(Array.isArray(u.layout) && u.layout.length) && (filasTabla.length || petri.length) ? 'extendida' : 'gota'),
     petri,
     par: parNormal({ ...d.par, ...(u.par || {}) }, u.par?.madre),
-    placasG: Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : []),
+    placasG: placasPorTiempo(Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : [])),
     esperado: u.esperado && typeof u.esperado === 'object' ? u.esperado : {},
     tabla: { ...d.tabla, ...(u.tabla || {}), filas: Array.isArray(u.tabla?.filas) ? u.tabla.filas : [] },
   }
