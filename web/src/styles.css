@@ -350,3 +350,6 @@ button.chip-cepa.on { font-weight: 600; }
 .metodo ul, .metodo ol { margin: 6px 0 6px 20px; padding: 0; }
 .metodo li { margin: 3px 0; }
 .texto-metodos { background: var(--panel); border: 1px solid var(--linea); border-radius: var(--radio-chico); padding: 12px 14px; line-height: 1.6; }
+
+.paso-tabla tfoot th { text-align: right; font-weight: 500; color: var(--suave); }
+.paso-tabla td { font-variant-numeric: tabular-nums; }

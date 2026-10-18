@@ -8,6 +8,7 @@ import { crecimientoUfc, hayConteos, lineasPetri } from '../motor/ufc.js'
 import { TEXTO_OD, resumenOdManual } from '../motor/odmanual.js'
 import { MODOS, ORIGENES_OD, textoAgitacion } from '../experimento.js'
 import { abrirInforme } from './informe.jsx'
+import { PasoAPaso } from './pasos.jsx'
 import { aCSV, descargarBlob, descargarTexto, tCuantil } from '../utils.js'
 import { excelDe } from '../excel.js'
 
@@ -248,6 +249,8 @@ export function MetodosTab({ s }) {
         <p className="ayuda">Describe los criterios que están activos ahora. Copialo y revisalo antes de usarlo en un informe.</p>
         <p className="texto-metodos">{texto}</p>
       </section>
+
+      <PasoAPaso s={s} />
 
       <section className="tarjeta metodo">
         <h2>Cómo se calcula cada cosa</h2>
