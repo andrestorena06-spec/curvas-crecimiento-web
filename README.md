@@ -1,26 +1,30 @@
 # Curvas de crecimiento (versión web)
 
-Aplicación web para analizar el crecimiento de cultivos **por densidad óptica (OD), por recuento de colonias (UFC/mL) o por ambos**.
-Al empezar se elige qué se va a analizar (solo OD, OD + conteo o solo conteo) y de dónde sale la OD.
+Aplicación para analizar el crecimiento bacteriano **por densidad óptica (OD), por recuento de colonias (UFC/mL) o por ambos**.
 
 **Todo se calcula en tu navegador.** Los archivos y los resultados no se envían a ningún servidor.
+
+Abrir en línea: **https://andrestorena06-spec.github.io/curvas-crecimiento-web/**
 
 ## Usar sin internet
 
 [**Curvas.html**](docs/Curvas.html): un solo archivo; se descarga y se abre con doble clic en Edge, Chrome o Firefox.
 
 ## Qué hace
-- **Pantalla inicial**: solo OD · OD + conteo · solo conteo. La OD puede venir de un Excel del lector (Tecan u otro), de una placa
-  de 96 leída en el formato del programa de Biofilm (cada columna es un tiempo) o de lecturas manuales con cubeta.
-- **Condiciones del experimento** (primer cuadro): cepas (se eligen de la lista común), medio, temperatura, agitación, equipo,
-  longitud de onda, fecha y notas; si hay conteo, también la siembra y las diluciones (factor, volumen, solución madre, rango contable).
-- **Placa de OD**: la cepa o el blanco se definen por pocillo (clic o arrastrar), con orden agrupado o alternado y filas de espaciado;
-  el blanco se puede aplicar a todos los tiempos.
-- **OD manual**: tabla con muestra, réplica, tiempo y lecturas sin diluir y diluidas; la OD corregida usa la ventana lineal del equipo.
-- **Recuento**: gotas en placa de 96 (en «Conteos» se elige la cepa de cada fila, que define las réplicas, y el formato se repite en
-  todos los tiempos; las diluciones que no se cuentan quedan vacías) o siembra extendida en placas de Petri (tabla). Media ponderada
-  ISO 7218, IC 95 % de Poisson exacto (Garwood), media geométrica de las réplicas, límite de detección y parámetros de crecimiento.
-- **Curvas de OD**: preprocesado y QC (blanco, Hampel, suavizado, normalización), μmax, tiempo de duplicación, lag, K, AUC, fases y modelos.
-- **Calibración OD–UFC/mL** y **Comparar** (OD y UFC en el mismo gráfico con doble eje, varios experimentos).
-- **Planillas**: Excel y LibreOffice (.xlsx, .xls, .xlsm, .xlsb, .ods).
-- **Sesión** con todos los datos, **Excel** con todo el análisis e **informe en PDF**.
+- **Asistente al empezar**: curva por OD, por conteo de UFC/mL o por OD + UFC. La OD puede venir de un lector Tecan (cinética),
+  de placas leídas una por tiempo o de lecturas en cubeta.
+- **Placas por tiempo**: cada placa es un tiempo, con su layout (cepa, blanco y dilución por pocillo) y su Excel; varios Excel a la vez,
+  asociación por el tiempo del nombre del archivo, blanco propio o tomado de otra placa, placas ocultas y corrección a 1 cm de camino óptico.
+- **Control de calidad** con exclusión de puntos (Dixon, Grubbs o CV; Hampel en cinéticas) y todo reversible con un clic.
+- **Parámetros**: μmax por ventana deslizante, tiempo de duplicación, lag, K, ΔOD, AUC, fases y modelos (Gompertz, logístico, Richards, Baranyi).
+- **Recuento de UFC**: serie de diluciones con volúmenes transferidos, una dilución por cepa y tiempo (sugerida o elegida a mano),
+  coherencia entre diluciones (prueba binomial), IC 95 % de Poisson exacto, media geométrica de las réplicas y test de atípicos.
+- **OD + UFC**: ambas curvas con doble eje y calibración OD ↔ UFC/mL.
+- **Gráficos personalizables** (textos, tamaños, ejes, colores de las cepas, fondo blanco) y exportación PNG/SVG; tablas a Excel.
+- **Métodos**: descripción completa de los cálculos y texto para el informe.
+- Planillas Excel y LibreOffice (.xlsx, .xls, .ods). Tema oscuro y claro.
+
+## Código
+
+El código fuente está en [`web/`](web) (React + Vite). `npm ci`, y luego `npx vite build --mode web --outDir dist-web` para el sitio
+o `npx vite build --mode single --outDir dist-single` para el archivo único.

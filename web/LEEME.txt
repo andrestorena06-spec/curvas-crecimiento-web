@@ -1,0 +1,15 @@
+CODIGO FUENTE - Curvas de crecimiento v2 (rediseño)
+
+Aplicacion React + Vite. Todo el codigo esta en src:
+  src/motor/      calculos (lectura de Excel, blanco, Hampel/Dixon/Grubbs, parametros, UFC, modelos, calibracion)
+  src/modelo.js   experimento (tipo, origen de la OD) y armado de las series para el motor
+  src/vistas/     una pantalla por paso del menu lateral
+  src/ui/         componentes (grafico, placa de 96, iconos, campos)
+  src/tema.js + styles.css   tema oscuro «Oceano nocturno» (por defecto) y claro «Laboratorio marino»
+  pruebas/        archivos de prueba (Tecan .xlsx/.xls, placas por tiempo, experimento OD+UFC)
+
+Para modificarla (hace falta Node.js):
+  npm install
+  npm run dev              (probar en el navegador)
+  npm run build:single     (un solo archivo HTML en dist-single\index.html)
+  npm run build:web        (version web en dist-web)

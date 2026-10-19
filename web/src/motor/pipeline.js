@@ -6,6 +6,7 @@
 // ============================================================
 import { analizarCurva, aplicarHampel, finito, mediana, media, suavizarVector, trapz } from './analisis.js'
 import { pocillos96 } from './lectura.js'
+import { tCuantil } from '../utils.js'
 
 export const r3 = (t) => Math.round(t * 1000) / 1000
 export const clavePunto = (p, t) => `${p}|${r3(t)}`
@@ -39,7 +40,7 @@ export function serieDe(datos, p) {
 export function construirBlanco({ datos, config, aj, blancosSel, E }) {
   if (!aj.corregir_blanco) return null
   const blancos = config.filter((c) => c.EsBlanco && datos.pocillos[c.Pocillo]).map((c) => c.Pocillo)
-  if (!blancos.length) return { error: "Para corregir al blanco, definí al menos un pocillo como blanco (casilla 'Definir como blanco' al configurarlo)." }
+  if (!blancos.length) return { error: "Para corregir al blanco, marcá al menos un pocillo como blanco en «Placa» (casilla «Es blanco»), o desactivá «Restar el blanco» en el control de calidad." }
   const excl = new Set(E.pocillosExcl)
   const usados = (blancosSel ? blancos.filter((p) => blancosSel.includes(p)) : blancos).filter((p) => !excl.has(p))
   if (!usados.length) return { error: 'Seleccioná al menos una réplica del blanco para calcular el promedio.' }
@@ -64,6 +65,12 @@ function marcarPozo(datos, c, E, aj, blanco) {
   base = base.map((r) => ({ t: r.t, yRaw: r.y, y: r.y }))
   if (blanco) {
     base = base.filter((r) => blanco.prom.has(r3(r.t))).map((r) => ({ ...r, y: r.y - blanco.prom.get(r3(r.t)) }))
+  }
+  // OD leída sobre una dilución: (lectura − blanco) × factor de dilución
+  const fac = datos.factores?.[c.Pocillo]
+  if (fac) {
+    const iT = new Map(datos.tiempos.map((t, i) => [r3(t), i]))
+    base = base.map((r) => { const f = Number(fac[iT.get(r3(r.t))]); return f > 0 && f !== 1 ? { ...r, y: r.y * f } : r })
   }
   base.sort((a, b) => a.t - b.t)
   const n = base.length
@@ -107,9 +114,25 @@ function marcarPozo(datos, c, E, aj, blanco) {
 
 // Test Q de Dixon (Rorabacher 1991, razón r10, n = 3 a 10)
 const Q_CRIT = { 90: [0.941, 0.765, 0.642, 0.56, 0.507, 0.468, 0.437, 0.412], 95: [0.97, 0.829, 0.71, 0.625, 0.568, 0.526, 0.493, 0.466], 99: [0.994, 0.926, 0.821, 0.74, 0.68, 0.634, 0.598, 0.568] }
+// Grubbs (dos colas) para más de 10 réplicas: G = máx|x − x̄| / s ; crítico = (n − 1)/√n · √(t² / (n − 2 + t²)), t = t(α/(2n); n − 2)
+export function grubbs(vals, conf = 95) {
+  const n = vals.length
+  if (n < 7) return null
+  const m = media(vals)
+  const s = Math.sqrt(vals.reduce((a, v) => a + (v - m) ** 2, 0) / (n - 1))
+  if (!(s > 0)) return null
+  let i = 0
+  vals.forEach((v, j) => { if (Math.abs(v - m) > Math.abs(vals[i] - m)) i = j })
+  const G = Math.abs(vals[i] - m) / s
+  const t = tCuantil(1 - (1 - conf / 100) / (2 * n), n - 2)
+  const crit = ((n - 1) / Math.sqrt(n)) * Math.sqrt((t * t) / (n - 2 + t * t))
+  return G > crit ? { i, lado: vals[i] > m ? 'superior' : 'inferior', q: G, crit, n, conf, metodo: 'Grubbs' } : null
+}
+
 export function dixonQ(vals, conf = 95) {
   const n = vals.length
-  if (n < 3 || n > 10) return null
+  if (n > 10) return grubbs(vals, conf)
+  if (n < 3) return null
   const s = vals.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v)
   const rango = s[n - 1].v - s[0].v
   if (!(rango > 0)) return null
@@ -117,7 +140,7 @@ export function dixonQ(vals, conf = 95) {
   const sup = qSup >= qInf
   const q = sup ? qSup : qInf
   const crit = (Q_CRIT[conf] || Q_CRIT[95])[n - 3]
-  return q > crit ? { i: (sup ? s[n - 1] : s[0]).i, lado: sup ? 'superior' : 'inferior', q, crit, n, conf } : null
+  return q > crit ? { i: (sup ? s[n - 1] : s[0]).i, lado: sup ? 'superior' : 'inferior', q, crit, n, conf, metodo: 'Dixon' } : null
 }
 
 // Valores atípicos entre réplicas (misma muestra y mismo tiempo) con el test Q de Dixon: para lecturas de placas y de cubeta
@@ -139,7 +162,9 @@ function aplicarDixon(marcado, E, aj) {
     if (!d) return
     const { w, f } = g[d.i]
     f.marca = 'Aberrante (Dixon)'
-    f.detalle = `Test Q de Dixon (extremo ${d.lado}): Q = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n} réplicas, confianza ${d.conf} %).`
+    f.detalle = d.metodo === 'Grubbs'
+      ? `Test de Grubbs (más de 10 réplicas, extremo ${d.lado}): G = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n}, confianza ${d.conf} %).`
+      : `Test Q de Dixon (extremo ${d.lado}): Q = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n} réplicas, confianza ${d.conf} %).`
     f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
   })
 }

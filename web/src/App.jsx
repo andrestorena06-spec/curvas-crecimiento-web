@@ -1,621 +1,262 @@
-import { ACEPTA_LIBRO } from './libro.js'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
-import { ExperimentoTab } from './components/experimento.jsx'
-import { Elegir, NuevoExperimentoModal } from './components/inicio.jsx'
-import { PlacaTab } from './components/placa.jsx'
-import { PlacaOdTab } from './components/placaod.jsx'
-import { OdManualTab } from './components/odmanual.jsx'
-import { PreprocTab } from './components/preproc.jsx'
-import { GraficoTab } from './components/grafico.jsx'
-import { AnalisisTab } from './components/analisis.jsx'
-import { ConteoTab } from './components/ufc.jsx'
-import { CalibracionTab } from './components/calibracion.jsx'
-import { CompararTab } from './components/comparar.jsx'
-import { DatosTab, MetodosTab } from './components/datos.jsx'
-import { Modal } from './components/ui.jsx'
-import { GloboInfo } from './components/tip.jsx'
-import { Icono } from './components/iconos.jsx'
-import { normalizarEjes, normalizarEstilo } from './components/estilo.jsx'
-import { ajustesDef } from './ayuda.js'
-import { estilosPocillos, paletaMuestras } from './colores.js'
-import { hojasDe, leerArchivo, leerCrudo } from './motor/lectura.js'
-import { analizarTodos, clavePunto, curvaMedia, estadoVacio, preprocesar } from './motor/pipeline.js'
-import { calcularUfc, esperadoStock, ufcVacio } from './motor/ufc.js'
-import { manualADatos } from './motor/odmanual.js'
-import { leerPlacaDeMatriz, placaADatos, tiempoDeNombre } from './motor/placas.js'
-import { MODOS, ajParaExp, expVacio, expsDe, hayConteo, hayOd, nuevoId, odPorPocillos } from './experimento.js'
+import { TEMAS, TemaCtx, coloresCepas, estilosSeries } from './tema.js'
+import { TIPOS, ORIGENES, analizarPorCepa, expNuevo, idCepa, muestrasDe, normalizarExp, resultadosUfc, seriesOd, seriesPorCepa, tieneOd, tieneUfc } from './modelo.js'
+import { analizarTodos, clavePunto, preprocesar } from './motor/pipeline.js'
+import { Globo, Icono } from './ui/base.jsx'
+import { CintaCtx } from './ui/cinta.jsx'
+import { Revision } from './ui/revision.jsx'
+import { descargarTexto, fs } from './utils.js'
+import { Asistente } from './vistas/Asistente.jsx'
+import { Inicio } from './vistas/Inicio.jsx'
+import { Resumen } from './vistas/Resumen.jsx'
+import { ArchivoTecan, PlacaTecan } from './vistas/Tecan.jsx'
+import { PlacasTiempo } from './vistas/Placas.jsx'
+import { Cubeta } from './vistas/Cubeta.jsx'
+import { Conteo } from './vistas/Conteo.jsx'
+import { Calidad } from './vistas/Calidad.jsx'
+import { CalidadUfc } from './vistas/CalidadUfc.jsx'
+import { Curva } from './vistas/Curva.jsx'
+import { CurvaUfc } from './vistas/CurvaUfc.jsx'
+import { Parametros } from './vistas/Parametros.jsx'
+import { Combinado } from './vistas/Combinado.jsx'
+import { Datos } from './vistas/Datos.jsx'
+import { Metodos } from './vistas/Metodos.jsx'
 
-const MUESTRAS_DEF = ['L100A1', 'L100A1 Rug', 'L100A1 SCV', 'L101B2', 'L101B2 Rug', 'L201', 'L201 Rug', 'BHI', 'TSBye']
-const CLAVE = 'curvas-crecimiento-v1'
-const CLAVE_VIEJA = 'crecimiento-ufc-v1'
+const CLAVE = 'curvas-crecimiento-v2'
+const CLAVE_TEMA = 'curvas-crecimiento-v2-tema'
+const CLAVE_MENU = 'curvas-crecimiento-v2-menu-corto'
+const leer = (k) => { try { return JSON.parse(localStorage.getItem(k)) } catch { return null } }
 
-const optsDef = () => ({
-  graf: { tmin: '', tmax: '', click: false },
-  det: { modo: 'pocillo', pocillo: '', muestra: '', replicas: true, modelo: 'ninguno', fases: true },
-  mapa: { param: 'mu_max' },
-  modelos: { sel: ['gompertz', 'logistico', 'richards', 'baranyi'] },
-  ufc: { sub: 'gotas', t: 0 },
-  comp: { exps: null, muestras: null, modo: 'por_exp', od: true, ufc: true, escala: 'log10', error: 'sd' },
-  calib: { modelo: 'clasico', exps: null, muestras: null, odEntrada: '', ufcEntrada: '' },
-})
-const optsDe = (x) => {
-  const d = optsDef()
-  return Object.fromEntries(Object.keys(d).map((k) => [k, { ...d[k], ...(x.opts?.[k] || {}) }]))
+const ICONOS = { resumen: 'nuevo', archivo: 'tecan', placa: 'placa', placas: 'tiempo', lecturas: 'cubeta', conteo: 'colonia', calidad: 'escudo', calidadUfc: 'escudo', curva: 'curva', curvaUfc: 'curva', combinado: 'combinar', parametros: 'sigma', datos: 'tabla', metodos: 'libro' }
+
+// pestañas: [título, vista]
+const PASOS = {
+  resumen: ['Resumen', Resumen],
+  archivo: ['Lector', ArchivoTecan],
+  placa: ['Placa', PlacaTecan],
+  placas: ['OD', PlacasTiempo],
+  lecturas: ['Lecturas', Cubeta],
+  conteo: ['Conteo', Conteo],
+  calidad: ['Calidad OD', Calidad],
+  calidadUfc: ['Calidad UFC', CalidadUfc],
+  curva: ['Curva OD vs t', Curva],
+  curvaUfc: ['Curva UFC vs t', CurvaUfc],
+  combinado: ['OD + UFC', Combinado],
+  parametros: ['Parámetros', Parametros],
+  datos: ['Datos', Datos],
+  metodos: ['Métodos', Metodos],
+}
+export const TITULO_PASO = Object.fromEntries(Object.entries(PASOS).map(([k, v]) => [k, v[0]]))
+export function pasosDe(e) {
+  if (!e) return []
+  const od = { tecan: ['archivo', 'placa'], placas: ['placas'], cubeta: ['lecturas'] }[e.origenOd] || []
+  if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'parametros', 'datos', 'metodos']
+  if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'datos', 'metodos']
+  return ['resumen', 'conteo', 'calidadUfc', ...od, 'calidad', 'curva', 'curvaUfc', 'combinado', 'parametros', 'datos', 'metodos']
 }
 
-function cargarGuardado() {
-  try { return JSON.parse(localStorage.getItem(CLAVE)) || JSON.parse(localStorage.getItem(CLAVE_VIEJA)) || {} } catch { return {} }
-}
-
-const PESTANAS = {
-  experimento: ['Experimento', 'Condiciones y datos', 'Condiciones, datos y muestras del experimento'],
-  placa: ['Placa de OD', 'Diseño y pocillos', 'Cepas por fila, tiempos por columna y blancos'],
-  odmanual: ['OD manual', 'Cubeta', 'Lecturas de espectrofotómetro con sus diluciones'],
-  preproc: ['Preprocesado', 'Blanco y QC', 'Blanco, valores atípicos y calidad por pocillo'],
-  grafico: ['Gráfico', 'Curvas', 'Curvas de crecimiento por réplica o por muestra'],
-  analisis: ['Análisis', 'μmax, lag, K', 'Parámetros de crecimiento y modelos'],
-  conteo: ['Recuento', 'UFC/mL', 'Siembra, conteo de colonias y UFC/mL'],
-  calibracion: ['Calibración', 'OD ↔ UFC/mL', 'Relación entre la OD y las UFC/mL'],
-  comparar: ['Comparar', 'OD y UFC', 'Experimentos y muestras en un mismo gráfico'],
-  datos: ['Datos', 'Excel e informe', 'Tablas, Excel completo e informe en PDF'],
-  metodos: ['Métodos', 'Cálculos', 'Cómo se calcula cada resultado'],
-}
-// pestañas de un experimento según lo que se analiza
-export function pestanasDe(e) {
-  if (!e) return ['experimento']
-  const t = ['experimento']
-  if (hayOd(e)) {
-    if (odPorPocillos(e)) t.push('placa')
-    else t.push('odmanual')
-    t.push('preproc', 'grafico', 'analisis')
-  }
-  if (hayConteo(e)) t.push('conteo')
-  if (e.modo === 'ambos') t.push('calibracion')
-  t.push('comparar', 'datos', 'metodos')
-  return t
-}
-
-// Logo: curva de crecimiento con colonias (puntos)
-export const LogoCurva = ({ ancho = 40, alto = 30 }) => (
-  <svg viewBox="0 0 48 36" width={ancho} height={alto} aria-hidden>
-    <path d="M5 4 V31 H45" fill="none" stroke="#ffe3c2" strokeOpacity=".85" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M7 28.5 C16 28.5 18.5 27.5 22.5 19.5 S31 8 43 7" fill="none" stroke="#ffb35c" strokeWidth="2.8" strokeLinecap="round" />
-    <circle cx="14" cy="28.3" r="1.7" fill="#ffe3c2" /><circle cx="22.5" cy="19.5" r="1.7" fill="#ffe3c2" /><circle cx="35" cy="9.2" r="1.7" fill="#ffe3c2" />
-    <g fill="#ffe3c2" fillOpacity=".9"><circle cx="10" cy="8" r="2.1" /><circle cx="15" cy="6.2" r="1.5" /><circle cx="14.5" cy="11" r="1.7" /></g>
+const Logo = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+    <rect width="24" height="24" rx="6" fill="var(--acento)" />
+    <path d="M5 18 C9 18 10 17 12 12 S16 6 20 6" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
   </svg>
 )
 
-const EVACIO = estadoVacio()
-
 export default function App() {
-  const g = useMemo(cargarGuardado, [])
-  // Si hay un trabajo anterior no se carga solo: se le pregunta a la persona
-  const [pendiente, setPendiente] = useState(() => !!(g.exps && g.exps.length))
-  const gi = pendiente ? {} : g
-  const [tab, setTab] = useState('experimento')
-  const [exps, setExps] = useState(() => expsDe(gi))
-  const [activeId, setActiveId] = useState(gi.activeId || null)
-  const [muestras, setMuestras] = useState(gi.muestras || MUESTRAS_DEF)
-  const [aj, setAjObj] = useState(() => ({ ...ajustesDef(), ...(gi.aj || {}) }))
-  const [estilo, setEstilo] = useState(() => normalizarEstilo(gi.estilo))
-  const [ejes, setEjes] = useState(() => normalizarEjes(gi.ejes))
-  const [opts, setOpts] = useState(() => optsDe(gi))
-  const [modelosRes, setModelosRes] = useState(null)
+  const [tema, setTema] = useState(() => leer(CLAVE_TEMA) || 'oscuro')
+  const guardado = useMemo(() => leer(CLAVE), [])
+  const [exp, setExp] = useState(null)
+  const [paso, setPaso] = useState(null)
+  const [archivoAbierto, setArchivoAbierto] = useState(false)   // pestaña «Archivo» (nuevo, abrir, guardar)
+  const [asistente, setAsistente] = useState(false)
   const [avisos, setAvisos] = useState([])
-  const [nuevo, setNuevo] = useState(false)
-  const archivosRef = useRef({})        // id de experimento -> File (solo mientras la pestaña está abierta)
-  const arrastrada = useRef(null)
-  const [arrastrandoSobre, setArrastrandoSobre] = useState(null)
-  const inputExps = useRef()
-  const inputSesion = useRef()
-  const vistas = useRef({})
+  const [revisar, setRevisar] = useState(false)
+  const [panelRev, setPanelRev] = useState(false)
+  const [nodoCinta, setNodoCinta] = useState(null)
+  const [menuCorto, setMenuCorto] = useState(() => leer(CLAVE_MENU) || false)
+  const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
+  const inputCargar = useRef()
 
-  const a = exps.find((e) => e.id === activeId) || exps[0] || null
-  useEffect(() => { if (a && a.id !== activeId) setActiveId(a.id) }, [a, activeId])
-  const tabs = pestanasDe(a)
-  const tabAct = tabs.includes(tab) ? tab : 'experimento'
+  useEffect(() => {
+    document.documentElement.dataset.tema = tema
+    try { localStorage.setItem(CLAVE_TEMA, JSON.stringify(tema)) } catch { /* sin almacenamiento */ }
+  }, [tema])
+  useEffect(() => { try { localStorage.setItem(CLAVE_MENU, JSON.stringify(menuCorto)) } catch { /* sin almacenamiento */ } }, [menuCorto])
+  useEffect(() => {
+    if (!exp) return
+    const t = setTimeout(() => { try { localStorage.setItem(CLAVE, JSON.stringify({ fecha: new Date().toISOString(), exp })) } catch { /* sin espacio */ } }, 500)
+    return () => clearTimeout(t)
+  }, [exp])
+  useEffect(() => {
+    const k = (e) => { if (e.key === 'Escape' && revisar && !['TEXTAREA', 'INPUT'].includes(document.activeElement?.tagName)) setRevisar(false) }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [revisar])
 
   const avisar = useCallback((texto, tipo = 'ok') => {
     const id = Math.random()
     setAvisos((x) => [...x, { id, texto, tipo }])
-    setTimeout(() => setAvisos((x) => x.filter((v) => v.id !== id)), 4200)
+    setTimeout(() => setAvisos((x) => x.filter((v) => v.id !== id)), 4500)
   }, [])
 
-  // El trabajo (incluidos los datos de cada Excel) se guarda en el navegador.
-  // Mientras se espera la decisión sobre el trabajo anterior no se guarda nada, para no pisarlo.
-  useEffect(() => {
-    if (pendiente) return
-    const t = setTimeout(() => {
-      try {
-        localStorage.setItem(CLAVE, JSON.stringify({ fecha: new Date().toISOString(), exps, activeId, muestras, aj, estilo, ejes, opts }))
-      } catch { /* sin almacenamiento o sin espacio */ }
-    }, 400)
-    return () => clearTimeout(t)
-  }, [pendiente, exps, activeId, muestras, aj, estilo, ejes, opts])
+  const pasos = pasosDe(exp)
+  const pasoAct = pasos.includes(paso) ? paso : pasos[0]
+  const irA = (p) => { setPaso(p); setArchivoAbierto(false); setAsistente(false); document.querySelector('.principal')?.scrollTo(0, 0) }
 
-  const aplicarGuardado = (x) => {
-    const es = expsDe(x)
-    setExps(es)
-    setActiveId(x.activeId && es.some((e) => e.id === x.activeId) ? x.activeId : es[0]?.id || null)
-    setMuestras(x.muestras || MUESTRAS_DEF)
-    setAjObj({ ...ajustesDef(), ...(x.aj || {}) })
-    setEstilo(normalizarEstilo(x.estilo))
-    setEjes(normalizarEjes(x.ejes))
-    setOpts(optsDe(x))
-    archivosRef.current = {}
-    setTab('experimento')
+  // ---------- experimento ----------
+  const abrir = (e, aviso, primero) => { setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
+  const crear = (datos) => { const e = expNuevo(datos); abrir(e, `Experimento «${datos.nombre}» creado.`, pasosDe(e)[1]) }
+  const guardar = () => {
+    if (!exp) return
+    descargarTexto(JSON.stringify({ tipo: 'curvas-de-crecimiento', ...exp, guardado: new Date().toISOString() }), `${exp.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')}.curvas.json`, 'application/json')
   }
-  const continuarAnterior = () => { aplicarGuardado(g); setPendiente(false) }
-  const empezarDeCero = () => {
-    try { localStorage.removeItem(CLAVE); localStorage.removeItem(CLAVE_VIEJA) } catch { /* sin almacenamiento */ }
-    setPendiente(false)
+  const cargarArchivo = async (file) => {
+    try { abrir(normalizarExp(JSON.parse(await file.text())), `Experimento «${file.name}» cargado.`) } catch (e) { avisar(`No se pudo cargar: ${e.message}`, 'error') }
   }
+  const continuar = () => { try { abrir(normalizarExp(guardado.exp), 'Experimento recuperado.') } catch (e) { avisar(e.message, 'error') } }
 
-  // ---------------------------------------------------------------
-  // Experimentos
-  // ---------------------------------------------------------------
-  const upd = useCallback((id, patch) => {
-    setExps((es) => es.map((e) => (e.id === id ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e)))
-  }, [])
-  const updA = (patch) => { if (a) upd(a.id, patch) }
+  const upd = useCallback((patch) => setExp((e) => (e ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e)), [])
+  const setAj = (k, v) => upd((e) => ({ aj: { ...e.aj, [k]: v } }))
+  const setE = (f) => upd((e) => ({ E: f(e.E) }))
 
-  const nombreUnico = (base, existentes) => {
-    let n = base, i = 2
-    while (existentes.includes(n)) n = `${base} (${i++})`
-    return n
-  }
+  // ---------- cálculo ----------
+  const expD = useDeferredValue(exp)
+  const serie = useMemo(() => (expD && tieneOd(expD) ? seriesOd(expD) : { datos: null, config: [], aj: expD?.aj || {}, avisos: [] }), [expD])
+  const pre = useMemo(() => (serie.datos && serie.config.length ? preprocesar({ datos: serie.datos, config: serie.config, E: expD.E, aj: serie.aj, blancosSel: expD.blancosSel }) : null), [serie, expD])
+  // placas por tiempo: la curva es por cepa (cada placa es un instante); en los demás orígenes, una curva por réplica
+  const porCepa = expD?.origenOd === 'placas'
+  const modoCurva = expD?.aj?.placas_curva || 'media'
+  const res = useMemo(() => (pre && !pre.error
+    ? (porCepa ? analizarPorCepa(pre.proc, serie.aj, expD.E.ventanas, modoCurva) : analizarTodos(pre.proc, serie.aj, expD.E.ventanas))
+    : null), [pre, serie.aj, expD, porCepa, modoCurva])
+  const seriesAn = useMemo(() => (pre && !pre.error ? (porCepa ? seriesPorCepa(pre.proc) : pre.proc.filter((w) => !w.EsBlanco)) : []), [pre, porCepa])
+  const ufcRes = useMemo(() => (expD && tieneUfc(expD) ? resultadosUfc(expD) : null), [expD])
+  const muestras = useMemo(() => (exp ? muestrasDe(exp) : []), [exp])
+  const colores = useMemo(() => ({ ...coloresCepas(muestras), ...(exp?.coloresCepa || {}) }), [muestras, exp?.coloresCepa])
+  const estilos = useMemo(() => ({ ...estilosSeries(serie.config, colores), ...Object.fromEntries(muestras.map((m) => [idCepa(m), { color: colores[m] }])) }), [serie.config, colores, muestras])
 
-  const crearExperimento = ({ modo, origenOd, nombre }) => {
-    const e = expVacio(nombreUnico(nombre || 'Experimento', exps.map((x) => x.nombre)), modo, origenOd)
-    // las cepas cargadas aparecen en «Experimento», pero hay que elegirlas para usarlas en el resto del experimento
-    setExps((es) => [...es, e])
-    setActiveId(e.id)
-    setTab('experimento')
-    setNuevo(false)
-  }
-
-  // Lee un libro: cada hoja con una placa de curvas se vuelve un experimento
-  const leerLibro = async (file) => {
-    const { hojas } = await hojasDe(file)
-    const lecturas = []
-    for (const hoja of hojas) {
-      try { lecturas.push({ hoja, l: await leerArchivo(file, hoja) }) } catch (e) { if (hojas.length === 1) throw e }
-    }
-    if (!lecturas.length) throw new Error('No encontré datos de absorbancia en ninguna hoja.')
-    return { hojas, lecturas }
-  }
-
-  const cargarArchivos = async (files, idDestino = null) => {
-    const nuevos = []
-    for (const file of Array.from(files)) {
-      try {
-        const { hojas, lecturas } = await leerLibro(file)
-        const base = file.name.replace(/\.[^.]+$/, '')
-        lecturas.forEach(({ hoja, l }) => nuevos.push({ file, hoja, hojas, l, nombre: lecturas.length > 1 ? `${base} · ${hoja}` : base }))
-      } catch (e) { avisar(`${file.name}: ${e.message}`, 'error') }
-    }
-    if (!nuevos.length) return
-    const poner = (n, e) => ({
-      ...e, archivo: { nombre: n.file.name, hoja: n.hoja, hojas: n.hojas }, datos: n.l.datos, preview: n.l.preview,
-      E: estadoVacio(), config: e.config.filter((c) => n.l.datos.pocillos[c.Pocillo]),
-    })
-    let primero = null
-    let resto = nuevos
-    if (idDestino) {
-      archivosRef.current[idDestino] = nuevos[0].file
-      upd(idDestino, (e) => poner(nuevos[0], e))
-      primero = idDestino
-      resto = nuevos.slice(1)
-    }
-    const existentes = exps.map((e) => e.nombre)
-    const creados = resto.map((n) => {
-      const e = poner(n, expVacio(nombreUnico(n.nombre, existentes), 'od', 'tecan'))
-      archivosRef.current[e.id] = n.file
-      existentes.push(e.nombre)
-      if (!primero) primero = e.id
-      return e
-    })
-    if (creados.length) setExps((es) => [...es, ...creados])
-    setActiveId(primero)
-    avisar(nuevos.length === 1 ? `Cargado: ${Object.keys(nuevos[0].l.datos.pocillos).length} pocillos, ${nuevos[0].l.datos.tiempos.length} mediciones.` : `${nuevos.length} experimentos agregados.`)
-  }
-
-  // Lecturas de placas formato Biofilm: cada archivo (o cada hoja con una placa) es una lectura en un tiempo
-  const agregarLecturas = async (files) => {
-    if (!a) return
-    const lects = []
-    let n = a.lecturas.length
-    for (const file of Array.from(files)) {
-      try {
-        const { hojas } = await hojasDe(file)
-        const base = file.name.replace(/\.[^.]+$/, '')
-        const nuevasDe = []
-        for (const hoja of hojas) {
-          try {
-            const r = leerPlacaDeMatriz(await leerCrudo(file, hoja))
-            nuevasDe.push({ hoja, r })
-          } catch (e) { if (hojas.length === 1) throw e }
-        }
-        if (!nuevasDe.length) throw new Error('No encontré una placa (filas A a H con valores numéricos).')
-        nuevasDe.forEach(({ hoja, r }) => {
-          const nombre = nuevasDe.length > 1 ? `${base} · ${hoja}` : base
-          lects.push({ id: nuevoId(), nombre, t: tiempoDeNombre(nuevasDe.length > 1 ? hoja : base, n++), datos: r.datos, onda: r.onda, fecha: r.fecha })
-        })
-      } catch (e) { avisar(`${file.name}: ${e.message}`, 'error') }
-    }
-    if (!lects.length) return
-    const onda = lects.find((l) => l.onda)?.onda
-    // la placa de OD es única: la última cargada reemplaza a la anterior
-    upd(a.id, (e) => ({ ...reconstruir(e, [lects[lects.length - 1]]), cond: onda ? { ...e.cond, lambda: onda } : e.cond }))
-    avisar('Placa de OD cargada: definí el tiempo de cada columna y la cepa de cada pocillo o fila.')
-  }
-  const reconstruir = (e, lecturas) => {
-    const r = placaADatos(lecturas[0], e.disenoOd)
-    return { lecturas, datos: r.datos, config: r.config, E: estadoVacio() }
-  }
-  const quitarLectura = (id) => upd(a.id, (e) => reconstruir(e, e.lecturas.filter((l) => l.id !== id)))
-  const setDisenoOd = (f) => upd(a.id, (e) => {
-    const disenoOd = typeof f === 'function' ? f(e.disenoOd) : f
-    const r = placaADatos(e.lecturas[0], disenoOd)
-    return { disenoOd, datos: r.datos, config: r.config }
-  })
-  const setCepas = (f) => upd(a.id, (e) => ({ cepas: typeof f === 'function' ? f(e.cepas) : f }))
-
-  // OD manual: las filas se convierten en series «virtuales» para usar los mismos gráficos y análisis
-  const setManual = (f) => {
-    if (!a) return
-    upd(a.id, (e) => {
-      const manual = typeof f === 'function' ? f(e.manual) : f
-      const r = manualADatos(manual)
-      return { manual, datos: r.datos, config: r.config, manualError: r.error || null }
-    })
-  }
-
-  const setModo = (modo) => {
-    if (!a || modo === a.modo) return
-    const pierdeOd = modo === 'conteo' && a.datos
-    if (pierdeOd && !window.confirm('Al pasar a «Solo conteo» la OD queda guardada pero se oculta del análisis. ¿Continuar?')) return
-    upd(a.id, { modo })
-  }
-  const setOrigenOd = (origen) => {
-    if (!a || origen === a.origenOd) return
-    if ((a.datos || a.lecturas.length || a.manual.filas.length) && !window.confirm('Cambiar el origen de la OD descarta la configuración de pocillos y las exclusiones. Los datos cargados se conservan en su origen. ¿Continuar?')) return
-    delete archivosRef.current[a.id]
-    upd(a.id, (e) => {
-      if (origen === 'placa') return { origenOd: origen, ...reconstruir(e, e.lecturas) }
-      if (origen === 'manual') { const r = manualADatos(e.manual); return { origenOd: origen, datos: r.datos, config: r.config, E: estadoVacio(), archivo: null, preview: null } }
-      return { origenOd: origen, datos: null, config: [], E: estadoVacio(), archivo: null, preview: null }
-    })
-  }
-  const setCond = (k, v) => updA((e) => ({ cond: { ...e.cond, [k]: v } }))
-
-  const cambiarHoja = async (hoja) => {
-    const file = a && archivosRef.current[a.id]
-    if (!file) return avisar('Para cambiar de hoja hay que volver a cargar el archivo.', 'error')
-    try {
-      const l = await leerArchivo(file, hoja)
-      upd(a.id, (e) => ({ archivo: { ...e.archivo, hoja }, datos: l.datos, preview: l.preview, E: estadoVacio(), config: e.config.filter((c) => l.datos.pocillos[c.Pocillo]) }))
-    } catch (e) { avisar(e.message, 'error') }
-  }
-
-  const quitarExp = (id) => {
-    const e = exps.find((x) => x.id === id)
-    if (e && (e.config.length || e.manual.filas.length || e.ufc.tabla.filas.length || e.ufc.placasG.length || e.ufc.petri.length) && !window.confirm(`Se quitará «${e.nombre}» con su configuración y sus datos. ¿Continuar?`)) return
-    delete archivosRef.current[id]
-    setExps((es) => es.filter((x) => x.id !== id))
-  }
-  const renombrarExp = (id, nombre) => {
-    if (!nombre) return avisar('El nombre no puede estar vacío.', 'error')
-    if (exps.some((e) => e.id !== id && e.nombre.toLowerCase() === nombre.toLowerCase())) return avisar(`Ya hay un experimento llamado «${nombre}».`, 'error')
-    upd(id, { nombre })
-  }
-  const reordenarExps = (idMovida, idDestino) => {
-    if (idMovida === idDestino) return
-    setExps((es) => {
-      const mov = es.find((p) => p.id === idMovida)
-      if (!mov) return es
-      const sin = es.filter((p) => p.id !== idMovida)
-      const i = sin.findIndex((p) => p.id === idDestino)
-      const o = es.findIndex((p) => p.id === idMovida), d = es.findIndex((p) => p.id === idDestino)
-      sin.splice(o < d ? i + 1 : i, 0, mov)
-      return sin
-    })
-  }
-
-  // Layout de la placa de densidad óptica
-  const aplicarLayout = (cfgCrudo) => {
-    if (!a?.datos) return avisar('Primero cargá los datos de OD.', 'error')
-    upd(a.id, (e) => ({ config: cfgCrudo.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio() }))
-    setMuestras((m) => [...new Set([...m, ...cfgCrudo.map((c) => c.Muestra)])])
-    avisar(`Layout importado en «${a.nombre}».`)
-  }
-  const copiarLayoutDe = (idOrigen) => {
-    const o = exps.find((x) => x.id === idOrigen)
-    if (!o || !a?.datos) return avisar('Primero cargá los datos de OD de este experimento.', 'error')
-    upd(a.id, (e) => ({ config: o.config.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio(), blancosSel: o.blancosSel }))
-    avisar(`Layout copiado de «${o.nombre}».`)
-  }
-  const copiarConfig = () => {
-    if (!a) return
-    const otras = exps.filter((e) => e.id !== a.id && e.datos && odPorPocillos(e))
-    if (!otras.length) return avisar('Los demás experimentos no tienen datos de OD por pocillos.', 'error')
-    if (otras.some((e) => e.config.length) && !window.confirm('Los demás experimentos ya tienen configuración. Se va a reemplazar. ¿Continuar?')) return
-    setExps((es) => es.map((e) => (e.id === a.id || !e.datos || !odPorPocillos(e) ? e : {
-      ...e, config: a.config.filter((c) => e.datos.pocillos[c.Pocillo]).map((c) => ({ ...c })), E: estadoVacio(), blancosSel: a.blancosSel,
-    })))
-    avisar('Configuración copiada a los demás experimentos.')
-  }
-
-  // ---------------------------------------------------------------
-  // Datos derivados del experimento activo
-  // ---------------------------------------------------------------
-  const conOd = hayOd(a)
-  const datos = conOd ? a?.datos || null : null
-  const config = conOd ? a?.config || [] : []
-  const E = a?.E || EVACIO
-  const blancosSel = a ? a.blancosSel : null
-  const selMuestrasRaw = a ? a.selMuestras : null
-  const selReps = a?.selReps || {}
-  const ufc = a?.ufc || ufcVacio()
-
-  const todasMuestras = useMemo(() => {
-    const st = new Set(muestras)
-    exps.forEach((e) => {
-      e.config.forEach((c) => st.add(c.Muestra)); e.ufc.placasG.forEach((p) => Object.values(p.filas).forEach((f) => f.muestra && st.add(f.muestra))); e.cepas.forEach((c) => st.add(c))
-      e.ufc.tabla.filas.forEach((f) => f.muestra && st.add(f.muestra)); e.manual.filas.forEach((f) => f.muestra && st.add(f.muestra))
-      e.ufc.petri.forEach((p) => p.sectores.forEach((x) => x.muestra && st.add(x.muestra)))
-    })
-    return [...st]
-  }, [muestras, exps])
-  const coloresGlobal = useMemo(() => paletaMuestras(todasMuestras), [todasMuestras])
-  // cepas que se pueden elegir en las placas: solo las elegidas en «Experimento»
-  const opcionesMuestra = useMemo(() => (a ? a.cepas : []), [a])
-
-  const muestrasCfg = useMemo(() => {
-    const pres = [...new Set(config.map((c) => c.Muestra))]
-    return [...muestras.filter((m) => pres.includes(m)), ...pres.filter((m) => !muestras.includes(m))]
-  }, [config, muestras])
-  const colores = useMemo(() => estilosPocillos(config), [config])
-  const soloBlanco = useMemo(() => muestrasCfg.filter((m) => config.filter((c) => c.Muestra === m).every((c) => c.EsBlanco)), [muestrasCfg, config])
-  const selMuestras = selMuestrasRaw ? muestrasCfg.filter((m) => selMuestrasRaw.includes(m)) : (aj.corregir_blanco ? muestrasCfg.filter((m) => !soloBlanco.includes(m)) : muestrasCfg)
-  const replicasSel = (m) => {
-    const todas = config.filter((c) => c.Muestra === m).map((c) => c.Replica)
-    return selReps[m] ? selReps[m].filter((r) => todas.includes(r)) : todas
-  }
-  const seleccion = useMemo(
-    () => config.filter((c) => selMuestras.includes(c.Muestra) && replicasSel(c.Muestra).includes(c.Replica)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [config, selMuestras.join('|'), JSON.stringify(selReps)],
-  )
-
-  const ajD = useDeferredValue(aj)
-  // con OD manual el blanco ya se resta en la tabla de lecturas: no se vuelve a restar
-  const ajEfec = useMemo(() => (a ? ajParaExp(ajD, a) : ajD), [ajD, a?.origenOd]) // eslint-disable-line react-hooks/exhaustive-deps
-  const pre = useMemo(
-    () => (datos && config.length ? preprocesar({ datos, config, E, aj: ajEfec, blancosSel }) : null),
-    [datos, config, E, ajEfec, blancosSel],
-  )
-  const res = useMemo(() => (pre && !pre.error ? analizarTodos(pre.proc, ajEfec, E.ventanas) : null), [pre, ajEfec, E.ventanas])
-  useEffect(() => { setModelosRes(null) }, [res, activeId])
-
-  // Recuento de UFC del experimento activo
-  const curvaExp = useMemo(() => {
-    if (!pre || pre.error) return null
-    const ws = pre.proc.filter((w) => !w.EsBlanco)
-    return ws.length ? curvaMedia(ws) : null
-  }, [pre])
-  const ufcRes = useMemo(() => calcularUfc(ufc), [ufc])
-  const stock = useMemo(() => esperadoStock(ufc, curvaExp), [ufc, curvaExp])
-
-  // ---------------------------------------------------------------
-  // Acciones sobre el experimento activo
-  // ---------------------------------------------------------------
-  const setAj = (k, v) => {
-    if (k === 'corregir_blanco' && v && a && !selMuestrasRaw) {
-      updA({ selMuestras: muestrasCfg.filter((m) => !soloBlanco.includes(m)) })
-    }
-    setAjObj((x) => ({ ...x, [k]: v }))
-  }
-  const setOpt = (grupo, k, v) => setOpts((o) => ({ ...o, [grupo]: { ...o[grupo], [k]: v } }))
-  const setConfig = (c) => { if (a) upd(a.id, (e) => ({ config: typeof c === 'function' ? c(e.config) : c })) }
-  const setE = (f) => { if (a) upd(a.id, (e) => ({ E: f(e.E) })) }
-  const setUfc = (f) => { if (a) upd(a.id, (e) => ({ ufc: typeof f === 'function' ? f(e.ufc) : f })) }
-
-  const usosDe = (e, m) => e.config.filter((c) => c.Muestra === m).length + e.ufc.placasG.reduce((t, p) => t + Object.values(p.filas).filter((f) => f.muestra === m).length, 0)
-    + e.ufc.tabla.filas.filter((f) => f.muestra === m).length + e.manual.filas.filter((f) => f.muestra === m).length
-    + e.ufc.petri.reduce((t, p) => t + p.sectores.filter((x) => x.muestra === m).length, 0)
-  const borrarMuestra = (m) => {
-    const n = exps.reduce((t, e) => t + usosDe(e, m), 0)
-    if (n > 0 && !window.confirm(`La muestra '${m}' se usa en ${n} lugar(es) (pocillos y filas de tablas). Si la borrás, esos pocillos y filas se quitan. ¿Continuar?`)) return
-    setMuestras(muestras.filter((x) => x !== m))
-    setExps((es) => es.map((e) => {
-      const man = { ...e.manual, filas: e.manual.filas.filter((f) => f.muestra !== m) }
-      const r = man.filas.length !== e.manual.filas.length ? manualADatos(man) : null
-      return {
-        ...e, config: r ? r.config : e.config.filter((c) => c.Muestra !== m), manual: man, ...(r ? { datos: r.datos } : {}), cepas: e.cepas.filter((c) => c !== m),
-        disenoOd: { ...e.disenoOd, pocillos: Object.fromEntries(Object.entries(e.disenoOd.pocillos).filter(([, w]) => w.muestra !== m)) },
-        ufc: { ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === m ? { ...f, muestra: '' } : f])) })), tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.filter((f) => f.muestra !== m) },
-          petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === m ? { ...x, muestra: '' } : x)) })) },
-      }
-    }))
-  }
-  const renombrarMuestra = (viejo, nuevoNombre) => {
-    if (!nuevoNombre) return avisar('El nombre no puede estar vacío.', 'error')
-    if (muestras.some((m) => m !== viejo && m.toLowerCase() === nuevoNombre.toLowerCase())) return avisar(`Ya existe una muestra llamada '${nuevoNombre}'.`, 'error')
-    setMuestras(muestras.map((m) => (m === viejo ? nuevoNombre : m)))
-    setExps((es) => es.map((e) => {
-      const man = { ...e.manual, filas: e.manual.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) }
-      const r = e.manual.filas.some((f) => f.muestra === viejo) ? manualADatos(man) : null
-      return {
-        ...e,
-        config: r ? r.config : e.config.map((c) => (c.Muestra === viejo ? { ...c, Muestra: nuevoNombre } : c)), manual: man, ...(r ? { datos: r.datos } : {}),
-        cepas: e.cepas.map((c) => (c === viejo ? nuevoNombre : c)),
-        disenoOd: { ...e.disenoOd, pocillos: Object.fromEntries(Object.entries(e.disenoOd.pocillos).map(([p, w]) => [p, w.muestra === viejo ? { ...w, muestra: nuevoNombre } : w])) },
-        ufc: {
-          ...e.ufc, placasG: e.ufc.placasG.map((p) => ({ ...p, filas: Object.fromEntries(Object.entries(p.filas).map(([L, f]) => [L, f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f])) })),
-          tabla: { ...e.ufc.tabla, filas: e.ufc.tabla.filas.map((f) => (f.muestra === viejo ? { ...f, muestra: nuevoNombre } : f)) },
-          petri: e.ufc.petri.map((p) => ({ ...p, sectores: p.sectores.map((x) => (x.muestra === viejo ? { ...x, muestra: nuevoNombre } : x)) })),
-        },
-        selMuestras: e.selMuestras ? e.selMuestras.map((m) => (m === viejo ? nuevoNombre : m)) : e.selMuestras,
-        selReps: e.selReps[viejo] ? { ...Object.fromEntries(Object.entries(e.selReps).filter(([k]) => k !== viejo)), [nuevoNombre]: e.selReps[viejo] } : e.selReps,
-      }
-    }))
-  }
-
-  // Exclusión de puntos y pocillos
+  // exclusiones de puntos y pocillos
   const alternarPunto = (k) => {
     const [p] = k.split('|')
-    setE((e) => {
-      if (e.puntosExcl.includes(k)) return { ...e, puntosExcl: e.puntosExcl.filter((x) => x !== k) }
-      if (e.forzados.includes(k)) return { ...e, forzados: e.forzados.filter((x) => x !== k) }
+    setE((E) => {
+      if (E.puntosExcl.includes(k)) return { ...E, puntosExcl: E.puntosExcl.filter((x) => x !== k) }
+      if (E.forzados.includes(k)) return { ...E, forzados: E.forzados.filter((x) => x !== k) }
       const w = pre?.marcado?.find((x) => x.Pocillo === p)
       const f = w?.filas.find((q) => clavePunto(p, q.t) === k)
-      if (f && f.marca) return { ...e, forzados: [...e.forzados, k] }
-      return { ...e, puntosExcl: [...e.puntosExcl, k] }
+      if (f && f.marca) return { ...E, forzados: [...E.forzados, k] }
+      return { ...E, puntosExcl: [...E.puntosExcl, k] }
     })
   }
-  const excluirPocillos = (ps) => setE((e) => ({ ...e, pocillosExcl: [...new Set([...e.pocillosExcl, ...ps])] }))
-  const reincorporarPocillos = (ps) => {
-    setE((e) => ({ ...e, pocillosExcl: e.pocillosExcl.filter((p) => !ps.includes(p)) }))
-    if (ps.some((p) => pre?.auto?.includes(p))) avisar('Algunos pocillos siguen excluidos por el criterio automático. Desactivá la exclusión automática para reincorporarlos.', 'error')
-  }
-  const alternarPocilloCompleto = (p) => setE((e) => ({ ...e, pocillosExcl: e.pocillosExcl.includes(p) ? e.pocillosExcl.filter((x) => x !== p) : [...e.pocillosExcl, p] }))
-  const reincorporarPocillo = (p) => setE((e) => {
+  const alternarPocillo = (p) => setE((E) => ({ ...E, pocillosExcl: E.pocillosExcl.includes(p) ? E.pocillosExcl.filter((x) => x !== p) : [...E.pocillosExcl, p] }))
+  const reincorporarPocillo = (p) => setE((E) => {
     const w = pre?.marcado?.find((x) => x.Pocillo === p)
     const marc = w ? w.filas.filter((f) => f.motivo).map((f) => clavePunto(p, f.t)) : []
-    return { ...e, puntosExcl: e.puntosExcl.filter((k) => !k.startsWith(p + '|')), forzados: [...new Set([...e.forzados, ...marc])] }
+    return { ...E, puntosExcl: E.puntosExcl.filter((k) => !k.startsWith(p + '|')), forzados: [...new Set([...E.forzados, ...marc])] }
   })
-  const excluirRango = (p, desde, hasta) => {
-    if (!(desde <= hasta)) return avisar("'Desde' tiene que ser menor o igual que 'Hasta'.", 'error')
-    const ys = datos.pocillos[p] || []
-    const nuevos = datos.tiempos.filter((t, i) => Number.isFinite(ys[i]) && t / 3600 >= desde && t / 3600 <= hasta).map((t) => clavePunto(p, t))
-    if (!nuevos.length) return avisar('No hay puntos de ese pocillo en ese rango.', 'error')
-    setE((e) => ({ ...e, puntosExcl: [...new Set([...e.puntosExcl, ...nuevos])] }))
-    avisar(`${nuevos.length} puntos excluidos en ${p}`)
-  }
-  const reincorporarPuntos = (ks) => setE((e) => ({ ...e, puntosExcl: e.puntosExcl.filter((k) => !ks.includes(k)) }))
-  const reincorporarTodosPuntos = () => setE((e) => ({ ...e, puntosExcl: [], forzados: [] }))
+  // placas por tiempo: clic sobre una lectura (igual que en Biofilm)
+  //   excluida a mano → se reincorpora · excluida por el test → se conserva · sospechosa conservada → vuelve a excluirse · aceptada → se excluye a mano
+  const alternarLectura = (k) => upd((e) => {
+    const l = serie.extra?.lecturas?.find((x) => x.clave === k)
+    if (e.plExcl.includes(k)) return { plExcl: e.plExcl.filter((x) => x !== k) }
+    if (l?.AutoExcl) return { plForz: [...e.plForz, k] }
+    if (e.plForz.includes(k) && l?.Sospechoso) return { plForz: e.plForz.filter((x) => x !== k) }
+    return { plExcl: [...e.plExcl, k] }
+  })
+  const restablecerLecturas = () => upd({ plExcl: [], plForz: [] })
+  const setVentana = (p, v) => setE((E) => { const ven = { ...E.ventanas }; if (v) ven[p] = v; else delete ven[p]; return { ...E, ventanas: ven } })
+  // personalización de gráficos (se guarda con el experimento)
+  const estiloGrafico = (id) => exp?.graficos?.[id] || {}
+  const setEstiloGrafico = (id, patch) => upd((e) => ({ graficos: { ...(e.graficos || {}), [id]: patch === null ? {} : { ...(e.graficos?.[id] || {}), ...patch } } }))
+  const setColorCepa = (m, c) => upd((e) => ({ coloresCepa: { ...(e.coloresCepa || {}), [m]: c } }))
+  const restablecerColores = () => upd({ coloresCepa: {} })
+  const agregarCepa = (c) => { const n = String(c || '').trim(); if (n && !exp.cepas.includes(n)) upd((e) => ({ cepas: [...e.cepas, n] })) }
 
-  const aplicarVentana = (claves, rango) => setE((e) => {
-    const v = { ...e.ventanas }
-    claves.forEach((c) => { v[c] = [rango[0], rango[1]] })
-    return { ...e, ventanas: v }
-  })
-  const quitarVentanas = (claves) => setE((e) => {
-    if (!claves) return { ...e, ventanas: {} }
-    const v = { ...e.ventanas }
-    claves.forEach((c) => { delete v[c] })
-    return { ...e, ventanas: v }
-  })
-
-  // Sesión
-  const exportarSesion = () => ({ version: 2, tipo: 'curvas-de-crecimiento', fecha: new Date().toISOString(), exps, activeId: a?.id || null, muestras, aj, estilo, ejes, opts })
-  const importarSesion = (x) => {
-    if (!Array.isArray(x?.exps)) throw new Error('inválida')
-    aplicarGuardado(x)
+  const listo = (id) => {
+    if (!exp) return false
+    switch (id) {
+      case 'archivo': return !!exp.tecan.datos
+      case 'placa': return exp.tecan.config.length > 0
+      case 'placas': return exp.placas.some((p) => p.valores)
+      case 'lecturas': return exp.manual.filas.length > 0
+      case 'conteo': return exp.ufc.filas.length > 0
+      case 'calidad': case 'curva': case 'parametros': return !!res?.length
+      case 'calidadUfc': case 'curvaUfc': return !!ufcRes?.hay
+      case 'combinado': return !!res?.length && !!ufcRes?.hay
+      default: return false
+    }
   }
-  const onVista = useCallback((id, v) => { vistas.current[id] = v }, [])
 
   const s = {
-    // experimentos
-    opcionesMuestra, setCepas, setDisenoOd, exps, a, setActiva: setActiveId, cargarArchivos, agregarLecturas, quitarLectura, setManual, quitarExp, renombrarExp, reordenarExps, copiarConfig,
-    tieneArchivo: !!(a && archivosRef.current[a.id]), cambiarHoja, aplicarLayout, copiarLayoutDe, setModo, setOrigenOd, setCond, irA: setTab,
-    // experimento activo (así las pestañas de curvas funcionan igual que en la app de una sola placa)
-    archivo: a?.archivo || null, datos, preview: a?.preview || null,
-    muestras, setMuestras, muestrasCfg, config, setConfig, colores, coloresGlobal, todasMuestras, borrarMuestra, renombrarMuestra,
-    E, aj, setAj, opts, setOpt, estilo, setEstilo, ejes, setEjes,
-    blancosSel, setBlancosSel: (b) => updA({ blancosSel: b }),
-    selMuestras, setSelMuestras: (x) => updA({ selMuestras: x }), replicasSel,
-    setRepsDe: (m, arr) => updA((e) => ({ selReps: { ...e.selReps, [m]: arr } })),
-    seleccion, pre, res, modelosRes, setModelosRes, onVista, avisar,
-    alternarPunto, excluirPocillos, reincorporarPocillos, alternarPocilloCompleto, reincorporarPocillo, excluirRango,
-    reincorporarPuntos, reincorporarTodosPuntos, aplicarVentana, quitarVentanas,
-    // UFC
-    ufc, setUfc, ufcRes, stock, curvaExp,
-    exportarSesion, importarSesion,
+    exp, upd, setAj, setE, avisar, irA, archivoRef, agregarCepa, guardar, pasos, listo, estiloGrafico, setEstiloGrafico, setColorCepa, restablecerColores,
+    serie, pre, res, seriesAn, porCepa, modoCurva, ufcRes, muestras, colores, estilos, tema: TEMAS[tema],
+    alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, alternarLectura, restablecerLecturas,
   }
 
-  const Vista = { experimento: ExperimentoTab, placa: a && a.origenOd === 'placa' ? PlacaOdTab : PlacaTab, odmanual: OdManualTab, preproc: PreprocTab, grafico: GraficoTab, analisis: AnalisisTab, conteo: ConteoTab, calibracion: CalibracionTab, comparar: CompararTab, datos: DatosTab, metodos: MetodosTab }[tabAct]
+  // barra de estado
+  const estado = (() => {
+    if (!exp) return 'Sin experimento abierto'
+    const usadas = new Set([...serie.config.filter((c) => !c.EsBlanco).map((c) => c.Muestra), ...(ufcRes?.reps || []).map((r) => r.Muestra)])
+    const p = [TIPOS[exp.tipo].corto + (exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : ''), `${usadas.size} cepa${usadas.size === 1 ? '' : 's'}`]
+    if (exp.origenOd === 'placas') { const l = serie.extra?.lecturas || []; p.push(`${exp.placas.length} tiempos`, `${l.filter((x) => x.Usado).length}/${l.length} lecturas aceptadas`) }
+    if (res?.length) { const mu = res.map((r) => r.mu_max).filter(Number.isFinite); if (mu.length) p.push(`μmax medio ${fs(mu.reduce((a, b) => a + b, 0) / mu.length, 3)} h⁻¹`) }
+    if (ufcRes?.hay) p.push(`${ufcRes.reps.filter((r) => r.Conteos > 0).length} conteos de UFC`)
+    p.push('guardado en este navegador')
+    return p.join(' · ')
+  })()
 
-  const cargarSesionArchivo = async (file) => {
-    try { importarSesion(JSON.parse(await file.text())); avisar('Sesión cargada.') } catch { avisar('No se pudo leer la sesión.', 'error') }
-  }
+  const enArchivo = archivoAbierto || !exp
+  const Vista = exp && !asistente && !enArchivo ? PASOS[pasoAct][1] : null
+  const pestanaActual = asistente ? 'Nuevo experimento' : enArchivo ? 'Archivo' : PASOS[pasoAct][0]
 
   return (
-    <div className="app">
-      <nav className="barra">
-        <div className="marca">
-          <div className="logo"><LogoCurva /></div>
-          <div><b>Curvas de crecimiento</b><small>Por OD, por conteo o ambos</small></div>
-        </div>
-        {tabs.map((id, i) => (
-          <button key={id} className={`nav ${tabAct === id ? 'activa' : ''}`} onClick={() => setTab(id)}>
-            <span className="num"><Icono n={id} size={17} /></span>
-            <span><b>{PESTANAS[id][0]}</b><small>{PESTANAS[id][1]}</small></span>
-          </button>
-        ))}
-        <div className="pie-nav">
-          {res?.length > 0 && <div className="chip-odc">{res.length} curvas analizadas</div>}
-          <small>{a ? `${a.nombre} · ${MODOS[a.modo].titulo}` : 'Sin experimentos'}</small>
-        </div>
-      </nav>
-      <main className="contenido">
-        {exps.length > 0 && (
-          <div className="barra-placas">
-            {exps.map((p) => (
-              <div key={p.id} role="tab" tabIndex={0} aria-selected={p.id === a?.id}
-                className={`chip-placa ${p.id === a?.id ? 'activa' : ''} ${arrastrandoSobre === p.id ? 'sobre' : ''}`}
-                draggable
-                onDragStart={(e) => { arrastrada.current = p.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', p.id) }}
-                onDragOver={(e) => { if (arrastrada.current) { e.preventDefault(); setArrastrandoSobre(p.id) } }}
-                onDragLeave={() => setArrastrandoSobre((v) => (v === p.id ? null : v))}
-                onDrop={(e) => { e.preventDefault(); if (arrastrada.current) reordenarExps(arrastrada.current, p.id); arrastrada.current = null; setArrastrandoSobre(null) }}
-                onDragEnd={() => { arrastrada.current = null; setArrastrandoSobre(null) }}
-                onClick={() => setActiveId(p.id)} title="Clic para ver este experimento · arrastrá para cambiar el orden · doble clic para renombrar"
-                onDoubleClick={() => { const n = window.prompt('Nombre del experimento', p.nombre); if (n !== null) renombrarExp(p.id, n.trim()) }}>
-                <i className="punto-placa" style={{ background: '#d9731f' }} />
-                <span className="nombre-placa">{p.nombre}</span>
-                <small className="sin-datos-placa">{MODOS[p.modo].titulo}</small>
-                <button className="x-placa" aria-label={`Quitar ${p.nombre}`} onClick={(e) => { e.stopPropagation(); quitarExp(p.id) }}>×</button>
-              </div>
+    <TemaCtx.Provider value={TEMAS[tema]}>
+      <CintaCtx.Provider value={nodoCinta}>
+        <div className="app">
+          <header className="barra-titulo">
+            <Logo /><b>Curvas de crecimiento</b>
+            <span className="titulo-exp">{exp ? exp.nombre : ''}</span>
+            <span className="espacio" />
+            <button className={`titulo-boton ${panelRev ? 'on' : ''}`} onClick={() => setPanelRev(!panelRev)} data-tip={'Modo revisión\nMarcá zonas de la pantalla y comentá qué cambiarías'}>
+              💬 Revisión
+            </button>
+            <button className="titulo-boton" onClick={() => setTema(tema === 'oscuro' ? 'claro' : 'oscuro')} data-tip="Cambiar entre tema claro y oscuro">
+              <Icono n={tema === 'oscuro' ? 'sol' : 'luna'} size={15} />
+            </button>
+          </header>
+          <div className="cuerpo-app">
+          <nav className={`menu-lateral ${menuCorto ? 'corto' : ''}`}>
+            <button className={`item-menu archivo ${enArchivo && !asistente ? 'on' : ''}`} onClick={() => { setArchivoAbierto(true); setAsistente(false) }} data-tip={menuCorto ? 'Archivo' : undefined}>
+              <span className="ico"><Icono n="carpeta" size={18} /></span><span className="txt">Archivo</span>
+            </button>
+            {exp && <div className="sep-menu" />}
+            {exp && pasos.map((id) => (
+              <button key={id} className={`item-menu ${!enArchivo && !asistente && pasoAct === id ? 'on' : ''}`} onClick={() => irA(id)} data-tip={menuCorto ? PASOS[id][0] : undefined}>
+                <span className="ico"><Icono n={ICONOS[id]} size={18} />{listo(id) && <i className="hecho" aria-label="listo"><Icono n="check" size={9} ancho={4} /></i>}</span>
+                <span className="txt">{PASOS[id][0]}</span>
+              </button>
             ))}
-            <button className="agregar-placa" onClick={() => setNuevo(true)}>+ Nuevo experimento</button>
-            <button className="agregar-placa" onClick={() => inputExps.current.click()}>+ Excel del lector</button>
-            <input ref={inputExps} type="file" multiple hidden accept={ACEPTA_LIBRO}
-              onChange={(e) => { cargarArchivos(e.target.files); e.target.value = '' }} />
+            <span className="espacio" />
+            <button className="item-menu plegar" onClick={() => setMenuCorto(!menuCorto)} data-tip={menuCorto ? 'Mostrar los nombres' : 'Solo íconos'}>
+              <span className="ico"><Icono n="flecha" size={16} style={{ transform: menuCorto ? 'none' : 'rotate(180deg)' }} /></span><span className="txt">Contraer</span>
+            </button>
+          </nav>
+          <div className="zona-trabajo">
+          <div className="cinta" ref={setNodoCinta} />
+          <main className="principal">
+            {asistente ? <Asistente onCrear={crear} onCancelar={() => setAsistente(false)} hayExperimento={!!exp} />
+              : Vista ? <Vista s={s} key={exp.id + pasoAct} />
+                : <Inicio onNuevo={() => setAsistente(true)} onCargar={() => inputCargar.current.click()} guardado={guardado} onContinuar={continuar}
+                  exp={exp} onGuardar={guardar} onVolver={() => setArchivoAbierto(false)} />}
+          </main>
           </div>
-        )}
-        {a ? <Vista s={s} /> : !pendiente && (
-          <div className="pagina">
-            <Elegir onCrear={crearExperimento} nombreSugerido="" />
-            <p className="ayuda" style={{ textAlign: 'center' }}>
-              ¿Tenés una sesión guardada? <button className="chico" onClick={() => inputSesion.current.click()}>Cargar sesión</button>
-              <input ref={inputSesion} type="file" hidden accept=".json" onChange={(e) => { e.target.files[0] && cargarSesionArchivo(e.target.files[0]); e.target.value = '' }} />
-            </p>
           </div>
-        )}
-      </main>
-      {nuevo && <NuevoExperimentoModal onCrear={crearExperimento} onClose={() => setNuevo(false)} nombreSugerido="" />}
-      {pendiente && (
-        <Modal titulo="Encontré trabajo anterior" ancho={540}
-          pie={<>
-            <button onClick={empezarDeCero}>Empezar de cero</button>
-            <button className="primario" onClick={continuarAnterior}>Continuar con lo anterior</button>
-          </>}>
-          <p>
-            En este navegador quedó guardado un trabajo
-            {g.fecha ? <> del <b>{new Date(g.fecha).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}</b></> : ''}:
-          </p>
-          <ul className="resumen-guardado">
-            {g.exps.map((p) => (
-              <li key={p.id}><b>{p.nombre}</b> <small>{p.datos ? `${Object.keys(p.datos.pocillos).length} curvas de OD` : 'sin OD'} · {p.config?.length || 0} configuradas · {Object.values(p.ufc?.conteos || {}).reduce((n, o) => n + Object.keys(o).length, 0) + (p.ufc?.tabla?.filas?.length || 0) + (p.ufc?.petri || []).length} conteos de UFC</small></li>
-            ))}
-          </ul>
-          <p className="ayuda">«Continuar con lo anterior» recupera todo tal como lo dejaste. «Empezar de cero» borra ese trabajo guardado del navegador y arranca vacío (si querés conservarlo antes, cargá un archivo de sesión que hayas descargado).</p>
-        </Modal>
-      )}
-      <GloboInfo />
-      <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
-    </div>
+          <footer className="barra-estado">{estado}</footer>
+          <input ref={inputCargar} type="file" hidden accept=".json" onChange={(e) => { if (e.target.files[0]) cargarArchivo(e.target.files[0]); e.target.value = '' }} />
+          <Revision pestana={pestanaActual} experimento={exp?.nombre} activo={revisar} setActivo={setRevisar} panel={panelRev} setPanel={setPanelRev} avisar={avisar} />
+          <Globo />
+          <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
+        </div>
+      </CintaCtx.Provider>
+    </TemaCtx.Provider>
   )
 }

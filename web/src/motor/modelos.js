@@ -4,6 +4,10 @@
 // ============================================================
 import { finito } from './analisis.js'
 
+export const MODELOS = {
+  gompertz: 'Gompertz modificado', logistico: 'Logístico', richards: 'Richards', baranyi: 'Baranyi-Roberts',
+}
+
 // y = ln(OD) para Baranyi con nu = mumax
 export function baranyiF(x, y0, ymax, mu, h0) {
   const a = x + Math.log(Math.exp(-mu * x) + Math.exp(-h0) - Math.exp(-mu * x - h0)) / mu
@@ -83,6 +87,24 @@ function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
     if (conv) break
   }
   return { p, rss: r0, conv }
+}
+
+// Baranyi-Roberts sobre ln(N) con pocos tiempos (recuentos de UFC: 4 o más medias).
+// Parámetros: y0 = ln N0, ymax = ln Nmax, mu (h⁻¹), h0 = mu · lag. Devuelve { ok, pred(t) → ln N, mu, lambda, y0, ymax }.
+export function ajustarBaranyiLn(t, ly, mu0, lag0) {
+  const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(ly[i])).sort((a, b) => t[a] - t[b])
+  const tt = idx.map((i) => t[i]), yy = idx.map((i) => ly[i])
+  if (tt.length < 4) return { ok: false }
+  const ymin = Math.min(...yy), ymaxObs = Math.max(...yy)
+  if (!(ymaxObs - ymin > 0.1)) return { ok: false }
+  const span = tt[tt.length - 1] - tt[0] || 1
+  const mu = finito(mu0) && mu0 > 0 ? mu0 : (2 * (ymaxObs - ymin)) / span
+  const h0 = mu * Math.max(finito(lag0) ? lag0 : 0, 0.05)
+  const fn = (p, x) => x.map((v) => baranyiF(v, p[0], p[1], p[2], p[3]))
+  const a = levenbergMarquardt(fn, [yy[0], ymaxObs, mu, h0], [ymin - 3, ymin, 1e-4, 0], [ymaxObs, ymaxObs + 3, 10, 60], tt, yy)
+  const [y0, ymax, m, h] = a.p
+  const ok = a.conv && finito(a.rss) && [y0, ymax, m, h].every(finito)
+  return { ok, pred: (x) => baranyiF(x, y0, ymax, m, h), mu: m, lambda: h / m, y0, ymax, rss: a.rss }
 }
 
 // Ajusta un modelo a una curva. Devuelve siempre un objeto; ok = true si convergió.
