@@ -8,25 +8,37 @@ const cuant = (x) => (Number.isFinite(x) ? Number(x.toPrecision(4)) : '–')
 export function dUfc(r) {
   const { _cont: c, _par: p, _usados: us, _S: S } = r
   if (!p) return null
-  const V = p.vol, f = p.factor
   const est = r._estado
-  if (est === 'sin_datos') return null
-  if (est === 'cero') return `Menor que el límite de detección\nSin colonias en ninguna dilución\nLímite ≈ 3 / (V × Σ f⁻ᵏ) = ${sci(r.Limite)} UFC/mL`
-  if (est === 'incontable') return 'Incontable\nTodas las diluciones superan el rango contable.\nHace falta diluir más.'
-  if (!us || !us.length) return null
-  const sumC = us.reduce((s, k) => s + c[k], 0)
-  const peso = us.reduce((s, k) => s + f ** -k, 0)
-  const D = V * peso
-  const titulo = est === 'ok' ? 'UFC/mL de la réplica (media ponderada, ISO 7218)' : `UFC/mL estimadas con una sola dilución (${est === 'bajo' ? 'bajo' : 'sobre'} el rango contable)`
+  if (est === 'sin_datos' || !us || !us.length) return null
+  const k = us[0]
+  const D = p.D && Number.isFinite(p.D[k]) ? p.D[k] : p.factor ** k
+  const V = p.vol
+  const elegida = `columna ${k + 1} (dilución 1/${cuant(D)}), ${r._manual ? 'elegida a mano' : 'sugerida'}`
+  if (est === 'cero') return `Menor que el límite de detección\n0 colonias en la ${elegida}\nLímite ≈ 3 / (V / D) = 3 / (${cuant(V)} mL / ${cuant(D)}) = ${sci(r.Limite)} UFC/mL`
+  if (est === 'incontable') return `Incontable\n${c[k]} colonias en la ${elegida}: más del doble del máximo contable.\nElegí una dilución mayor.`
+  const titulo = est === 'ok' ? 'UFC/mL de la réplica (una dilución, dentro del rango contable)' : `UFC/mL estimadas (${est === 'bajo' ? 'bajo' : 'sobre'} el rango contable)`
   return [
     titulo,
-    'UFC/mL = ΣC / (V × Σ f⁻ᵏ)',
-    `ΣC = ${us.map((k) => c[k]).join(' + ')} = ${sumC} colonias (diluciones ${us.map((k) => (k ? `−${k}` : 'sin diluir')).join(', ')})`,
-    `V × Σ f⁻ᵏ = ${cuant(V)} mL × (${us.map((k) => `${f}^−${k}`).join(' + ')}) = ${cuant(D)}`,
-    `UFC/mL = ${sumC} / ${cuant(D)} = ${sci(r.UFC_mL)}`,
-    `IC 95 % (Poisson exacto, S = ${S}): ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`,
+    `Dilución usada: ${elegida}`,
+    'UFC/mL = C × D / V',
+    `= ${c[k]} × ${cuant(D)} / ${cuant(V)} mL = ${sci(r.UFC_mL)}`,
+    `IC 95 % (Poisson exacto, C = ${S}): ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`,
   ].join('\n')
 }
+// Coherencia entre diluciones de una réplica (texto para el aviso)
+export function dAjuste(aj) {
+  if (!aj || !aj.pares.length) return null
+  return ['Coherencia entre diluciones (cada paso divide las colonias por su factor)',
+    ...aj.pares.map((x) => `columna ${x.k1 + 1} → ${x.k2 + 1}: ${x.c1} → ${x.c2} colonias; esperadas ≈ ${x.esperado.toFixed(1).replace('.', ',')} (÷${cuant(x.factor)})` +
+      (x.estado === 'ok' ? ` · coherente (p = ${x.p.toFixed(2).replace('.', ',')})` : x.estado === 'desvio' ? ` · NO coherente (p = ${x.p.toFixed(3).replace('.', ',')})` : ` · ${x.motivo}`)),
+    'Prueba binomial exacta: dado el total de las dos, la proporción en la segunda debería ser (1/D₂)/(1/D₁ + 1/D₂).',
+  ].join('\n')
+}
+export const dIcPoisson = (r) => (Number.isFinite(r.IC95_inf) ? `IC 95 % de Poisson exacto (Garwood)
+S = ${r._S} colonias contadas
+inferior = χ²(0.025; 2S) / 2 ; superior = χ²(0.975; 2S+2) / 2
+ambos multiplicados por D / V
+→ ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL` : null)
 
 // media geométrica de las réplicas de una muestra en un tiempo
 export function dGeo(r) {

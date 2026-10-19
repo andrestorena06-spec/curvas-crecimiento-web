@@ -11,6 +11,7 @@
 import { LETRAS, convertirNumero } from './lectura.js'
 import { desvio, finito, interpolar, media } from './analisis.js'
 import { tCuantil } from '../utils.js'
+import { ajustarBaranyiLn } from './modelos.js'
 
 // ---------- parámetros ----------
 export const ufcDef = () => ({
@@ -18,7 +19,7 @@ export const ufcDef = () => ({
   factor: 5,            // cada pocillo está `factor` veces más diluido que el anterior (= volumen final / toma)
   toma: 40, final: 200, // µL que se pasan de un pocillo al siguiente y volumen final de cada pocillo
   primero: 'dilucion',  // 'madre': el pocillo 1 es la solución madre · 'dilucion': el pocillo 1 ya es una dilución
-  madre: { toma: 40, final: 200 },  // pocillo 1 = primera dilución: se toman `toma` µL de la solución madre y se llevan a `final` µL
+  madre: { usar: false, toma: 20, final: 200 },  // solución madre (opcional): se toma `toma` µL para llegar al pocillo 1 con volumen `final`
   c0: 1e6,              // UFC/mL esperadas en el pocillo de partida a T = 0 (solo guía)
   min: 3, max: 30,      // colonias por gota que se consideran contables
   tiempos: [0, 1, 2, 3, 4, 5, 6],
@@ -37,7 +38,7 @@ export const ufcVacio = () => ({ metodo: 'gota', par: ufcDef(), placasG: [], esp
 export const multDe = (par) => {
   const f = par.factor
   if (par.primero === 'madre') return 1 / f
-  const f0 = par.madre?.toma > 0 && par.madre?.final > 0 ? par.madre.final / par.madre.toma : f
+  const f0 = par.madre?.usar && par.madre.toma > 0 ? par.madre.final / par.madre.toma : f
   return f0 / f
 }
 export const dilucionDe = (par, j) => multDe(par) * par.factor ** j
@@ -55,35 +56,10 @@ export function placasDeGrilla(layout, conteos, esperado) {
   filasLetra.forEach((L) => { const m = muestraDe(L); reps[m] = (reps[m] || 0) + 1; repDe[L] = reps[m] })
   const ts = Object.keys(conteos).map(Number).filter((x) => Number.isFinite(x)).sort((a, b) => a - b)
   return ts.map((t, i) => ({
-    id: 'g' + i + Math.random().toString(36).slice(2, 6), nombre: `T = ${t} h`, t,
+    id: 'g' + i + Math.random().toString(36).slice(2, 6), nombre: `Placa T=${t} h`,
     filas: Object.fromEntries(filasLetra.map((L) => [L, { muestra: muestraDe(L), t, rep: repDe[L], desde: 1, hasta: 12 }])),
     conteos: { ...(conteos[claveT(t)] || {}) },
   }))
-}
-
-// sesiones anteriores: «partir de una solución madre» era opcional; si no se usaba, el pocillo 1 tenía el mismo factor que la serie
-const parNormal = (par, madre) => {
-  const { usar, ...m } = madre || {}
-  return { ...par, madre: madre && usar !== false ? { ...ufcDef().madre, ...m } : { toma: par.toma, final: par.final } }
-}
-
-// cada placa de gotas es un tiempo: las placas de sesiones anteriores con filas de varios tiempos se separan
-// en una placa por tiempo (mismas filas y conteos)
-function placasPorTiempo(ps) {
-  const out = []
-  ps.forEach((p) => {
-    const usadas = Object.entries(p.filas || {}).filter(([, f]) => f?.muestra)
-    const ts = [...new Set(usadas.map(([, f]) => Number(f.t)))]
-    if (p.t !== undefined || ts.length <= 1) { out.push(p.t !== undefined || !ts.length ? p : { ...p, t: ts[0], nombre: `T = ${ts[0]} h` }); return }
-    ts.forEach((t, i) => {
-      const filas = Object.fromEntries(usadas.filter(([, f]) => Number(f.t) === t))
-      out.push({ ...p, id: i ? p.id + '_' + i : p.id, t, nombre: `T = ${t} h`, filas,
-        conteos: Object.fromEntries(Object.entries(p.conteos || {}).filter(([k]) => filas[k[0]])) })
-    })
-  })
-  // las diluciones que no se cuentan quedan vacías: toda la fila (1 a 12) se puede usar
-  out.forEach((p, i) => { out[i] = { ...p, filas: Object.fromEntries(Object.entries(p.filas || {}).map(([L, f]) => [L, f ? { ...f, desde: 1, hasta: 12 } : f])) } })
-  return out.sort((a, b) => (finito(Number(a.t)) ? Number(a.t) : 0) - (finito(Number(b.t)) ? Number(b.t) : 0))
 }
 
 export const normalizarUfc = (u = {}) => {
@@ -93,8 +69,8 @@ export const normalizarUfc = (u = {}) => {
   return {
     metodo: u.metodo || (!(Array.isArray(u.layout) && u.layout.length) && (filasTabla.length || petri.length) ? 'extendida' : 'gota'),
     petri,
-    par: parNormal({ ...d.par, ...(u.par || {}) }, u.par?.madre),
-    placasG: placasPorTiempo(Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : [])),
+    par: { ...d.par, ...(u.par || {}), madre: { ...d.par.madre, ...(u.par?.madre || {}) } },
+    placasG: Array.isArray(u.placasG) ? u.placasG : (Array.isArray(u.layout) && u.layout.length && u.conteos ? placasDeGrilla(u.layout, u.conteos) : []),
     esperado: u.esperado && typeof u.esperado === 'object' ? u.esperado : {},
     tabla: { ...d.tabla, ...(u.tabla || {}), filas: Array.isArray(u.tabla?.filas) ? u.tabla.filas : [] },
   }
@@ -104,6 +80,8 @@ export const hayConteos = (u) => (u.metodo === 'extendida'
   ? (u.tabla?.filas || []).some((f) => Object.values(f.c || {}).some(finito)) || lineasPetri(u).some((l) => finito(l.n))
   : (u.placasG || []).some((p) => Object.values(p.conteos || {}).some(finito)))
 
+const colDe = (p) => Number(p.slice(1))
+const filaDe = (p) => p[0]
 export const claveT = (t) => String(Math.round(Number(t) * 1000) / 1000)
 
 // ---------- Poisson exacto (Garwood) ----------
@@ -144,36 +122,98 @@ export function qgamma(p, a) {
 export const icPoisson = (S) => [S > 0 ? qgamma(0.025, S) : 0, qgamma(0.975, S + 1)]
 
 // ---------- estimación de UFC/mL de una réplica ----------
-// cont: { k: colonias } (k = exponente de la dilución, 0 = sin diluir); par: { vol (mL), factor, min, max }
+// cont: { k: colonias } (k = columna de la dilución); par: { vol (mL), factor, min, max, D: [dilución total por columna], usar: k elegido a mano }
+// Se usa UNA sola dilución por réplica: la elegida a mano o, si no, la sugerida (ver sugerirDilucion).
 // estado: ok | bajo (estimado bajo el rango) | alto (estimado sobre el rango) | cero (< límite de detección) | incontable (> límite) | sin_datos
-export function estimarUfc(cont, par) {
-  const f = par.factor
-  const e = Object.entries(cont || {}).map(([k, c]) => [Number(k), Number(c)]).filter(([k, c]) => finito(k) && finito(c) && c >= 0)
-  const vacio = { ufc: NaN, lo: NaN, hi: NaN, estado: 'sin_datos', usados: [], S: 0, lim: NaN }
-  if (!e.length) return vacio
-  const inv = (k) => 1 / ((par.mult || 1) * f ** k)
-  const peso = (ks) => ks.reduce((s, k) => s + inv(k), 0)
-  const enRango = e.filter(([, c]) => c >= par.min && c <= par.max)
-  if (enRango.length) {
-    const S = enRango.reduce((s, [, c]) => s + c, 0)
-    const D = par.vol * peso(enRango.map(([k]) => k))
-    const [a, b] = icPoisson(S)
-    return { ufc: S / D, lo: a / D, hi: b / D, estado: 'ok', usados: enRango.map(([k]) => k), S, lim: NaN }
-  }
-  if (e.every(([, c]) => c === 0)) {
-    const D = par.vol * peso(e.map(([k]) => k))
-    return { ...vacio, estado: 'cero', lim: 3 / D, usados: [] }       // límite de detección (≈ 3 colonias esperadas)
-  }
+const dilDe = (par, k) => (par.D && finito(par.D[k]) ? par.D[k] : (par.mult || 1) * par.factor ** k)
+const entradas = (cont) => Object.entries(cont || {}).map(([k, c]) => [Number(k), Number(c)]).filter(([k, c]) => finito(k) && finito(c) && c >= 0)
+
+// Dilución sugerida: la única con conteo; si hay varias, la que cae dentro del rango contable (si hay más de una,
+// la de más colonias, que tiene menor error relativo de Poisson); si ninguna está en rango, la más cercana al rango;
+// si todas dieron 0, la menos diluida (da el límite de detección más bajo).
+export function sugerirDilucion(cont, par) {
+  const e = entradas(cont)
+  if (!e.length) return null
+  if (e.length === 1) return e[0][0]
+  const enRango = e.filter(([, c]) => c >= par.min && c <= par.max).sort((x, y) => y[1] - x[1])
+  if (enRango.length) return enRango[0][0]
   const bajo = e.filter(([, c]) => c > 0 && c < par.min).sort((x, y) => y[1] - x[1])
+  if (bajo.length) return bajo[0][0]
   const sobre = e.filter(([, c]) => c > par.max).sort((x, y) => x[1] - y[1])
-  // se estima con la placa más cercana al rango; con menos de 4 colonias la estimación es muy imprecisa
-  // (bajo el rango: la de más colonias; sobre el rango: solo si no se pasa del doble del máximo, si no es incontable)
-  const cand = bajo.length ? [bajo[0], 'bajo'] : sobre.length && sobre[0][1] <= 2 * par.max ? [sobre[0], 'alto'] : null
-  if (!cand) return { ...vacio, estado: 'incontable' }
-  const [k, c] = cand[0]
-  const D = par.vol * inv(k)
-  const [a, b] = icPoisson(c)
-  return { ufc: c / D, lo: a / D, hi: b / D, estado: cand[1], usados: [k], S: c, lim: NaN }
+  if (sobre.length) return sobre[0][0]
+  return e.sort((x, y) => dilDe(par, x[0]) - dilDe(par, y[0]))[0][0]
+}
+
+// Todas las réplicas de una cepa en un mismo tiempo usan la MISMA dilución. Sugerencia: la dilución con más
+// réplicas dentro del rango contable; a igualdad, la que tienen más réplicas y después la de más colonias
+// (sin pasar el doble del máximo). Si ninguna réplica tiene conteos en rango, la que daría la mejor estimación.
+export function sugerirDilucionGrupo(conts, par) {
+  const ks = [...new Set(conts.flatMap((c) => entradas(c).map(([k]) => k)))]
+  if (!ks.length) return null
+  const puntaje = (k) => {
+    const v = conts.map((c) => Number((c || {})[k])).filter((x) => finito(x) && x >= 0)
+    const enRango = v.filter((x) => x >= par.min && x <= par.max).length
+    const contables = v.filter((x) => x > 0 && x <= 2 * par.max)
+    return [enRango, v.length, contables.length, contables.reduce((s, x) => s + Math.min(x, par.max), 0)]
+  }
+  const mejor = (a, b) => { for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false }
+  let kb = ks[0], pb = puntaje(ks[0])
+  ks.slice(1).forEach((k) => { const p = puntaje(k); if (mejor(p, pb)) { kb = k; pb = p } })
+  return kb
+}
+
+export function estimarUfc(cont, par) {
+  const e = entradas(cont)
+  const vacio = { ufc: NaN, lo: NaN, hi: NaN, estado: 'sin_datos', usados: [], S: 0, lim: NaN, sugerida: null, manual: false }
+  if (!e.length) return vacio
+  const sugerida = sugerirDilucion(cont, par)
+  const fija = par.usar !== undefined && par.usar !== null && par.usar !== ''
+  // dilución fijada para el grupo (cepa y tiempo): si esta réplica no la tiene, no se calcula con otra
+  if (fija && !e.some(([k]) => k === Number(par.usar))) return { ...vacio, estado: 'sin_dilucion', usados: [], sugerida, manual: !!par.manual }
+  const k = fija ? Number(par.usar) : sugerida
+  const manual = fija ? !!par.manual : false
+  const c = e.find(([kk]) => kk === k)[1]
+  const D = par.vol / dilDe(par, k)                 // mL de suspensión original sembrados
+  const base = { usados: [k], S: c, sugerida, manual }
+  if (c === 0) return { ...vacio, ...base, estado: 'cero', lim: 3 / D }   // límite de detección (≈ 3 colonias esperadas)
+  if (c > 2 * par.max) return { ...vacio, ...base, estado: 'incontable' }
+  const [lo, hi] = icPoisson(c)
+  const estado = c < par.min ? 'bajo' : c > par.max ? 'alto' : 'ok'
+  return { ufc: c / D, lo: lo / D, hi: hi / D, estado, lim: NaN, ...base }
+}
+
+// ---------- ajuste entre diluciones ----------
+// Si la columna k tiene C colonias, la siguiente (dilución D₂ en vez de D₁) debería tener C · D₁/D₂.
+// Para cada par de diluciones consecutivas con conteo se compara lo observado con lo esperado con una prueba
+// binomial exacta: dado el total S = C₁ + C₂, C₂ ~ Binomial(S, p) con p = (1/D₂) / (1/D₁ + 1/D₂).
+// Si p-valor < 0,05 el par no es coherente (pipeteo, error de dilución, colonias superpuestas o mal contadas).
+function pBinomial(x, n, p) {
+  if (n <= 0) return 1
+  const lf = (k) => lgamma(k + 1)
+  const pr = (k) => Math.exp(lf(n) - lf(k) - lf(n - k) + k * Math.log(p) + (n - k) * Math.log(1 - p))
+  const px = pr(x)
+  let tot = 0
+  for (let k = 0; k <= n; k++) { const q = pr(k); if (q <= px * (1 + 1e-7)) tot += q }
+  return Math.min(1, tot)
+}
+export function ajusteDiluciones(cont, par) {
+  const e = entradas(cont).sort((x, y) => dilDe(par, x[0]) - dilDe(par, y[0]))
+  const pares = []
+  for (let i = 0; i < e.length - 1; i++) {
+    const [k1, c1] = e[i], [k2, c2] = e[i + 1]
+    const D1 = dilDe(par, k1), D2 = dilDe(par, k2)
+    const esperado = (c1 * D1) / D2
+    const r = { k1, k2, c1, c2, esperado, factor: D2 / D1 }
+    if (c1 > 2 * par.max) pares.push({ ...r, estado: 'no_evaluable', motivo: `${c1} colonias: demasiadas para contar bien` })
+    else if (c1 + c2 < 5) pares.push({ ...r, estado: 'pocas', motivo: 'menos de 5 colonias entre las dos: no se puede juzgar' })
+    else {
+      const p = (1 / D2) / (1 / D1 + 1 / D2)
+      const pv = pBinomial(c2, c1 + c2, p)
+      pares.push({ ...r, p: pv, estado: pv < 0.05 ? 'desvio' : 'ok' })
+    }
+  }
+  const malos = pares.filter((x) => x.estado === 'desvio')
+  return { pares, ok: !malos.length, evaluados: pares.filter((x) => x.estado === 'ok' || x.estado === 'desvio').length, malos }
 }
 
 // ---------- recuentos de una experiencia ----------
@@ -211,14 +251,14 @@ export function registrosConteo(u) {
     const c = {}
     Object.entries(f.c || {}).forEach(([k, n]) => { if (finito(n)) c[Number(k)] = Number(n) })
     out.push({ Muestra: f.muestra, T_h: Number(f.t), Replica: Number(f.replica) || 1, Fila: '', origen: 'tabla', cont: c,
-      par: { vol: (Number(f.vol) || tb.vol) / 1000, factor: tb.factor, min: tb.min, max: tb.max } })
+      par: { vol: (Number(f.vol) || tb.vol) / 1000, factor: tb.factor, min: tb.min, max: tb.max, D: tb.D, usar: f.dil, manual: f.dilManual } })
   })
   return out
 }
 
 const NOMBRE_ESTADO = {
   ok: 'En rango', bajo: 'Estimado (bajo el rango)', alto: 'Estimado (sobre el rango)', cero: 'Menor que el límite de detección',
-  incontable: 'Incontable (sobre el rango)', sin_datos: 'Sin datos',
+  incontable: 'Incontable (sobre el rango)', sin_datos: 'Sin datos', sin_dilucion: 'Sin conteo en la dilución de la cepa',
 }
 export const textoEstado = (e) => NOMBRE_ESTADO[e] || e
 
@@ -230,7 +270,8 @@ export function calcularUfc(u) {
     const n = Object.keys(r.cont).length
     return {
       Muestra: r.Muestra, T_h: r.T_h, Fila: r.Fila || '', Replica: r.Replica, Origen: r.origen, Conteos: n,
-      Diluciones_usadas: est.usados.map((k) => `−${k} (${r.cont[k]})`).join(', '),
+      Diluciones_usadas: est.usados.map((k) => `columna ${k + 1} (${r.cont[k]} col.)`).join(', '), Dilucion_elegida: est.manual ? 'a mano' : 'sugerida',
+      _aj: ajusteDiluciones(r.cont, r.par), _manual: est.manual, _sugerida: est.sugerida,
       UFC_mL: est.ufc, IC95_inf: est.lo, IC95_sup: est.hi, Estado: textoEstado(est.estado), _estado: est.estado,
       log10: finito(est.ufc) && est.ufc > 0 ? Math.log10(est.ufc) : NaN, Colonias_usadas: est.S, Limite: est.lim,
       _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S,
@@ -295,6 +336,41 @@ export function crecimientoUfc(filas) {
     mu: mejor.b, td_min: (Math.log(2) / mejor.b) * 60, lag_h: lag, r2: mejor.r2, ventana: `${mejor.t0} a ${mejor.t1} h`, n_ventana: mejor.n,
     log10_N0: Math.log10(p[0].UFC_mL), crecimiento_log10: (Nmax - N0) / Math.LN10, generaciones: (Nmax - N0) / Math.LN2, intercepto: mejor.a,
   }
+}
+
+// ---------- curva suavizada del crecimiento por recuento ----------
+// Baranyi-Roberts ajustado a ln(UFC/mL) de las medias de cada tiempo (con 4 o más tiempos).
+// Devuelve { ok, puntos: [{ x, y (log10) }], mu, lambda } para dibujar una curva continua en lugar de unir los puntos.
+// metodo: 'baranyi' (modelo de crecimiento; 4 o más tiempos) o 'spline' (spline cúbica monótona de Fritsch-Carlson:
+// pasa por cada media sin oscilar; 2 o más tiempos).
+function pchip(xs, ys) {
+  const n = xs.length, h = [], d = []
+  for (let i = 0; i < n - 1; i++) { h.push(xs[i + 1] - xs[i]); d.push((ys[i + 1] - ys[i]) / h[i]) }
+  const m = new Array(n)
+  m[0] = d[0]; m[n - 1] = d[n - 2]
+  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (3 * (h[i - 1] + h[i])) / ((2 * h[i] + h[i - 1]) / d[i - 1] + (h[i] + 2 * h[i - 1]) / d[i])
+  return (x) => {
+    let i = 0
+    while (i < n - 2 && x > xs[i + 1]) i++
+    const t = (x - xs[i]) / h[i], t2 = t * t, t3 = t2 * t
+    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h[i] * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h[i] * m[i + 1]
+  }
+}
+export function curvaSuaveUfc(filas, metodo = 'baranyi') {
+  const p = filas.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
+  if (metodo === 'spline') {
+    if (p.length < 2) return { ok: false, motivo: 'Hacen falta al menos 2 tiempos' }
+    const f = pchip(p.map((r) => r.T_h), p.map((r) => r.log10))
+    const t0 = p[0].T_h, t1 = p[p.length - 1].T_h
+    return { ok: true, puntos: Array.from({ length: 121 }, (_, i) => t0 + ((t1 - t0) * i) / 120).map((x) => ({ x, y: f(x) })) }
+  }
+  if (p.length < 4) return { ok: false, motivo: 'Hacen falta al menos 4 tiempos' }
+  const c = crecimientoUfc(p)
+  const aj = ajustarBaranyiLn(p.map((r) => r.T_h), p.map((r) => Math.log(r.UFC_mL)), c?.mu, c?.lag_h)
+  if (!aj.ok) return { ok: false, motivo: 'El modelo no convergió' }
+  const t0 = p[0].T_h, t1 = p[p.length - 1].T_h
+  const puntos = Array.from({ length: 81 }, (_, i) => t0 + ((t1 - t0) * i) / 80).map((x) => ({ x, y: aj.pred(x) / Math.LN10 }))
+  return { ok: true, puntos, mu: aj.mu, lambda: aj.lambda }
 }
 
 // ---------- concentración esperada (guía de la grilla de gotas) ----------

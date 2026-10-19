@@ -152,25 +152,12 @@ export function regLineal(x, y) {
   return { a, b, r2: sst > 0 ? 1 - sse / sst : NaN }
 }
 
-// Con lecturas espaciadas (placas leídas cada 1-2 h, cubeta) una ventana angosta no junta los puntos mínimos:
-// el ancho efectivo es el mayor entre el pedido y (puntos mínimos − 1) × el intervalo típico entre lecturas
-export function anchoEfectivo(t, ancho, minPts) {
-  const tt = t.filter(finito).sort((a, b) => a - b)
-  const dt = []
-  for (let i = 1; i < tt.length; i++) if (tt[i] > tt[i - 1]) dt.push(tt[i] - tt[i - 1])
-  if (!dt.length) return ancho
-  dt.sort((a, b) => a - b)
-  const med = dt[Math.floor(dt.length / 2)]
-  return Math.max(ancho, (minPts - 1) * med)
-}
-
-export function ventanasLn(t, y, anchoPedido, minPts, lnMin) {
+export function ventanasLn(t, y, ancho, minPts, lnMin) {
   const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(y[i]) && y[i] > 0 && y[i] >= lnMin).sort((a, b) => t[a] - t[b])
   const tt = idx.map((i) => t[i])
   const ly = idx.map((i) => Math.log(y[i]))
   const n = tt.length
   if (n < minPts) return null
-  const ancho = anchoEfectivo(tt, anchoPedido, minPts)
   const filas = []
   for (let i = 0; i < n; i++) {
     const j = []
@@ -346,8 +333,10 @@ export function analizarCurva(tIn, yIn, op, ventanaManual = null) {
   const y = orden.map((i) => yIn[i])
   const r = resultadoVacio(y.length)
 
-  if (y.length < Math.max(5, op.minpts)) { r.aviso = 'Pocos puntos'; return r }
+  // con pocas lecturas (por ejemplo placas leídas en 3 o 4 tiempos) igual se calculan K, AUC y μmax si alcanza
+  if (y.length < 2) { r.aviso = 'Pocos puntos'; return r }
   const avisos = []
+  if (y.length < 5) avisos.push(`Solo ${y.length} tiempos: los parámetros son aproximados`)
   const avisoOd0 = 'OD0 menor que la OD mínima para ln: se usó la OD mínima'
 
   // OD0 provisoria (media de los primeros puntos; respaldo)
