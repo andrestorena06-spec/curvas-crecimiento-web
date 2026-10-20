@@ -1,39 +1,38 @@
 /* ============================================================
    Curvas de crecimiento · v2
-   Tema oscuro «Océano nocturno» (por defecto) y claro «Laboratorio marino»
+   Tema claro «Mesada» (por defecto: crema y ámbar, menú marrón) y oscuro «Cuaderno nocturno»
+   Fuente: IBM Plex Sans (incluida en el programa: funciona sin internet)
    ============================================================ */
-:root, [data-tema='oscuro'] {
-  --fondo: #0E1828; --panel: #14223A; --panel2: #192A45; --hover: #1C2E4C;
-  --texto: #E2ECF8; --sec: #8EA3BF; --tenue: #61789A; --borde: #24365A; --borde2: #2F4670;
-  --nav: #0A1220; --nav-texto: #7E93B0; --nav-act: #12304F; --nav-act-texto: #7DD3FC; --nav-borde: #172640;
-  --acento: #38BDF8; --acento-fuerte: #0EA5E9; --acento-suave: rgba(56, 189, 248, .13); --sobre-acento: #04223A;
-  --acento2: #818CF8;
-  --peligro: #F87171; --peligro-suave: rgba(248, 113, 113, .13);
-  --ok: #4ADE80; --ok-suave: rgba(74, 222, 128, .12);
-  --aviso: #FBBF24; --aviso-suave: rgba(251, 191, 36, .13);
-  --sombra: 0 10px 30px rgba(0, 0, 0, .35);
-  --input: #0F1B30;
-  color-scheme: dark;
-}
-[data-tema='claro'] {
-  --fondo: #F4F8FC; --panel: #FFFFFF; --panel2: #EEF4FB; --hover: #E7EFF9;
-  --texto: #0B2545; --sec: #5A6F89; --tenue: #8798AE; --borde: #DCE6F2; --borde2: #C7D5E7;
-  --nav: #0B2545; --nav-texto: #B9CCE4; --nav-act: #1D6FD8; --nav-act-texto: #FFFFFF; --nav-borde: #13325A;
-  --acento: #1D6FD8; --acento-fuerte: #1559B3; --acento-suave: rgba(29, 111, 216, .09); --sobre-acento: #FFFFFF;
-  --acento2: #5AA2F0;
-  --peligro: #C2410C; --peligro-suave: rgba(194, 65, 12, .08);
-  --ok: #15803D; --ok-suave: rgba(21, 128, 61, .09);
-  --aviso: #B45309; --aviso-suave: rgba(180, 83, 9, .09);
-  --sombra: 0 10px 30px rgba(11, 37, 69, .12);
+:root, [data-tema='claro'] {
+  --fondo: #FDF8EF; --panel: #FFFFFF; --panel2: #FBF1DF; --hover: #F7E8CD;
+  --texto: #412402; --sec: #854F0B; --tenue: #B08A55; --borde: #F1DDB8; --borde2: #E6C58F;
+  --acento: #A8650F; --acento-fuerte: #854F0B; --acento-suave: rgba(239, 159, 39, .16); --sobre-acento: #FFFFFF;
+  --acento2: #993C1D;
+  --peligro: #B42318; --peligro-suave: rgba(180, 35, 24, .08);
+  --ok: #3B6D11; --ok-suave: rgba(99, 153, 34, .12);
+  --aviso: #C2410C; --aviso-suave: rgba(194, 65, 12, .09);
+  --sombra: 0 10px 30px rgba(65, 36, 2, .12);
   --input: #FFFFFF;
   color-scheme: light;
+}
+[data-tema='oscuro'] {
+  --fondo: #241503; --panel: #31200B; --panel2: #3B2711; --hover: #463016;
+  --texto: #FAEEDA; --sec: #E2B978; --tenue: #A88452; --borde: #4B3219; --borde2: #634323;
+  --acento: #EF9F27; --acento-fuerte: #FAC775; --acento-suave: rgba(239, 159, 39, .15); --sobre-acento: #412402;
+  --acento2: #F0997B;
+  --peligro: #F09595; --peligro-suave: rgba(240, 149, 149, .12);
+  --ok: #97C459; --ok-suave: rgba(151, 196, 89, .12);
+  --aviso: #FAC775; --aviso-suave: rgba(250, 199, 117, .12);
+  --sombra: 0 10px 30px rgba(0, 0, 0, .4);
+  --input: #2A1906;
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
   background: var(--fondo); color: var(--texto);
-  font: 14px/1.5 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font: 14px/1.5 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, Roboto, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: -.01em; }
@@ -279,7 +278,7 @@ table.tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-si
 .metodos p, .metodos li { font-size: 14.5px; }
 .metodos ol, .metodos ul { padding-left: 22px; margin: 0 0 12px; }
 .formula { background: var(--panel2); border: 1px solid var(--borde); border-left: 3px solid var(--acento); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 8px 0 14px; font-family: 'Cambria Math', Cambria, Georgia, serif; font-size: 15.5px; overflow-x: auto; }
-.formula small { display: block; font-family: 'Segoe UI', system-ui, sans-serif; font-size: 12.5px; color: var(--sec); margin-top: 4px; }
+.formula small { display: block; font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif; font-size: 12.5px; color: var(--sec); margin-top: 4px; }
 .ejemplo { background: var(--acento-suave); border-radius: 8px; padding: 10px 14px; margin: 8px 0 14px; font-size: 14px; }
 .ejemplo b:first-child { color: var(--acento); }
 .indice { columns: 2; column-gap: 30px; font-size: 13.5px; padding-left: 18px; }

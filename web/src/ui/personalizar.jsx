@@ -3,7 +3,7 @@
 import { Campo, Check, Num, Sel } from './base.jsx'
 import { estiloGraficoDef } from './grafico.jsx'
 
-const FUENTES = [['Segoe UI', 'Segoe UI'], ['Arial', 'Arial'], ['Calibri', 'Calibri'], ['Times New Roman', 'Times New Roman'], ['Georgia', 'Georgia']]
+const FUENTES = [['IBM Plex Sans', 'IBM Plex Sans'], ['Segoe UI', 'Segoe UI'], ['Arial', 'Arial'], ['Calibri', 'Calibri'], ['Times New Roman', 'Times New Roman'], ['Georgia', 'Georgia']]
 
 export function PanelPersonalizar({ s, id, ejeDerecho = false, cepas }) {
   const e = { ...estiloGraficoDef(), ...(s.exp.graficos?.[id] || {}) }

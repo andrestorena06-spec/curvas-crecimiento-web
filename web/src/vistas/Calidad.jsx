@@ -190,7 +190,7 @@ function VistaPlaca({ s, onAbrir }) {
   return (
     <div className="placa-wrap" style={{ position: 'relative' }}>
       {hover && <div className="tip-graf" style={{ left: hover.x + 14, top: hover.y + 8 }}>{hover.t}</div>}
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 720, display: 'block' }} fontFamily="'Segoe UI', system-ui, sans-serif"
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ minWidth: 720, display: 'block' }} fontFamily="'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif"
         onMouseLeave={() => setHover(null)}>
         {Array.from({ length: 12 }, (_, c) => <text key={c} x={L + c * CW + CW / 2} y={13} textAnchor="middle" fontSize="11" fill={T.sec}>{c + 1}</text>)}
         {LETRAS.map((f, i) => <text key={f} x={10} y={TOP + i * CH + CH / 2} textAnchor="middle" dominantBaseline="central" fontSize="11" fill={T.sec}>{f}</text>)}

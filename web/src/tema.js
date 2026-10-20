@@ -1,22 +1,22 @@
-// Temas: «Océano nocturno» (oscuro, por defecto) y «Laboratorio marino» (claro).
+// Temas: «Mesada» (claro, por defecto) y «Cuaderno nocturno» (oscuro).
 // Los colores están también en styles.css como variables; acá se repiten para los gráficos SVG,
 // que usan colores explícitos para poder exportarse igual que se ven.
 import { createContext, useContext } from 'react'
 
 export const TEMAS = {
   oscuro: {
-    nombre: 'Océano nocturno', fondo: '#0B1424', panel: '#121F35', panel2: '#172843', texto: '#E2ECF8', sec: '#8EA3BF', borde: '#24365A',
-    grilla: '#1F3050', eje: '#5D7392', acento: '#38BDF8', acento2: '#818CF8', peligro: '#F87171', ok: '#4ADE80', aviso: '#FBBF24',
-    pocilloVacio: '#13203A', mezcla: 0.55,
+    nombre: 'Cuaderno nocturno', fondo: '#241503', panel: '#31200B', panel2: '#3B2711', texto: '#FAEEDA', sec: '#E2B978', borde: '#4B3219',
+    grilla: '#3E2A12', eje: '#A88452', acento: '#EF9F27', acento2: '#F0997B', peligro: '#F09595', ok: '#97C459', aviso: '#FAC775',
+    pocilloVacio: '#2A1906', mezcla: 0.55,
   },
   claro: {
-    nombre: 'Laboratorio marino', fondo: '#E9F0F8', panel: '#FFFFFF', panel2: '#F1F5FB', texto: '#0B2545', sec: '#5A6F89', borde: '#DCE6F2',
-    grilla: '#E8EEF6', eje: '#8A9BB2', acento: '#1D6FD8', acento2: '#5AA2F0', peligro: '#C2410C', ok: '#15803D', aviso: '#B45309',
-    pocilloVacio: '#F7FAFD', mezcla: 0.68,
+    nombre: 'Mesada', fondo: '#FDF8EF', panel: '#FFFFFF', panel2: '#FBF1DF', texto: '#412402', sec: '#854F0B', borde: '#F1DDB8',
+    grilla: '#F4E7CF', eje: '#B08A55', acento: '#A8650F', acento2: '#993C1D', peligro: '#B42318', ok: '#3B6D11', aviso: '#C2410C',
+    pocilloVacio: '#FFFBF4', mezcla: 0.68,
   },
 }
 
-export const TemaCtx = createContext(TEMAS.oscuro)
+export const TemaCtx = createContext(TEMAS.claro)
 export const useTema = () => useContext(TemaCtx)
 
 // Paleta de cepas: tonos apagados (no chillones), distinguibles entre sí y legibles en los dos temas
