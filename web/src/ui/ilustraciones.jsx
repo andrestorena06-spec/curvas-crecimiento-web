@@ -13,7 +13,7 @@ export function IlusOD() {
       <path d={curva} fill="none" stroke={T.acento} strokeWidth="3.4" strokeLinecap="round" />
       <path d="M24 90 C54 90 64 89 80 78 S108 46 134 42 S164 40 178 40" fill="none" stroke={T.acento2} strokeWidth="2.4" strokeDasharray="5 4" strokeLinecap="round" />
       {[40, 74, 100, 128, 160].map((x, i) => <circle key={x} cx={x} cy={[88, 70, 40, 22, 20][i]} r="3.2" fill={T.panel} stroke={T.acento} strokeWidth="1.6" />)}
-      <text x="26" y="20" fontSize="10" fill={T.sec} fontFamily="Segoe UI">OD</text>
+      <text x="26" y="20" fontSize="10" fill={T.sec} fontFamily="IBM Plex Sans, Segoe UI">OD</text>
     </Marco>
   )
 }
@@ -26,7 +26,7 @@ export function IlusUFC() {
       <ellipse cx="102" cy="58" rx="56" ry="42" fill={T.panel} stroke={T.eje} strokeWidth="1.6" />
       <ellipse cx="102" cy="58" rx="48" ry="35" fill={T.acento} opacity="0.1" />
       {col.map(([x, y, r], i) => <circle key={i} cx={x} cy={y} r={r} fill={i % 3 ? T.acento : T.acento2} opacity="0.85" />)}
-      <text x="160" y="24" fontSize="10" fill={T.sec} fontFamily="Segoe UI">UFC</text>
+      <text x="160" y="24" fontSize="10" fill={T.sec} fontFamily="IBM Plex Sans, Segoe UI">UFC</text>
     </Marco>
   )
 }
@@ -40,7 +40,7 @@ export function IlusAmbos() {
       {[[40, 80], [72, 62], [100, 36], [128, 26], [160, 24]].map(([x, y]) => (
         <g key={x}><line x1={x} x2={x} y1={y - 7} y2={y + 7} stroke={T.acento2} strokeWidth="1.3" /><rect x={x - 4} y={y - 4} width="8" height="8" fill={T.acento2} /></g>
       ))}
-      <text x="26" y="20" fontSize="10" fill={T.sec} fontFamily="Segoe UI">OD · UFC</text>
+      <text x="26" y="20" fontSize="10" fill={T.sec} fontFamily="IBM Plex Sans, Segoe UI">OD · UFC</text>
     </Marco>
   )
 }
@@ -75,7 +75,7 @@ export function IlusPlacas() {
         <g key={i}>
           <MiniPlaca x={22 + i * 56} y={30 - i * 4 + 6} cols={4} filas={4} T={T} relleno={() => T.acento} />
           <rect x={22 + i * 56} y={30 - i * 4 + 6} width="52" height="52" rx="5" fill={T.panel} opacity={0.75 - i * 0.3} />
-          <text x={22 + i * 56 + 26} y={100} textAnchor="middle" fontSize="10" fill={T.sec} fontFamily="Segoe UI">t = {i * 2} h</text>
+          <text x={22 + i * 56 + 26} y={100} textAnchor="middle" fontSize="10" fill={T.sec} fontFamily="IBM Plex Sans, Segoe UI">t = {i * 2} h</text>
         </g>
       ))}
     </Marco>
@@ -93,7 +93,7 @@ export function IlusCubeta() {
       <rect x="97.5" y="38" width="19" height="26" fill={T.acento} opacity="0.35" />
       <path d="M140 52 H178" stroke={T.acento2} strokeWidth="2" strokeDasharray="4 3" />
       <path d="M172 47 l6 5 -6 5" fill="none" stroke={T.acento2} strokeWidth="2" />
-      <text x="158" y="44" fontSize="10" fill={T.sec} fontFamily="Segoe UI">λ</text>
+      <text x="158" y="44" fontSize="10" fill={T.sec} fontFamily="IBM Plex Sans, Segoe UI">λ</text>
     </Marco>
   )
 }

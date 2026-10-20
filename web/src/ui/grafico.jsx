@@ -37,7 +37,7 @@ function rango(vals, pad = 0.06, cero = false) {
 export const estiloGraficoDef = () => ({
   titulo: undefined, xTxt: undefined, yTxt: undefined, yTxtDer: undefined,
   tamTitulo: 15, tamEjes: 12.5, tamNumeros: 11.5, tamLeyenda: 11.5, tamValores: 10.5,
-  grosor: 1, radio: 1, grilla: true, leyenda: 'abajo', fondo: 'tema', fuente: 'Segoe UI',
+  grosor: 1, radio: 1, grilla: true, leyenda: 'abajo', fondo: 'tema', fuente: 'IBM Plex Sans',
   xmin: '', xmax: '', ymin: '', ymax: '', alto: '',
 })
 

@@ -23,7 +23,7 @@ import { Datos } from './vistas/Datos.jsx'
 import { Metodos } from './vistas/Metodos.jsx'
 
 const CLAVE = 'curvas-crecimiento-v2'
-const CLAVE_TEMA = 'curvas-crecimiento-v2-tema'
+const CLAVE_TEMA = 'curvas-crecimiento-v2-tema-mesada'
 const CLAVE_MENU = 'curvas-crecimiento-v2-menu-corto'
 const leer = (k) => { try { return JSON.parse(localStorage.getItem(k)) } catch { return null } }
 
@@ -57,13 +57,13 @@ export function pasosDe(e) {
 
 const Logo = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
-    <rect width="24" height="24" rx="6" fill="var(--acento)" />
-    <path d="M5 18 C9 18 10 17 12 12 S16 6 20 6" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
+    <rect width="24" height="24" rx="6" fill="#EF9F27" />
+    <path d="M5 18 C9 18 10 17 12 12 S16 6 20 6" fill="none" stroke="#412402" strokeWidth="2.2" strokeLinecap="round" />
   </svg>
 )
 
 export default function App() {
-  const [tema, setTema] = useState(() => leer(CLAVE_TEMA) || 'oscuro')
+  const [tema, setTema] = useState(() => leer(CLAVE_TEMA) || 'claro')
   const guardado = useMemo(() => leer(CLAVE), [])
   const [exp, setExp] = useState(null)
   const [paso, setPaso] = useState(null)
