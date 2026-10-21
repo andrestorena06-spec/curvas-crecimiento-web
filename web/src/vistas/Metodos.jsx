@@ -28,7 +28,7 @@ function textoPublicacion(s) {
     if (exp.origenOd === 'placas' && aj.corregir_blanco) p.push('A cada placa se le restó el promedio de sus propios pocillos de medio sin inocular, y las lecturas hechas sobre diluciones se multiplicaron por su factor de dilución.')
     const out = []
     if (aj.hampel_on) out.push(`un filtro de Hampel dentro de cada curva (ventana de ${2 * aj.hampel_k + 1} puntos, umbral ${aj.hampel_sigma} × MAD escalada, diferencia mínima ${aj.hampel_min} OD)`)
-    if (aj.dixon_on) out.push(`el test Q de Dixon entre réplicas de cada tiempo (${aj.dixon_conf} % de confianza; Rorabacher, 1991)`)
+    if (aj.dixon_on) out.push(aj.od_atip_metodo === 'cv' ? `la desviación estándar relativa entre réplicas de cada tiempo (RSD > ${aj.od_cvmax ?? 20} %: se excluyó la réplica más alejada de la media)` : `el test Q de Dixon entre réplicas de cada tiempo (${aj.dixon_conf} % de confianza; Rorabacher, 1991)`)
     if (aj.odmax_on) out.push(`la exclusión de lecturas mayores a ${aj.odmax} OD`)
     if (out.length) p.push(`Los valores aberrantes se identificaron con ${out.join(' y ')}.`)
     p.push(`La velocidad específica máxima de crecimiento (μmax) se estimó como la mayor pendiente de ln(OD) contra el tiempo en ventanas deslizantes de ${op.ancho} h (mínimo ${op.minpts} puntos, R² ≥ ${op.r2min}, OD ≥ ${op.lnmin}); el tiempo de duplicación como ln 2/μmax, y la fase de latencia como la intersección de la tangente en μmax con ln(OD₀)${op.od0_metodo === 'auto' ? ', con OD₀ estimada mediante un modelo de tres fases (Buchanan et al., 1997)' : ''}. La OD máxima (K) se tomó sobre la curva suavizada con mediana móvil de 3 puntos y el área bajo la curva se calculó por la regla del trapecio.`)
@@ -293,7 +293,8 @@ export function Metodos({ s }) {
           <p><b>Réplicas: media geométrica</b>. Los errores de un recuento son multiplicativos (un error de pipeteo en una dilución multiplica el resultado por un factor) y las UFC/mL tienen distribución aproximadamente log-normal. Por eso se promedia en logaritmos:</p>
           <Fm nota="IC 95 % = 10^( m ± t(0,975; n − 1) · s/√n ). También se informan la media aritmética y el CV.">m = (1/n) Σ log₁₀ UFCᵢ ;  UFC/mL = 10<sup>m</sup> ;  s = DE(log₁₀ UFCᵢ)</Fm>
 
-          <H id="ufcqc">Control de calidad de los recuentos <Act on={exp.aj.ufc_dixon_on !== false} txt={`Dixon ${exp.aj.ufc_dixon_conf || 95} %`} /></H>
+          <H id="ufcqc">Control de calidad de los recuentos <Act on={exp.aj.ufc_dixon_on !== false} txt={exp.aj.ufc_atip_metodo === 'cv' ? `RSD ≤ ${exp.aj.ufc_cvmax ?? 20} %` : `Dixon ${exp.aj.ufc_dixon_conf || 95} %`} /></H>
+          <p><b>Criterio elegible</b>. Las réplicas de una cepa en un tiempo se comparan con el test Q de Dixon (sobre log₁₀ UFC/mL, con el nivel de confianza elegido) o con la <b>desviación estándar relativa</b>: RSD = 100 · s / x̄ de las UFC/mL; si supera el porcentaje elegido, la réplica más alejada de la media queda fuera (se informa también el RSD sin ella). El mismo criterio está disponible para las lecturas de OD entre réplicas de cada tiempo.</p>
           <p>Con 3 a 10 réplicas de la misma cepa y tiempo, se aplica el test Q de Dixon (sección de puntos aberrantes) sobre <b>log₁₀ UFC/mL</b>, porque en escala logarítmica la dispersión es simétrica. La réplica marcada queda fuera de la media geométrica y se puede reincorporar. También se informa el CV de cada grupo como indicador de concordancia (un CV &gt; 50 % suele indicar un problema de dilución o de siembra).</p>
 
           <H id="ufccrec">Crecimiento por recuento</H>

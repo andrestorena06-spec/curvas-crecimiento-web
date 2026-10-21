@@ -8,6 +8,7 @@ import { manualADatos, manualDef, normalizarManual } from './motor/odmanual.js'
 import { calcularUfc, sugerirDilucionGrupo } from './motor/ufc.js'
 import { analizarCurva, finito, media, desvio } from './motor/analisis.js'
 import { dixonQ, opAnalisis } from './motor/pipeline.js'
+import { detectarCV } from './motor/atipicos.js'
 import { detectar } from './motor/atipicos.js'
 import { LETRAS, nuevoId, pocillos96, ordenPocillo } from './utils.js'
 
@@ -39,6 +40,7 @@ export const ajustesDef = (origen) => ({
   an_lag_metodo: 'tangente', an_lag_factor: 2, an_umbral_od: 0.3, an_frac_exp: 0.5, an_frac_est: 0.1, an_muerte_pct: 10, an_spline: origen === 'tecan',
   camino_on: false, pocillo_vol: 200, pocillo_diam: 6.4,
   ufc_suave: true, ufc_recta: false,
+  od_atip_metodo: 'q', od_cvmax: 20, ufc_atip_metodo: 'q', ufc_cvmax: 20,
 })
 
 // Camino óptico en un lector de placas (lectura vertical): el haz atraviesa la altura del líquido,
@@ -340,6 +342,13 @@ export function resultadosUfc(e) {
     grupos.get(k).push(r)
   })
   grupos.forEach((g) => {
+    if (e.aj.ufc_atip_metodo === 'cv') {
+      // RSD (CV %) sobre UFC/mL: si el grupo supera el límite, sale la réplica más alejada de la media
+      const lim = Number(e.aj.ufc_cvmax) || 20
+      const d = detectarCV(g.map((r) => r.UFC_mL), lim)
+      if (d.idx !== null) { const r = g[d.idx]; dixon[`${r.Muestra}|${r.T_h}|${r.Replica}`] = `RSD del grupo = ${d.stat.toFixed(1)} % > límite ${lim} % (réplica más alejada de la media, extremo ${d.lado}; sin ella, RSD = ${d.cvSin.toFixed(1)} %).` }
+      return
+    }
     const d = dixonQ(g.map((r) => r.log10), Number(e.aj.ufc_dixon_conf) || 95)
     if (d) {
       const r = g[d.i]

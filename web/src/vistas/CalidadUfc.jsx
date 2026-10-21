@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react'
 import { dUfc, dAjuste } from '../calculos.js'
 import { finito, media, desvio } from '../motor/analisis.js'
 import { useTema } from '../tema.js'
-import { Campo, Check, Encabezado, Icono, Seg, Vacio } from '../ui/base.jsx'
+import { Campo, Check, Encabezado, Icono, Seg, Vacio, Num, Sel } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { Grafico } from '../ui/grafico.jsx'
@@ -49,12 +49,14 @@ export function CalidadUfc({ s }) {
 
   return (
     <div className="pagina">
-      <Encabezado titulo="Control de calidad de los conteos" sub="Revisá qué diluciones entraron en el cálculo de cada réplica, cuáles se estimaron fuera del rango contable y qué réplicas se apartan de las demás (test Q de Dixon sobre log₁₀).">
+      <Encabezado titulo="Control de calidad de los conteos" sub="Revisá qué diluciones entraron en el cálculo de cada réplica, cuáles se estimaron fuera del rango contable y qué réplicas se apartan de las demás (test Q de Dixon sobre log₁₀ o RSD %, a elección en la cinta).">
       </Encabezado>
       <Cinta>
         <Grupo titulo="Réplicas atípicas">
-          <BotonCinta simbolo="Q" texto="Dixon" activo={aj.ufc_dixon_on !== false} onClick={() => s.setAj('ufc_dixon_on', aj.ufc_dixon_on === false)} tip="Test Q de Dixon (o Grubbs con más de 10) sobre log₁₀ UFC/mL" />
-          <OpcionesCinta valor={String(aj.ufc_dixon_conf || 95)} onChange={(v) => s.setAj('ufc_dixon_conf', Number(v))} opciones={[['90', '90 %', '90'], ['95', '95 %', '95'], ['99', '99 %', '99']]} />
+          <OpcionesCinta valor={aj.ufc_dixon_on === false ? 'no' : aj.ufc_atip_metodo || 'q'} onChange={(v) => { s.setAj('ufc_dixon_on', v !== 'no'); if (v !== 'no') s.setAj('ufc_atip_metodo', v) }}
+            opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, 'Test Q de Dixon sobre log₁₀ UFC/mL (Grubbs con más de 10 réplicas)'], ['cv', 'RSD', '%', null, 'Desviación estándar relativa (CV %) de UFC/mL: si las réplicas de un tiempo la superan, sale la más alejada de la media']]} />
+          {aj.ufc_dixon_on !== false && (aj.ufc_atip_metodo || 'q') === 'q' && <CampoCinta etiqueta="Confianza"><Sel value={String(aj.ufc_dixon_conf || 95)} onChange={(v) => s.setAj('ufc_dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></CampoCinta>}
+          {aj.ufc_dixon_on !== false && aj.ufc_atip_metodo === 'cv' && <CampoCinta etiqueta="RSD máx. (%)"><Num value={aj.ufc_cvmax ?? 20} onChange={(v) => s.setAj('ufc_cvmax', v)} ancho={56} /></CampoCinta>}
         </Grupo>
         <Grupo titulo="Fuera de rango">
           <BotonCinta simbolo="≈" texto="Usar estimados" activo={exp.ufc.estimados} onClick={() => upd((e) => ({ ufc: { ...e.ufc, estimados: !e.ufc.estimados } }))} />
@@ -63,14 +65,14 @@ export function CalidadUfc({ s }) {
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'calidadUfc'} onClick={() => setPers(pers === 'calidadUfc' ? null : 'calidadUfc')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente">{exp.tipo === 'odufc' ? <BotonCinta icono="placa" texto="Cargar la OD" onClick={() => s.irA({ tecan: 'archivo', placas: 'placas', cubeta: 'lecturas' }[exp.origenOd] || 'calidad')} /> : <BotonCinta icono="curva" texto="Curva UFC vs t" onClick={() => s.irA('curvaUfc')} />}</Grupo>
+        <Grupo titulo="Siguiente"><BotonCinta icono="curva" texto="Curva UFC vs t" onClick={() => s.irA('curvaUfc')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'calidadUfc'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="calidadUfc" /></Cajon>
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta">
-            <Grafico series={[...medias, ...series]} extras={extras} yTxt="log₁₀ UFC/mL (cada réplica)" alto={300} estilo={s.estiloGrafico('calidadUfc')} onPuntoClick={(k) => { const r = ufcRes.reps.find((x) => clave(x) === k); if (r) alternar(r) }} nombre="calidad_ufc" />
-            <p className="ayuda" style={{ marginTop: 6 }}>Cada punto es una réplica{exp.aj.ufc_suave !== false ? '; la línea es la curva suavizada de las medias geométricas' : ''}. Clic en un punto para excluirlo o reincorporarlo. · {ufcRes.reps.filter((r) => r.Conteos > 0).length} réplicas · {nFuera} excluidas · {nEst} estimadas · {Object.keys(ufcRes.dixon).length} marcadas por Dixon</p>
+            <Grafico series={[...medias, ...series]} extras={extras} yTxt="log₁₀ UFC/mL (cada réplica)" alto={300} estilo={s.estiloGrafico('calidadUfc')} idEstilo="calidadUfc" onPuntoClick={(k) => { const r = ufcRes.reps.find((x) => clave(x) === k); if (r) alternar(r) }} nombre="calidad_ufc" />
+            <p className="ayuda" style={{ marginTop: 6 }}>Cada punto es una réplica{exp.aj.ufc_suave !== false ? '; la línea es la curva suavizada de las medias geométricas' : ''}. Clic en un punto para excluirlo o reincorporarlo. · {ufcRes.reps.filter((r) => r.Conteos > 0).length} réplicas · {nFuera} excluidas · {nEst} estimadas · {Object.keys(ufcRes.dixon).length} marcadas por {aj.ufc_atip_metodo === 'cv' ? 'RSD' : 'Dixon'}</p>
           </div>
           <div className="tarjeta">
             <div className="tabla-scroll alta"><table className="tabla">
@@ -86,7 +88,7 @@ export function CalidadUfc({ s }) {
                       <td>{i === 0 ? <b>{g.Muestra}</b> : ''}</td><td className="num">{i === 0 ? g.T_h : ''}</td><td className="num">{r.Replica}</td>
                       <td>{r.Diluciones_usadas || '(sin conteos)'}{r._manual && <small className="ayuda"> · a mano</small>}{r._aj?.malos?.length > 0 && <span className="aviso-texto" data-tip={dAjuste(r._aj)}> ⚠ diluciones no coherentes</span>}</td>
                       <td className="num" data-tip={dUfc(r) || undefined}>{sciCorto(r.UFC_mL)}</td><td className="num">{fx(r.log10, 2)}</td>
-                      <td><span className={`chip ${fuera ? 'peligro' : CHIP[r._estado]}`} data-tip={dx || undefined}>{fuera ? (dx && !exp.ufcExcl.includes(clave(r)) ? 'Dixon: excluida' : 'Excluida a mano') : dx ? 'Dixon (reincorporada)' : r.Estado}</span></td>
+                      <td><span className={`chip ${fuera ? 'peligro' : CHIP[r._estado]}`} data-tip={dx || undefined}>{fuera ? (dx && !exp.ufcExcl.includes(clave(r)) ? (aj.ufc_atip_metodo === 'cv' ? 'RSD: excluida' : 'Dixon: excluida') : 'Excluida a mano') : dx ? (aj.ufc_atip_metodo === 'cv' ? 'RSD (reincorporada)' : 'Dixon (reincorporada)') : r.Estado}</span></td>
                       <td className="num">{i === 0 ? <span style={{ color: cv > 50 ? 'var(--aviso)' : undefined }}>{fx(cv, 0)}</span> : ''}</td>
                       <td><button className="chico" onClick={() => alternar(r)}>{fuera ? 'Reincorporar' : 'Excluir'}</button></td>
                     </tr>

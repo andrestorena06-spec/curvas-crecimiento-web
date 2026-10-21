@@ -1,6 +1,7 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { TEMAS, useTema } from '../tema.js'
-import { exportarSVG, fmtTick, ticks } from '../utils.js'
+import { fmtTick, ticks } from '../utils.js'
+import { ModalGuardarImagen, useGraficoCtx } from './guardarImagen.jsx'
 import { Icono } from './base.jsx'
 
 const fin = Number.isFinite
@@ -43,20 +44,41 @@ export const estiloGraficoDef = () => ({
 
 // series: [{ id, nombre, color, dash, ancho, puntos, radio, linea=true, banda, errores, der, etiqueta(d) → texto, data: [{ x, y, lo, hi, key, tip }] }]
 // extras: puntos sueltos [{ x, y, key, tip, color, forma: 'x' | 'o' | 'anillo' }]
-export function Grafico({
-  series, extras = [], xTxt = 'Tiempo (h)', yTxt = '', yTxtDer = '', titulo = '', xlim, ylim, ylimDer, alto = 380, ancho = 900,
-  onPuntoClick, ventana, onSeleccion, leyenda = true, nombre = 'grafico', exportar = true, ceroY = false, estilo = {},
-}) {
+// Interacción: arrastrar = zoom a la zona elegida; con zoom, arrastrar desplaza (Shift + arrastrar vuelve a acercar);
+// doble clic = vista completa; clic derecho = menú (personalizar, guardar imagen, restablecer).
+// En los gráficos con onSeleccion (ventana de μmax) arrastrar elige la ventana y Shift + arrastrar hace zoom.
+export function Grafico(props) {
+  const {
+    series, extras = [], xTxt = 'Tiempo (h)', yTxt = '', yTxtDer = '', titulo = '', xlim, ylim, ylimDer, alto = 380, ancho = 900,
+    onPuntoClick, ventana, onSeleccion, leyenda = true, nombre = 'grafico', exportar = true, ceroY = false, estilo = {},
+    idEstilo, anchoFijo, altoTotal, refSvg, interactivo = true,
+  } = props
   const Tt = useTema()
   const e = { ...estiloGraficoDef(), ...estilo }
   const T = e.fondo === 'blanco' ? TEMAS.claro : Tt
-  const ref = useRef()
-  const [cont, anchoReal] = useAncho(ancho)
+  const refInt = useRef()
+  const ref = refSvg || refInt
+  const [cont, anchoMedido] = useAncho(ancho)
+  const anchoReal = anchoFijo || anchoMedido
   const [hover, setHover] = useState(null)
   const [arrastre, setArrastre] = useState(null)
+  const [zoom, setZoom] = useState(null)          // { x0, x1, y0, y1 } en unidades de los datos
+  const [caja, setCaja] = useState(null)          // rectángulo de zoom en px: { a: {mx,my}, b: {mx,my} }
+  const [paneo, setPaneo] = useState(null)        // { mx, my, z } al empezar a desplazar
+  const [menu, setMenu] = useState(null)          // menú del clic derecho: { cx, cy }
+  const [guardar, setGuardar] = useState(false)
+  const movido = useRef(false)
+  const idClip = 'clip-' + useId().replace(/[^a-zA-Z0-9]/g, '')   // único: la vista previa de «Guardar imagen» no comparte el recorte
+  const ctx = useGraficoCtx()
+  useEffect(() => {
+    if (!menu) return
+    const cerrar = () => setMenu(null)
+    window.addEventListener('mousedown', cerrar)
+    return () => window.removeEventListener('mousedown', cerrar)
+  }, [menu])
   const tit = e.titulo !== undefined ? e.titulo : titulo
   const xT = e.xTxt !== undefined ? e.xTxt : xTxt, yT = e.yTxt !== undefined ? e.yTxt : yTxt, zT = e.yTxtDer !== undefined ? e.yTxtDer : yTxtDer
-  const altoBase = fin(num(e.alto)) && num(e.alto) > 120 ? num(e.alto) : alto
+  let altoBase = fin(num(e.alto)) && num(e.alto) > 120 ? num(e.alto) : alto
   const izq = series.filter((s) => !s.der), der = series.filter((s) => s.der)
   const ys = (ss) => ss.flatMap((s) => s.data.flatMap((d) => [d.y, d.lo, d.hi]))
   let [x0, x1] = xlim || rango([...series.flatMap((s) => s.data.map((d) => d.x)), ...extras.map((q) => q.x)], 0.03)
@@ -65,7 +87,13 @@ export function Grafico({
   if (fin(num(e.xmax))) x1 = num(e.xmax)
   if (fin(num(e.ymin))) y0 = num(e.ymin)
   if (fin(num(e.ymax))) y1 = num(e.ymax)
-  const [z0, z1] = ylimDer || rango(ys(der), 0.08)
+  let [z0, z1] = ylimDer || rango(ys(der), 0.08)
+  if (zoom) {
+    // el eje derecho acompaña al izquierdo en la misma proporción
+    const fz = (v) => z0 + ((v - y0) / (y1 - y0 || 1)) * (z1 - z0)
+    const nz0 = fz(zoom.y0), nz1 = fz(zoom.y1)
+    ;[x0, x1, y0, y1, z0, z1] = [zoom.x0, zoom.x1, zoom.y0, zoom.y1, nz0, nz1]
+  }
   const tx = ticks(x0, x1, 9), ty = ticks(y0, y1, 7), tz = ticks(z0, z1, 7)
   const nomLeyenda = series.filter((s) => s.nombre)
   const conLeyenda = leyenda && e.leyenda !== 'no' && nomLeyenda.length > 0
@@ -76,6 +104,7 @@ export function Grafico({
   const filasLey = conLeyenda && !leyDer ? Math.ceil(nomLeyenda.length / colLey) : 0
   const altoFila = e.tamLeyenda * 1.75
   const B = 24 + e.tamNumeros * 1.4 + e.tamEjes * 1.6 + filasLey * altoFila
+  if (altoTotal) altoBase = Math.max(120, altoTotal - filasLey * altoFila)
   const W = anchoReal, H = altoBase + filasLey * altoFila
   const px = (x) => L + ((x - x0) / (x1 - x0 || 1)) * (W - L - R)
   const py = (y) => TOP + (1 - (y - y0) / (y1 - y0 || 1)) * (H - TOP - B)
@@ -105,6 +134,7 @@ export function Grafico({
     return mejor
   }
   const invX = (mx) => x0 + ((mx - L) / (W - L - R)) * (x1 - x0)
+  const invY = (my) => y0 + (1 - (my - TOP) / (H - TOP - B)) * (y1 - y0)
 
   const linea = (s, f) => s.data.filter((d) => fin(d.x) && fin(d.y) && dentro(d.x)).map((d) => `${px(d.x).toFixed(1)},${f(d.y).toFixed(1)}`).join(' ')
   const banda = (s, f) => {
@@ -116,34 +146,60 @@ export function Grafico({
   const fondoExport = e.fondo === 'blanco' ? '#ffffff' : T.panel
 
   return (
-    <div className="grafico" ref={cont}>
-      {exportar && (
-        <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4 }}>
-          <button className="fantasma chico" onClick={() => exportarSVG(ref.current, nombre, 'png', fondoExport)}><Icono n="bajar" size={14} />PNG</button>
-          <button className="fantasma chico" onClick={() => exportarSVG(ref.current, nombre, 'svg')}><Icono n="bajar" size={14} />SVG</button>
+    <div className="grafico" ref={cont} style={{ position: 'relative' }}>
+      {exportar && interactivo && (
+        <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4, gap: 6 }}>
+          {zoom && <button className="fantasma chico" onClick={() => setZoom(null)} data-tip="También con doble clic sobre el gráfico"><Icono n="refrescar" size={14} />Vista completa</button>}
+          <button className="fantasma chico" onClick={() => setGuardar(true)} data-tip={'Guardar imagen\nFormato (PNG, JPG o SVG), tamaño, resolución y fondo'}><Icono n="bajar" size={14} />Guardar imagen</button>
         </div>
       )}
       {hover && <div className="tip-graf" style={{ left: Math.min(hover.cx + 14, (ref.current?.clientWidth || 600) - 240), top: hover.cy + 10 }}>
         {hover.color && <i className="punto" style={{ background: hover.color, marginRight: 6, verticalAlign: -1 }} />}{hover.tip}</div>}
       <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={fuente}
-        style={{ cursor: onSeleccion ? 'crosshair' : undefined, userSelect: 'none', borderRadius: e.fondo === 'blanco' ? 8 : 0 }}
-        onMouseMove={(ev) => {
+        style={{ cursor: !interactivo ? undefined : paneo ? 'grabbing' : zoom ? 'grab' : 'crosshair', userSelect: 'none', borderRadius: e.fondo === 'blanco' ? 8 : 0 }}
+        onMouseMove={!interactivo ? undefined : (ev) => {
           const p = pos(ev)
-          if (arrastre) setArrastre({ ...arrastre, b: invX(p.mx) })
+          if (arrastre) { movido.current = true; setArrastre({ ...arrastre, b: invX(p.mx) }) }
+          if (caja) { if (Math.abs(p.mx - caja.a.mx) + Math.abs(p.my - caja.a.my) > 4) movido.current = true; setCaja({ ...caja, b: { mx: p.mx, my: p.my } }); return }
+          if (paneo) {
+            const dx = ((p.mx - paneo.mx) / (W - L - R)) * (paneo.z.x1 - paneo.z.x0), dy = ((p.my - paneo.my) / (H - TOP - B)) * (paneo.z.y1 - paneo.z.y0)
+            if (Math.abs(p.mx - paneo.mx) + Math.abs(p.my - paneo.my) > 3) movido.current = true
+            setZoom({ x0: paneo.z.x0 - dx, x1: paneo.z.x1 - dx, y0: paneo.z.y0 + dy, y1: paneo.z.y1 + dy })
+            return
+          }
           const c = cercano(p.mx, p.my)
           setHover(c ? { cx: p.cx, cy: p.cy, X: c.X, Y: c.Y, color: c.d.s.color, tip: c.d.tip || `${c.d.s.nombre ? c.d.s.nombre + '\n' : ''}x = ${c.d.x.toFixed(2)}\ny = ${c.d.y.toFixed(4)}`, key: c.d.key } : null)
         }}
-        onMouseLeave={() => { setHover(null); setArrastre(null) }}
-        onMouseDown={(ev) => { if (onSeleccion && ev.button === 0) { const p = pos(ev); setArrastre({ a: invX(p.mx), b: invX(p.mx) }) } }}
-        onMouseUp={() => {
+        onMouseLeave={() => { setHover(null); setArrastre(null); setCaja(null); setPaneo(null) }}
+        onMouseDown={!interactivo ? undefined : (ev) => {
+          if (ev.button !== 0) return
+          const p = pos(ev)
+          movido.current = false
+          if (onSeleccion && !ev.shiftKey && !ev.ctrlKey) return setArrastre({ a: invX(p.mx), b: invX(p.mx) })
+          if (zoom && !ev.shiftKey) return setPaneo({ mx: p.mx, my: p.my, z: { x0, x1, y0, y1 } })
+          setCaja({ a: { mx: p.mx, my: p.my }, b: { mx: p.mx, my: p.my } })
+        }}
+        onMouseUp={!interactivo ? undefined : () => {
           if (arrastre) {
             const a = Math.min(arrastre.a, arrastre.b), b = Math.max(arrastre.a, arrastre.b)
             setArrastre(null)
             if (b - a > (x1 - x0) * 0.01) return onSeleccion([a, b])
           }
-          if (hover?.key && onPuntoClick) onPuntoClick(hover.key)
-        }}>
-        <rect width={W} height={H} fill={e.fondo === 'blanco' ? '#ffffff' : T.panel} />
+          if (caja) {
+            const { a, b } = caja
+            setCaja(null)
+            if (Math.abs(b.mx - a.mx) > 8 && Math.abs(b.my - a.my) > 8) {
+              const nx0 = invX(Math.min(a.mx, b.mx)), nx1 = invX(Math.max(a.mx, b.mx)), ny0 = invY(Math.max(a.my, b.my)), ny1 = invY(Math.min(a.my, b.my))
+              setZoom({ x0: nx0, x1: nx1, y0: ny0, y1: ny1 })
+              return
+            }
+          }
+          if (paneo) { setPaneo(null); if (movido.current) return }
+          if (!movido.current && hover?.key && onPuntoClick) onPuntoClick(hover.key)
+        }}
+        onDoubleClick={!interactivo ? undefined : () => setZoom(null)}
+        onContextMenu={!interactivo ? undefined : (ev) => { ev.preventDefault(); const p = pos(ev); setMenu({ cx: p.cx, cy: p.cy }) }}>
+        <rect className="fondo-graf" width={W} height={H} fill={e.fondo === 'blanco' ? '#ffffff' : T.panel} />
         {tit && <text x={(L + W - R) / 2} y={10 + e.tamTitulo} textAnchor="middle" fontSize={e.tamTitulo} fontWeight="600" fill={T.texto}>{tit}</text>}
         {ty.ticks.filter((v) => v >= y0 - 1e-9 && v <= y1 + 1e-9).map((v) => (
           <g key={'y' + v}>
@@ -170,8 +226,9 @@ export function Grafico({
           <rect x={px(Math.max(ventana[0], x0))} y={TOP} width={Math.max(0, px(Math.min(ventana[1], x1)) - px(Math.max(ventana[0], x0)))} height={H - TOP - B} fill={T.acento} opacity="0.1" />
         )}
         {arrastre && <rect x={px(Math.min(arrastre.a, arrastre.b))} y={TOP} width={Math.abs(px(arrastre.b) - px(arrastre.a))} height={H - TOP - B} fill={T.acento} opacity="0.18" />}
-        <defs><clipPath id={`clip-${nombre}`}><rect x={L} y={TOP - 4} width={W - L - R} height={H - TOP - B + 8} /></clipPath></defs>
-        <g clipPath={`url(#clip-${nombre})`}>
+        {caja && <rect x={Math.min(caja.a.mx, caja.b.mx)} y={Math.min(caja.a.my, caja.b.my)} width={Math.abs(caja.b.mx - caja.a.mx)} height={Math.abs(caja.b.my - caja.a.my)} fill={T.acento} opacity="0.12" stroke={T.acento} strokeDasharray="4 3" />}
+        <defs><clipPath id={idClip}><rect x={L} y={TOP - 4} width={W - L - R} height={H - TOP - B + 8} /></clipPath></defs>
+        <g clipPath={`url(#${idClip})`}>
           {series.map((s) => {
             const f = s.der ? pz : py
             const b = s.banda ? banda(s, f) : null
@@ -225,6 +282,19 @@ export function Grafico({
           )
         })}
       </svg>
+      {menu && (
+        <div className="menu-contextual" style={{ left: menu.cx, top: menu.cy, position: 'absolute' }} onMouseDown={(ev) => ev.stopPropagation()}>
+          {ctx.abrirPersonalizar && idEstilo && <button onClick={() => { setMenu(null); ctx.abrirPersonalizar(idEstilo) }}><Icono n="editar" size={15} />Personalizar gráfico…</button>}
+          <button onClick={() => { setMenu(null); setGuardar(true) }}><Icono n="bajar" size={15} />Guardar imagen…</button>
+          {zoom && <button onClick={() => { setMenu(null); setZoom(null) }}><Icono n="refrescar" size={15} />Vista completa</button>}
+          <div className="ayuda" style={{ padding: '6px 10px', fontSize: 11.5, maxWidth: 240 }}>Arrastrá para acercar; con zoom, arrastrá para moverte (Shift + arrastrar acerca más). Doble clic: vista completa.</div>
+        </div>
+      )}
+      {guardar && (
+        <ModalGuardarImagen nombre={nombre} anchoPantalla={W} altoPantalla={H} onClose={() => setGuardar(false)}
+          renderizar={(w, h, r, blanco) => <Grafico {...props} anchoFijo={w} altoTotal={h} refSvg={r} interactivo={false} exportar={false}
+            xlim={zoom ? [zoom.x0, zoom.x1] : props.xlim} ylim={zoom ? [zoom.y0, zoom.y1] : props.ylim} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />
+      )}
     </div>
   )
 }

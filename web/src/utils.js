@@ -106,6 +106,8 @@ export async function descargarBlob(blob, nombre) {
 export const descargarTexto = (texto, nombre, tipo = 'text/plain;charset=utf-8') => descargarBlob(new Blob(['﻿' + texto], { type: tipo }), nombre)
 
 // <svg> a PNG o SVG (el gráfico usa colores explícitos, así que el archivo sale igual que en pantalla)
+// formato: 'png' | 'jpg' | 'svg'. fondo: color de relleno, null = transparente (se quita el fondo del gráfico),
+// undefined = el fondo que ya tiene el gráfico. escala: multiplicador de píxeles para PNG y JPG.
 export function exportarSVG(svg, nombre, formato = 'png', fondo = '#ffffff', escala = 3) {
   const clon = svg.cloneNode(true)
   const w = svg.viewBox.baseVal.width || svg.clientWidth
@@ -113,18 +115,20 @@ export function exportarSVG(svg, nombre, formato = 'png', fondo = '#ffffff', esc
   clon.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   clon.setAttribute('width', w)
   clon.setAttribute('height', h)
+  if (fondo === null) clon.querySelectorAll('.fondo-graf').forEach((x) => x.remove())
   const xml = new XMLSerializer().serializeToString(clon)
   if (formato === 'svg') return descargarBlob(new Blob([xml], { type: 'image/svg+xml' }), nombre + '.svg')
   const img = new Image()
   img.onload = () => {
     const c = document.createElement('canvas')
-    c.width = w * escala
-    c.height = h * escala
+    c.width = Math.round(w * escala)
+    c.height = Math.round(h * escala)
     const g = c.getContext('2d')
-    g.fillStyle = fondo
-    g.fillRect(0, 0, c.width, c.height)
+    const relleno = formato === 'jpg' && !fondo ? '#ffffff' : fondo
+    if (relleno) { g.fillStyle = relleno; g.fillRect(0, 0, c.width, c.height) }
     g.drawImage(img, 0, 0, c.width, c.height)
-    c.toBlob((b) => descargarBlob(b, nombre + '.png'), 'image/png')
+    if (formato === 'jpg') c.toBlob((b) => descargarBlob(b, nombre + '.jpg'), 'image/jpeg', 0.95)
+    else c.toBlob((b) => descargarBlob(b, nombre + '.png'), 'image/png')
   }
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(xml)
 }

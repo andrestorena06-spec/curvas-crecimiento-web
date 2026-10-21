@@ -185,3 +185,36 @@
 
 /* separadores del menú marrón */
 .menu-lateral hr, .menu-lateral .separador { border-color: rgba(250, 238, 218, .15); }
+
+/* menús con submenús (OD y Conteo) */
+.grupo-menu { display: flex; flex-direction: column; gap: 2px; }
+.grupo-menu.activo > .cabeza { color: #FFFFFF; }
+.grupo-menu.activo > .cabeza .ico { background: rgba(239, 159, 39, .35); color: #FAEEDA; }
+.item-menu .flecha-grupo { margin-left: auto; display: inline-flex; color: var(--menu-tenue); }
+.submenu { display: flex; flex-direction: column; gap: 2px; margin-left: 22px; padding-left: 8px; border-left: 1px solid rgba(250, 238, 218, .18); }
+.item-menu.sub { font-size: 13px; padding: 4px 8px; }
+.item-menu.sub .ico { width: 26px; height: 26px; }
+.menu-lateral.corto .submenu { margin-left: 0; padding-left: 0; border-left: 0; }
+
+/* selección de varias celdas (copiar y pegar con Excel) */
+.tabla td.sel-celda { background: var(--acento-suave) !important; box-shadow: inset 0 0 0 1px var(--acento); }
+.tabla td.sel-celda input, .tabla td.sel-celda select { background: transparent; }
+.fila-grupo { display: flex; align-items: center; gap: 2px; }
+.fila-grupo .item-menu.cabeza { flex: 1; min-width: 0; }
+.plegar-grupo { width: 34px; height: 34px; flex-shrink: 0; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--menu-tenue); cursor: pointer; }
+.plegar-grupo:hover:not(:disabled) { background: var(--menu-hover); color: var(--menu-texto); border-color: transparent; }
+.menu-lateral.corto .plegar-grupo { display: none; }
+
+/* selector compacto de cepas y réplicas arriba de la curva */
+.selector-cepas { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 10px; }
+.chip-cepa { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 2px; border: 1px solid var(--borde); border-radius: 999px; background: var(--panel); }
+.chip-cepa .nombre-cepa { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; padding: 3px 8px; font-size: 12.5px; font-weight: 600; color: var(--texto); border-radius: 999px; }
+.chip-cepa .nombre-cepa:hover:not(:disabled) { background: var(--hover); }
+.chip-cepa.apagado { opacity: .55; }
+.chip-cepa.apagado .nombre-cepa { text-decoration: line-through; font-weight: 500; }
+.chip-cepa .rep { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 1px solid var(--borde2); background: transparent; color: var(--sec); font-size: 11px; font-weight: 600; display: grid; place-items: center; }
+.chip-cepa .rep.on { color: #fff; border-color: transparent; }
+
+.tabla tr.fila-clic { cursor: pointer; }
+.tabla tr.fila-clic:hover td { background: var(--hover); }
+.tabla tr.fila-clic.elegida td { background: var(--acento-suave); }

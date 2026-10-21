@@ -26,7 +26,9 @@ export function odCorregida(fila, par) {
   if (!lect.length) return { od: NaN, estado: 'sin_od', usados: [] }
   const corr = lect.map(([k, v]) => ({ k, neta: v - blanco, corr: (v - blanco) * par.factor ** k }))
   const validos = corr.filter((c) => c.neta > 0)
-  if (!validos.length) return { od: NaN, estado: 'od_no_positiva', usados: [] }
+  // ninguna lectura positiva después del blanco: se informa la menos diluida (puede ser negativa) para graficarla;
+  // en el análisis no entra en ln(OD), que solo usa valores positivos
+  if (!validos.length) { const c = [...corr].sort((a, b) => a.k - b.k)[0]; return { od: c.corr, estado: 'od_no_positiva', usados: [c.k] } }
   const dentro = validos.filter((c) => c.neta >= par.vmin && c.neta <= par.vmax)
   if (dentro.length) return { od: media(dentro.map((c) => c.corr)), estado: 'ok', usados: dentro.map((c) => c.k) }
   const centro = (par.vmin + par.vmax) / 2
@@ -34,7 +36,7 @@ export function odCorregida(fila, par) {
   return { od: cerca.corr, estado: cerca.neta > par.vmax ? 'sobre_ventana' : 'bajo_ventana', usados: [cerca.k] }
 }
 export const TEXTO_OD = {
-  ok: 'En la ventana lineal', sin_od: 'Sin OD', od_no_positiva: 'OD ≤ 0 (revisá el blanco)',
+  ok: 'En la ventana lineal', sin_od: 'Sin OD', od_no_positiva: 'OD ≤ 0 (se grafica; revisá el blanco)',
   sobre_ventana: 'Sobre la ventana lineal (diluí y volvé a leer)', bajo_ventana: 'Bajo la ventana lineal (poco confiable)',
 }
 
