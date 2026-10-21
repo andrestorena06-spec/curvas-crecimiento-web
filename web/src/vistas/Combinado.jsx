@@ -80,14 +80,14 @@ export function Combinado({ s }) {
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'calibracion'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="calibracion" /></Cajon>
       <Encabezado titulo="OD + UFC/mL" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
       <div className="tarjeta">
-        <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} />
+        <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
         <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, media geométrica ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
       </div>
       <div>
         <div className="tarjeta" style={{ minWidth: 0 }}>
           <h2>Calibración OD ↔ UFC/mL</h2>
           {pv.length < 3 ? <p className="aviso-caja">Hacen falta al menos 3 pares OD–UFC (misma cepa y tiempo) dentro del rango de tiempo de la OD.</p> : (
-            <Grafico series={calSeries} xTxt="OD" yTxt="log₁₀ UFC/mL" alto={330} nombre="calibracion" estilo={s.estiloGrafico('calibracion')} />
+            <Grafico series={calSeries} xTxt="OD" yTxt="log₁₀ UFC/mL" alto={330} nombre="calibracion" estilo={s.estiloGrafico('calibracion')} idEstilo="calibracion" />
           )}
           <div className="calib-resultado" style={{ marginTop: 12 }}>
         {cal.ok ? (<>

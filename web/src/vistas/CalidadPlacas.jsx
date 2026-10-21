@@ -3,6 +3,7 @@ import { desvio, finito, media } from '../motor/analisis.js'
 import { METODOS_ATIPICOS } from '../motor/atipicos.js'
 import { TEMAS, rellenoPocillo, useTema } from '../tema.js'
 import { estiloGraficoDef, useAncho } from '../ui/grafico.jsx'
+import { ModalGuardarImagen, useGraficoCtx } from '../ui/guardarImagen.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { Icono, Num } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
@@ -20,15 +21,20 @@ const valorDe = (l) => (l.EsBlanco ? l.OD_leida : l.OD_corregida)
 // ---------------------------------------------------------------
 // Gráfico de exclusión (como el de Biofilm): una columna por cepa con sus pocillos de ese tiempo
 // ---------------------------------------------------------------
-function GraficoExclusion({ lect, orden, colores, o, onClick, titulo, estilo = {} }) {
+function GraficoExclusion(props) {
+  const { lect, orden, colores, o, onClick, titulo, estilo = {}, anchoFijo, altoTotal, refSvg, interactivo = true, idEstilo } = props
+  const [guardar, setGuardar] = useState(false)
+  const [menu, setMenu] = useState(null)
+  const ctx = useGraficoCtx()
   const Tt = useTema()
   const e = { ...estiloGraficoDef(), ...estilo }
   const T = e.fondo === 'blanco' ? TEMAS.claro : Tt
   const tit = e.titulo !== undefined ? e.titulo : titulo
   const yT = e.yTxt !== undefined ? e.yTxt : 'OD (cepas: corregida · blanco: leída)'
-  const ref = useRef()
-  const [cont, anchoReal] = useAncho(900)
-  const W = anchoReal, H = Number(e.alto) > 150 ? Number(e.alto) : 420, L = 30 + e.tamNumeros * 3, R = 16, TOP = tit ? 18 + e.tamTitulo * 1.5 : 18, B = 40 + e.tamEjes * 2
+  const refInt = useRef()
+  const ref = refSvg || refInt
+  const [cont, anchoMedido] = useAncho(900)
+  const W = anchoFijo || anchoMedido, H = altoTotal || (Number(e.alto) > 150 ? Number(e.alto) : 420), L = 30 + e.tamNumeros * 3, R = 16, TOP = tit ? 18 + e.tamTitulo * 1.5 : 18, B = 40 + e.tamEjes * 2
   const grupos = orden.map((m) => lect.filter((l) => l.Muestra === m))
   const res = grupos.map((g) => {
     const v = g.filter((l) => l.Usado).map(valorDe).filter(finito)
@@ -48,13 +54,13 @@ function GraficoExclusion({ lect, orden, colores, o, onClick, titulo, estilo = {
   const cx = (i) => L + band * (i + 0.5)
   const px = (g, k, i) => cx(i) + (g.length > 1 ? (k - (g.length - 1) / 2) * Math.min(band * 0.7 / g.length, 18) : 0)
   return (
-    <div className="grafico" ref={cont}>
-      <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4 }}>
-        <button className="fantasma chico" onClick={() => exportarSVG(ref.current, 'exclusion', 'png', e.fondo === 'blanco' ? '#ffffff' : T.panel)}><Icono n="bajar" size={14} />PNG</button>
-        <button className="fantasma chico" onClick={() => exportarSVG(ref.current, 'exclusion', 'svg')}><Icono n="bajar" size={14} />SVG</button>
-      </div>
-      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={`'${e.fuente}', system-ui, sans-serif`}>
-        <rect width={W} height={H} fill={e.fondo === 'blanco' ? '#ffffff' : T.panel} />
+    <div className="grafico" ref={cont} style={{ position: 'relative' }}>
+      {interactivo && <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4 }}>
+        <button className="fantasma chico" onClick={() => setGuardar(true)} data-tip={'Guardar imagen\nFormato (PNG, JPG o SVG), tamaño, resolución y fondo'}><Icono n="bajar" size={14} />Guardar imagen</button>
+      </div>}
+      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={`'${e.fuente}', system-ui, sans-serif`}
+        onContextMenu={interactivo ? (ev) => { ev.preventDefault(); const r = ev.currentTarget.getBoundingClientRect(); setMenu({ cx: ev.clientX - r.left, cy: ev.clientY - r.top }) } : undefined}>
+        <rect className="fondo-graf" width={W} height={H} fill={e.fondo === 'blanco' ? '#ffffff' : T.panel} />
         {tit && <text x={W / 2} y={10 + e.tamTitulo} textAnchor="middle" fontSize={e.tamTitulo} fontWeight="600" fill={T.texto}>{tit}</text>}
         {ty.ticks.map((v) => (
           <g key={v}>
@@ -109,6 +115,14 @@ function GraficoExclusion({ lect, orden, colores, o, onClick, titulo, estilo = {
           <circle cx="200" cy="-4" r="7" fill="none" stroke={T.aviso} strokeWidth="2.2" /><text x="212" y="0">Sospechoso</text>
         </g>
       </svg>
+      {menu && (
+        <div className="menu-contextual" style={{ left: menu.cx, top: menu.cy, position: 'absolute' }} onMouseLeave={() => setMenu(null)}>
+          {ctx.abrirPersonalizar && idEstilo && <button onClick={() => { setMenu(null); ctx.abrirPersonalizar(idEstilo) }}><Icono n="editar" size={15} />Personalizar gráfico…</button>}
+          <button onClick={() => { setMenu(null); setGuardar(true) }}><Icono n="bajar" size={15} />Guardar imagen…</button>
+        </div>
+      )}
+      {guardar && <ModalGuardarImagen nombre="exclusion" anchoPantalla={W} altoPantalla={H} onClose={() => setGuardar(false)}
+        renderizar={(w, h, r, blanco) => <GraficoExclusion {...props} anchoFijo={w} altoTotal={h} refSvg={r} interactivo={false} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />}
     </div>
   )
 }
@@ -228,7 +242,7 @@ export function VistaCalidadPlacas({ s }) {
             <button className={vista === 'placa' ? 'on' : ''} onClick={() => setVista('placa')}>Placa</button>
             <button className={vista === 'tabla' ? 'on' : ''} onClick={() => setVista('tabla')}>Resumen de todos los tiempos</button>
           </div>
-          {vista === 'puntos' && <GraficoExclusion lect={lectT} orden={orden} colores={s.colores} o={o} onClick={s.alternarLectura} titulo={`t = ${fx(tt, tt % 1 ? 2 : 0)} h`} estilo={s.estiloGrafico('exclusion')} />}
+          {vista === 'puntos' && <GraficoExclusion lect={lectT} orden={orden} colores={s.colores} o={o} onClick={s.alternarLectura} titulo={`t = ${fx(tt, tt % 1 ? 2 : 0)} h`} estilo={s.estiloGrafico('exclusion')} idEstilo="exclusion" />}
           {vista === 'placa' && <PlacaDeTiempo s={s} lect={lecturas.filter((l) => l.Placa_T_h === tt)} pl={pl} />}
           {vista === 'tabla' && <ResumenTiempos lect={lecturas} />}
           <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>Clic sobre un punto para excluirlo o reincorporarlo. Color: aceptado · cruz roja: excluido · anillo naranja: sospechoso según el test.</p>

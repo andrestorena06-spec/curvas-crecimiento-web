@@ -9,6 +9,7 @@ import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } f
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { Grafico } from '../ui/grafico.jsx'
 import { fs, fx, tCuantil } from '../utils.js'
+import { mediaPorTiempo } from './Curva.jsx'
 
 export const CLAVES_RESUMEN = ['mu_max', 'td_min', 'lag_h', 'K', 'delta_od', 'generaciones', 'auc_od', 't_umbral_od_h', 'od0', 'r2']
 const CLAVES_TABLA = ['od0', 'mu_max', 'td_min', 'lag_h', 'K', 't_K_h', 'delta_od', 'generaciones', 'auc_od', 'auc_ln', 't_umbral_od_h', 'dod_max', 't_max_dod_h', 'mu_spline', 't_estacionaria', 't_muerte', 'caida_pct', 'r2']
@@ -69,7 +70,7 @@ function Detalle({ s, p }) {
         <button className="chico" onClick={ajustar}>Ajustar modelos</button>
       </div>
       <p className="ayuda" style={{ margin: 0 }}>Zona sombreada: ventana usada para μmax {manual ? '(fijada a mano)' : '(automática)'}. Arrastrá sobre el gráfico para elegir otra ventana.</p>
-      <Grafico series={series} yTxt="ln(OD)" alto={330} ventana={[r.t_ini_ventana, r.t_fin_ventana]} onSeleccion={(v) => s.setVentana(p, v)} nombre={`ln_${p}`} estilo={s.estiloGrafico('parametros')} />
+      <Grafico series={series} yTxt="ln(OD)" alto={330} ventana={[r.t_ini_ventana, r.t_fin_ventana]} onSeleccion={(v) => s.setVentana(p, v)} nombre={`ln_${p}`} estilo={s.estiloGrafico('parametros')} idEstilo="parametros" />
       <div className="grid-kpi" style={{ marginTop: 10 }}>
         {['mu_max', 'td_min', 'lag_h', 'K', 'od0', 'r2'].map((k) => {
           const ex = explicarResultado(r, k, op)
@@ -94,6 +95,7 @@ export function Parametros({ s }) {
   const { res, exp, setAj } = s
   const aj = exp.aj
   const [sel, setSel] = useState(null)
+  const [cepaSel, setCepaSel] = useState(null)   // cepa elegida en «Resumen por cepa»: su curva media va debajo
   const [pers, setPers] = useState(null)
   const resumen = useMemo(() => (res?.length ? resumenPorCepa(res) : []), [res])
   if (!res?.length) return <div className="pagina"><Encabezado titulo="Parámetros" /><Vacio titulo="Todavía no hay curvas analizadas">{s.pre?.error || 'Completá la carga de datos y el control de calidad.'}</Vacio></div>
@@ -142,13 +144,30 @@ export function Parametros({ s }) {
         <div className="tabla-scroll alta"><table className="tabla">
           <thead><tr><th>Cepa</th><th className="num">n</th>{CLAVES_RESUMEN.map((k) => <th key={k} className="num" data-tip={tipDe(k)}>{PARAMS[k]}</th>)}</tr></thead>
           <tbody>{resumen.map((r) => (
-            <tr key={r.Muestra}><td><i className="punto" style={{ background: s.colores[r.Muestra], marginRight: 6 }} /><b>{r.Muestra}</b></td><td className="num">{r.n}</td>
+            <tr key={r.Muestra} className={`fila-clic ${cepaSel === r.Muestra ? 'elegida' : ''}`} onClick={() => setCepaSel(cepaSel === r.Muestra ? null : r.Muestra)} data-tip={cepaSel === r.Muestra ? 'Clic para ocultar su curva' : 'Clic para ver la curva media de esta cepa'}><td><i className="punto" style={{ background: s.colores[r.Muestra], marginRight: 6 }} /><b>{r.Muestra}</b></td><td className="num">{r.n}</td>
               {CLAVES_RESUMEN.map((k) => <td key={k} className="num" data-tip={finito(r[k].ic) ? `${PARAMS[k]} · ${r.Muestra}\nmedia = ${fs(r[k].m, 5)}\nDE = ${fs(r[k].sd, 4)} (n = ${r[k].n})\nIC 95 % = media ± t(0,975; ${r[k].n - 1}) × DE/√n = ${fs(r[k].m - r[k].ic, 4)} a ${fs(r[k].m + r[k].ic, 4)}` : undefined}>
                 {fs(r[k].m, 4)}{finito(r[k].sd) ? <small className="ayuda"> ± {fs(r[k].sd, 2)}</small> : s.porCepa && k === 'mu_max' && finito(r.se_mu) ? <small className="ayuda"> ± {fs(r.se_mu, 2)}</small> : null}</td>)}
             </tr>
           ))}</tbody>
         </table></div>
       </div>
+      {cepaSel && (() => {
+        // curva media de la cepa con las lecturas que quedaron válidas después del control de calidad
+        const ws = (s.pre?.proc || []).filter((w) => !w.EsBlanco && w.Muestra === cepaSel)
+        const mt = mediaPorTiempo(ws, (v) => v, 'sd')
+        const col = s.colores[cepaSel]
+        const series = [
+          ...(s.porCepa ? [] : ws.map((w) => ({ id: 'r' + w.Pocillo, nombre: '', color: col, ancho: 1, opacidad: 0.3, data: w.t.map((t, i) => ({ x: t / 3600, y: w.y[i] })) }))),
+          { id: 'm', nombre: `${cepaSel} · media ± DE (n = ${ws.length})`, color: col, ancho: 2.4, banda: true, puntos: s.porCepa, radio: 3,
+            data: mt.map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${cepaSel}\nt = ${fx(q.t / 3600, 2)} h\nOD media = ${fx(q.m, 4)}${finito(q.sd) ? `\nDE = ${fx(q.sd, 4)}` : ''}\nn = ${q.n}` })) },
+        ]
+        return (
+          <Mosaico titulo={`Curva de ${cepaSel} · media de las lecturas válidas`} accion="Cerrar" onAccion={() => setCepaSel(null)}>
+            <Grafico series={series} yTxt="OD (media ± DE)" alto={340} nombre={`curva_${cepaSel}`} estilo={s.estiloGrafico('cepaResumen')} idEstilo="cepaResumen" />
+            <p className="ayuda" style={{ marginTop: 6 }}>Media de las réplicas aceptadas en cada tiempo (sin los puntos ni pocillos excluidos en el control de calidad); la banda es la desviación estándar{s.porCepa ? '' : ' y las líneas finas son cada réplica'}.</p>
+          </Mosaico>
+        )
+      })()}
       <div>
         <div className="tarjeta" style={{ minWidth: 0 }}>
           <Detalle s={s} p={p} key={p} />

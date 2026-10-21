@@ -6,7 +6,7 @@ import { Campo, Check, Encabezado, Icono, Modal, Num, Seg, Sel, Vacio } from '..
 import { Grafico } from '../ui/grafico.jsx'
 import { LETRAS, fx, ordenPocillo } from '../utils.js'
 import { VistaCalidadPlacas } from './CalidadPlacas.jsx'
-import { BotonCinta, Cajon, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
+import { BotonCinta, Cajon, Cinta, Grupo, Mosaico, OpcionesCinta, CampoCinta } from '../ui/cinta.jsx'
 
 const CHIP_CAT = { OK: 'ok', Sospechoso: 'peligro', Divergentes: 'aviso', Ruidoso: 'aviso', Excluido: '', 'Sin réplicas': 'acento', Blanco: '', 'Sin datos': '' }
 const nombreSerie = (e) => (e.origenOd === 'tecan' ? 'pocillo' : 'serie')
@@ -29,11 +29,11 @@ export function AjustesCalidad({ s }) {
             const us = exp.blancosSel || blancos.map((x) => x.Pocillo)
             return <Check key={b.Pocillo} label={`${b.Pocillo} · ${b.Muestra}`} checked={us.includes(b.Pocillo)}
               onChange={() => s.upd({ blancosSel: us.includes(b.Pocillo) ? us.filter((x) => x !== b.Pocillo) : [...us, b.Pocillo] })} />
-          }) : <p className="aviso-caja">No hay pocillos de blanco. Marcalos en «Placa».</p>}
+          }) : <p className="aviso-caja">No hay pocillos de blanco. Marcalos en «Pocillos».</p>}
         </>)}
       </>)}
       {exp.origenOd === 'placas' && <p className="aviso-caja info">El blanco de cada placa se define y se resta en «Placas por tiempo».</p>}
-      {exp.origenOd === 'cubeta' && <p className="aviso-caja info">El blanco y las diluciones de la cubeta se aplican en «Lecturas».</p>}
+      {exp.origenOd === 'cubeta' && <p className="aviso-caja info">El blanco y las diluciones de la cubeta se aplican en «Lecturas de OD».</p>}
 
       <h3>Puntos aberrantes</h3>
       <Check label="Filtro de Hampel (dentro de cada curva)" checked={aj.hampel_on} onChange={(v) => setAj('hampel_on', v)}
@@ -46,9 +46,11 @@ export function AjustesCalidad({ s }) {
         <Campo label="Diferencia mínima para marcar (OD)" ayuda="Piso en unidades de OD: evita marcar desvíos minúsculos cuando la curva es muy lisa."><Num value={aj.hampel_min} onChange={(v) => setAj('hampel_min', v)} /></Campo>
         <Campo label="Puntos marcados"><Sel value={aj.hampel_accion} onChange={(v) => setAj('hampel_accion', v)} opciones={[['excluir', 'Excluirlos'], ['interpolar', 'Reemplazarlos por interpolación']]} /></Campo>
       </>)}
-      <Check label="Test Q de Dixon (entre réplicas)" checked={aj.dixon_on} onChange={(v) => setAj('dixon_on', v)}
-        ayuda="En cada tiempo compara las réplicas de una cepa y marca la que se aparta (Dixon de 3 a 10 réplicas, Grubbs con más)." />
-      {aj.dixon_on && <Campo label="Confianza"><Seg value={String(aj.dixon_conf)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></Campo>}
+      <Campo label="Entre réplicas de cada tiempo" ayuda="Dixon: 3 a 10 réplicas (Grubbs con más). RSD: si la desviación estándar relativa supera el límite, sale la réplica más alejada de la media.">
+        <Seg value={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }} opciones={[['no', 'Ninguno'], ['q', 'Dixon'], ['cv', 'RSD']]} />
+      </Campo>
+      {aj.dixon_on && (aj.od_atip_metodo || 'q') === 'q' && <Campo label="Confianza"><Seg value={String(aj.dixon_conf)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></Campo>}
+      {aj.dixon_on && aj.od_atip_metodo === 'cv' && <Campo label="RSD máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} /></Campo>}
       <Check label="Excluir OD por encima de un máximo confiable" checked={aj.odmax_on} onChange={(v) => setAj('odmax_on', v)} />
       {aj.odmax_on && <Campo label="OD máxima confiable"><Num value={aj.odmax} onChange={(v) => setAj('odmax', v)} /></Campo>}
 
@@ -105,7 +107,7 @@ function puntosDe(s, p) {
 }
 const ESTILO_EST = (T) => ({
   'Reincorporado a mano': { color: T.aviso, forma: 'anillo' }, 'Aberrante (interpolado)': { color: T.aviso, forma: 'o' },
-  'Aberrante (Hampel)': { color: T.peligro, forma: 'x' }, 'Aberrante (Dixon)': { color: T.peligro, forma: 'x' },
+  'Aberrante (Hampel)': { color: T.peligro, forma: 'x' }, 'Aberrante (Dixon)': { color: T.peligro, forma: 'x' }, 'Aberrante (RSD)': { color: T.peligro, forma: 'x' },
   'OD sobre el máximo': { color: T.peligro, forma: 'x' }, 'Excluido a mano': { color: T.sec, forma: 'x' },
 })
 
@@ -153,7 +155,7 @@ export function ModalPocillo({ s, p, onClose }) {
         <span className="espacio" />
         <span className="ayuda">Clic en un punto: lo excluye o lo reincorpora.</span>
       </div>
-      <Grafico series={series} extras={extras} yTxt={ln ? 'ln(OD)' : 'OD (blanco restado)'} alto={340} onPuntoClick={s.alternarPunto} nombre={s.exp.origenOd === 'tecan' ? `pocillo_${p}` : `serie_${c?.Muestra}_r${c?.Replica}`} />
+      <Grafico series={series} extras={extras} yTxt={ln ? 'ln(OD)' : 'OD (blanco restado)'} alto={340} estilo={s.estiloGrafico('pocillo')} idEstilo="pocillo" onPuntoClick={s.alternarPunto} nombre={s.exp.origenOd === 'tecan' ? `pocillo_${p}` : `serie_${c?.Muestra}_r${c?.Replica}`} />
       {qc && <p className="ayuda" style={{ marginTop: 8 }}><b>Control de calidad:</b> {qc.Estado}</p>}
       <h4>Puntos fuera del análisis ({noUsados.length})</h4>
       {!noUsados.length ? <p className="ayuda">Todos los puntos de este {nombreSerie(s.exp)} están en el análisis.</p> : (
@@ -256,7 +258,7 @@ function VistaCepas({ s, onAbrir }) {
         return (
           <div key={m} className="mosaico">
             <div className="mosaico-cab"><h2><i className="punto" style={{ background: s.colores[m], marginRight: 6 }} />{m}</h2></div>
-            <Grafico series={series} extras={extras} yTxt="OD" alto={240} exportar={false} onPuntoClick={s.alternarPunto} nombre={`cubeta_${m}`} />
+            <Grafico series={series} extras={extras} yTxt="OD" alto={240} estilo={s.estiloGrafico('cepaCubeta')} idEstilo="cepaCubeta" onPuntoClick={s.alternarPunto} nombre={`cubeta_${m}`} />
             <div className="fila" style={{ flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
               {reps.map((c) => {
                 const q = qc[c.Pocillo], fuera = s.pre.fuera.has(c.Pocillo)
@@ -325,8 +327,13 @@ export function Calidad({ s }) {
           )}
           <Grupo titulo="Puntos aberrantes">
             <BotonCinta simbolo="H" texto="Hampel" activo={aj.hampel_on} onClick={() => setAj('hampel_on', !aj.hampel_on)} tip={'Filtro de Hampel\nDetecta picos dentro de cada curva (burbujas, condensación)'} />
-            <BotonCinta simbolo="Q" texto="Dixon" activo={aj.dixon_on} onClick={() => setAj('dixon_on', !aj.dixon_on)} tip={'Test Q de Dixon entre réplicas\nEn cada tiempo compara las réplicas de una cepa'} />
             <BotonCinta simbolo="≤" texto="OD máxima" activo={aj.odmax_on} onClick={() => setAj('odmax_on', !aj.odmax_on)} tip={`Excluir OD mayores que ${aj.odmax}`} />
+          </Grupo>
+          <Grupo titulo="Entre réplicas (cada tiempo)">
+            <OpcionesCinta valor={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }}
+              opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, 'Test Q de Dixon (Grubbs con más de 10 réplicas)'], ['cv', 'RSD', '%', null, 'Desviación estándar relativa (CV %): si las réplicas de un tiempo la superan, sale la más alejada de la media']]} />
+            {aj.dixon_on && (aj.od_atip_metodo || 'q') === 'q' && <CampoCinta etiqueta="Confianza"><Sel value={String(aj.dixon_conf || 95)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></CampoCinta>}
+            {aj.dixon_on && aj.od_atip_metodo === 'cv' && <CampoCinta etiqueta="RSD máx. (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} ancho={56} /></CampoCinta>}
           </Grupo>
           <Grupo titulo="Réplicas sospechosas">
             <BotonCinta icono="escudo" texto="Excluir solas" activo={aj.pocillo_auto} onClick={() => setAj('pocillo_auto', !aj.pocillo_auto)} />

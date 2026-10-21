@@ -27,13 +27,16 @@ export function Curva({ s }) {
   const [escala, setEscala] = useState('lineal')
   const [error, setError] = useState('sd')
   const [ocultas, setOcultas] = useState([])
+  const [ocultasRep, setOcultasRep] = useState([])   // réplicas (pocillos) ocultas en el gráfico
   const [puntos, setPuntos] = useState(exp.origenOd !== 'tecan')
   const [verValor, setVerValor] = useState(false)
   const [verError, setVerError] = useState(false)
   const [pers, setPers] = useState(false)
-  const ws = useMemo(() => (pre && !pre.error ? pre.proc.filter((w) => !w.EsBlanco) : []), [pre])
-  const muestras = [...new Set(ws.map((w) => w.Muestra))]
-  if (!ws.length) return <div className="pagina"><Encabezado titulo="Curva" /><Vacio titulo="Todavía no hay curvas procesadas">{s.pre?.error || 'Completá la carga de datos y el control de calidad.'}</Vacio></div>
+  const wsTodas = useMemo(() => (pre && !pre.error ? pre.proc.filter((w) => !w.EsBlanco) : []), [pre])
+  const muestras = [...new Set(wsTodas.map((w) => w.Muestra))]
+  // las réplicas ocultas no se dibujan ni entran en la media del gráfico (el análisis no cambia)
+  const ws = s.porCepa ? wsTodas : wsTodas.filter((w) => !ocultasRep.includes(w.Pocillo))
+  if (!wsTodas.length) return <div className="pagina"><Encabezado titulo="Curva" /><Vacio titulo="Todavía no hay curvas procesadas">{s.pre?.error || 'Completá la carga de datos y el control de calidad.'}</Vacio></div>
 
   const tr = TRANS[escala]
   const visibles = muestras.filter((m) => !ocultas.includes(m))
@@ -102,30 +105,37 @@ export function Curva({ s }) {
           <BotonCinta icono="editar" texto="Personalizar" activo={pers} onClick={() => setPers(!pers)} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
         <Grupo titulo="Siguiente">
-          <BotonCinta icono="flecha" texto={exp.tipo === 'odufc' ? 'Curva UFC vs t' : 'Parámetros'} onClick={() => s.irA(exp.tipo === 'odufc' ? 'curvaUfc' : 'parametros')} />
+          <BotonCinta icono="flecha" texto={exp.tipo === 'odufc' ? 'OD + UFC' : 'Parámetros'} onClick={() => s.irA(exp.tipo === 'odufc' ? 'combinado' : 'parametros')} />
         </Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="curva" /></Cajon>
       <Encabezado titulo="Curva de crecimiento" sub={`${exp.cond.organismo ? exp.cond.organismo + ' · ' : ''}${exp.cond.medio ? exp.cond.medio + ' · ' : ''}${exp.cond.temperatura ? exp.cond.temperatura + ' °C · ' : ''}OD${exp.cond.lambda ? ` a ${exp.cond.lambda} nm` : ''}, con blanco restado y sin los puntos excluidos.${exp.aj.camino_on && exp.origenOd !== 'cubeta' ? ' OD llevada a 1 cm de camino óptico.' : ''}`} />
-      <div className="dos-columnas">
-        <Mosaico titulo={`OD vs tiempo · ${modo === 'media' ? `media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'}` : s.porCepa ? 'todos los pocillos' : 'cada réplica'}`}>
-          <Grafico series={series} yTxt={ETQ_Y[escala] + (modo === 'media' ? ` (media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'})` : '')} alto={470} nombre={`curva_${exp.nombre}`}
-            titulo={exp.nombre} estilo={s.estiloGrafico('curva')} />
-          {modo === 'media' && <p className="ayuda" style={{ marginTop: 8 }}>Cada punto es la media de las réplicas de la cepa en ese tiempo; {exp.origenOd === 'tecan' ? 'la banda' : 'la barra'} es la {nombreErr}. En escalas logarítmicas se transforma cada réplica antes de promediar.</p>}
-        </Mosaico>
-        <div className="columna-mosaicos">
-          {muestras.map((m) => {
-            const on = !ocultas.includes(m)
-            return (
-              <button key={m} className={`mosaico mosaico-cepa ${on ? '' : 'apagado'}`} onClick={() => setOcultas(on ? [...ocultas, m] : ocultas.filter((x) => x !== m))} data-tip={on ? 'Clic para ocultarla del gráfico' : 'Clic para mostrarla'}>
-                <span className="fila" style={{ gap: 6 }}><i className="punto" style={{ background: s.colores[m] }} /><b>{m}</b></span>
-                <strong style={{ color: s.colores[m] }}>{fs(muDe(m), 3)}</strong>
-                <small>μmax (h⁻¹){finito(tdDe(m)) ? ` · td ${fx(tdDe(m), 0)} min` : ''}</small>
+      <div className="selector-cepas">
+        {muestras.map((m) => {
+          const on = !ocultas.includes(m)
+          const reps = s.porCepa ? [] : wsTodas.filter((w) => w.Muestra === m).sort((a, b) => a.Replica - b.Replica)
+          return (
+            <div key={m} className={`chip-cepa ${on ? '' : 'apagado'}`}>
+              <button className="nombre-cepa" onClick={() => setOcultas(on ? [...ocultas, m] : ocultas.filter((x) => x !== m))}
+                data-tip={`${m}\nμmax ${fs(muDe(m), 3)} h⁻¹${finito(tdDe(m)) ? ` · td ${fx(tdDe(m), 0)} min` : ''}\n${on ? 'Clic para ocultar la cepa' : 'Clic para mostrarla'}`}>
+                <i className="punto" style={{ background: on ? s.colores[m] : 'var(--tenue)' }} />{m}
               </button>
-            )
-          })}
-        </div>
+              {on && reps.length > 1 && reps.map((w) => {
+                const vis = !ocultasRep.includes(w.Pocillo)
+                return <button key={w.Pocillo} className={`rep ${vis ? 'on' : ''}`} style={vis ? { background: s.estilos[w.Pocillo]?.color || s.colores[m] } : undefined}
+                  onClick={() => setOcultasRep(vis ? [...ocultasRep, w.Pocillo] : ocultasRep.filter((x) => x !== w.Pocillo))}
+                  data-tip={`${nombreReplica(w.Muestra, w.Replica)}${exp.origenOd === 'tecan' ? ` · pocillo ${w.Pocillo}` : ''}\n${vis ? 'Clic para ocultarla del gráfico y de la media' : 'Clic para mostrarla'}`}>{w.Replica}</button>
+              })}
+            </div>
+          )
+        })}
+        {(ocultas.length > 0 || ocultasRep.length > 0) && <button className="fantasma chico" onClick={() => { setOcultas([]); setOcultasRep([]) }}><Icono n="refrescar" size={13} />Mostrar todas</button>}
       </div>
+      <Mosaico titulo={`OD vs tiempo · ${modo === 'media' ? `media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'}` : s.porCepa ? 'todos los pocillos' : 'cada réplica'}`}>
+        <Grafico series={series} yTxt={ETQ_Y[escala] + (modo === 'media' ? ` (media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'})` : '')} alto={470} nombre={`curva_${exp.nombre}`}
+          titulo={exp.nombre} estilo={s.estiloGrafico('curva')} idEstilo="curva" />
+        {modo === 'media' && <p className="ayuda" style={{ marginTop: 8 }}>Cada punto es la media de las réplicas visibles de la cepa en ese tiempo; {exp.origenOd === 'tecan' ? 'la banda' : 'la barra'} es la {nombreErr}. En escalas logarítmicas se transforma cada réplica antes de promediar. Arrastrá sobre el gráfico para acercar y hacé doble clic para volver; clic derecho para personalizarlo o guardarlo.</p>}
+      </Mosaico>
     </div>
   )
 }

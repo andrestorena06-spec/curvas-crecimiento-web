@@ -3,7 +3,9 @@ import { TEMAS, TemaCtx, coloresCepas, estilosSeries } from './tema.js'
 import { TIPOS, ORIGENES, analizarPorCepa, expNuevo, idCepa, muestrasDe, normalizarExp, resultadosUfc, seriesOd, seriesPorCepa, tieneOd, tieneUfc } from './modelo.js'
 import { analizarTodos, clavePunto, preprocesar } from './motor/pipeline.js'
 import { Globo, Icono } from './ui/base.jsx'
-import { CintaCtx } from './ui/cinta.jsx'
+import { Cajon, CintaCtx } from './ui/cinta.jsx'
+import { GraficoCtx } from './ui/guardarImagen.jsx'
+import { PanelPersonalizar } from './ui/personalizar.jsx'
 import { Revision } from './ui/revision.jsx'
 import { descargarTexto, fs } from './utils.js'
 import { Asistente } from './vistas/Asistente.jsx'
@@ -32,11 +34,11 @@ const ICONOS = { resumen: 'nuevo', archivo: 'tecan', placa: 'placa', placas: 'ti
 // pestañas: [título, vista]
 const PASOS = {
   resumen: ['Resumen', Resumen],
-  archivo: ['Lector', ArchivoTecan],
-  placa: ['Placa', PlacaTecan],
-  placas: ['OD', PlacasTiempo],
-  lecturas: ['Lecturas', Cubeta],
-  conteo: ['Conteo', Conteo],
+  archivo: ['Lecturas de OD', ArchivoTecan],
+  placa: ['Pocillos', PlacaTecan],
+  placas: ['Lecturas de OD', PlacasTiempo],
+  lecturas: ['Lecturas de OD', Cubeta],
+  conteo: ['Colonias', Conteo],
   calidad: ['Calidad OD', Calidad],
   calidadUfc: ['Calidad UFC', CalidadUfc],
   curva: ['Curva OD vs t', Curva],
@@ -46,13 +48,19 @@ const PASOS = {
   datos: ['Datos', Datos],
   metodos: ['Métodos', Metodos],
 }
+// Menús con submenús: OD (lecturas, calidad y curva) y Conteo (colonias, calidad y curva)
+const GRUPOS = {
+  od: { titulo: 'OD', icono: 'placa', hijos: ['archivo', 'placa', 'placas', 'lecturas', 'calidad', 'curva'] },
+  conteo: { titulo: 'Conteo', icono: 'colonia', hijos: ['conteo', 'calidadUfc', 'curvaUfc'] },
+}
+const grupoDe = (id) => Object.keys(GRUPOS).find((g) => GRUPOS[g].hijos.includes(id))
 export const TITULO_PASO = Object.fromEntries(Object.entries(PASOS).map(([k, v]) => [k, v[0]]))
 export function pasosDe(e) {
   if (!e) return []
   const od = { tecan: ['archivo', 'placa'], placas: ['placas'], cubeta: ['lecturas'] }[e.origenOd] || []
   if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'parametros', 'datos', 'metodos']
   if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'datos', 'metodos']
-  return ['resumen', 'conteo', 'calidadUfc', ...od, 'calidad', 'curva', 'curvaUfc', 'combinado', 'parametros', 'datos', 'metodos']
+  return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', ...od, 'calidad', 'curva', 'combinado', 'parametros', 'datos', 'metodos']
 }
 
 const Logo = () => (
@@ -74,6 +82,8 @@ export default function App() {
   const [panelRev, setPanelRev] = useState(false)
   const [nodoCinta, setNodoCinta] = useState(null)
   const [menuCorto, setMenuCorto] = useState(() => leer(CLAVE_MENU) || false)
+  const [gruposCerrados, setGruposCerrados] = useState([])
+  const [persGraf, setPersGraf] = useState(null)   // gráfico abierto con clic derecho › Personalizar   // grupos del menú plegados a mano
   const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
   const inputCargar = useRef()
 
@@ -210,7 +220,7 @@ export default function App() {
 
   return (
     <TemaCtx.Provider value={TEMAS[tema]}>
-      <CintaCtx.Provider value={nodoCinta}>
+      <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}>
         <div className="app">
           <header className="barra-titulo">
             <Logo /><b>Curvas de crecimiento</b>
@@ -229,12 +239,42 @@ export default function App() {
               <span className="ico"><Icono n="carpeta" size={18} /></span><span className="txt">Archivo</span>
             </button>
             {exp && <div className="sep-menu" />}
-            {exp && pasos.map((id) => (
-              <button key={id} className={`item-menu ${!enArchivo && !asistente && pasoAct === id ? 'on' : ''}`} onClick={() => irA(id)} data-tip={menuCorto ? PASOS[id][0] : undefined}>
-                <span className="ico"><Icono n={ICONOS[id]} size={18} />{listo(id) && <i className="hecho" aria-label="listo"><Icono n="check" size={9} ancho={4} /></i>}</span>
-                <span className="txt">{PASOS[id][0]}</span>
-              </button>
-            ))}
+            {exp && (() => {
+              const item = (id, sub) => (
+                <button key={id} className={`item-menu ${sub ? 'sub' : ''} ${!enArchivo && !asistente && pasoAct === id ? 'on' : ''}`} onClick={() => irA(id)} data-tip={menuCorto ? PASOS[id][0] : undefined}>
+                  <span className="ico"><Icono n={ICONOS[id]} size={sub ? 16 : 18} />{listo(id) && <i className="hecho" aria-label="listo"><Icono n="check" size={9} ancho={4} /></i>}</span>
+                  <span className="txt">{PASOS[id][0]}</span>
+                </button>
+              )
+              const hechos = new Set()
+              return pasos.map((id) => {
+                const g = grupoDe(id)
+                if (!g) return item(id, false)
+                if (hechos.has(g)) return null
+                hechos.add(g)
+                const hijos = GRUPOS[g].hijos.filter((h) => pasos.includes(h))
+                const activo = !enArchivo && !asistente && hijos.includes(pasoAct)
+                const abierto = !gruposCerrados.includes(g)
+                const alternar = () => setGruposCerrados((c) => (c.includes(g) ? c.filter((x) => x !== g) : [...c, g]))
+                return (
+                  <div key={g} className={`grupo-menu ${activo ? 'activo' : ''}`}>
+                    {/* el título lleva a la primera pantalla del grupo; la flecha (botón aparte) pliega o despliega */}
+                    <div className="fila-grupo">
+                      <button className="item-menu cabeza" onClick={() => { setGruposCerrados((c) => c.filter((x) => x !== g)); if (!activo) irA(hijos[0]) }}
+                        data-tip={menuCorto ? GRUPOS[g].titulo : undefined}>
+                        <span className="ico"><Icono n={GRUPOS[g].icono} size={18} />{hijos.every((h) => listo(h)) && <i className="hecho" aria-label="listo"><Icono n="check" size={9} ancho={4} /></i>}</span>
+                        <span className="txt">{GRUPOS[g].titulo}</span>
+                      </button>
+                      <button className="plegar-grupo txt" onClick={alternar} aria-expanded={abierto} aria-label={abierto ? `Plegar ${GRUPOS[g].titulo}` : `Desplegar ${GRUPOS[g].titulo}`}
+                        data-tip={abierto ? 'Plegar' : 'Desplegar'}>
+                        <Icono n="abajo" size={16} style={{ transform: abierto ? 'none' : 'rotate(-90deg)', transition: 'transform .15s' }} />
+                      </button>
+                    </div>
+                    {abierto && <div className="submenu">{hijos.map((h) => item(h, true))}</div>}
+                  </div>
+                )
+              })
+            })()}
             <span className="espacio" />
             <button className="item-menu plegar" onClick={() => setMenuCorto(!menuCorto)} data-tip={menuCorto ? 'Mostrar los nombres' : 'Solo íconos'}>
               <span className="ico"><Icono n="flecha" size={16} style={{ transform: menuCorto ? 'none' : 'rotate(180deg)' }} /></span><span className="txt">Contraer</span>
@@ -254,9 +294,10 @@ export default function App() {
           <input ref={inputCargar} type="file" hidden accept=".json" onChange={(e) => { if (e.target.files[0]) cargarArchivo(e.target.files[0]); e.target.value = '' }} />
           <Revision pestana={pestanaActual} experimento={exp?.nombre} activo={revisar} setActivo={setRevisar} panel={panelRev} setPanel={setPanelRev} avisar={avisar} />
           <Globo />
+          {exp && <Cajon titulo="Personalizar gráfico" abierto={!!persGraf} onClose={() => setPersGraf(null)}><PanelPersonalizar s={s} id={persGraf} /></Cajon>}
           <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
         </div>
-      </CintaCtx.Provider>
+      </CintaCtx.Provider></GraficoCtx.Provider>
     </TemaCtx.Provider>
   )
 }

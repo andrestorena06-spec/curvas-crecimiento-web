@@ -63,12 +63,12 @@ export function CurvaUfc({ s }) {
           <BotonCinta simbolo="⟋" texto="Recta de μ" activo={!!exp.aj.ufc_recta} onClick={() => s.setAj('ufc_recta', !exp.aj.ufc_recta)} tip="Recta de la pendiente máxima de ln(UFC/mL) usada para μ" />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'curvaUfc'} onClick={() => setPers(pers === 'curvaUfc' ? null : 'curvaUfc')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono={exp.tipo === 'odufc' ? 'combinar' : 'tabla'} texto={exp.tipo === 'odufc' ? 'OD + UFC' : 'Datos'} onClick={() => s.irA(exp.tipo === 'odufc' ? 'combinado' : 'datos')} /></Grupo>
+        <Grupo titulo="Siguiente"><BotonCinta icono={exp.tipo === 'odufc' ? 'placa' : 'tabla'} texto={exp.tipo === 'odufc' ? 'Lecturas de OD' : 'Datos'} onClick={() => s.irA(exp.tipo === 'odufc' ? ({ tecan: 'archivo', placas: 'placas', cubeta: 'lecturas' }[exp.origenOd] || 'calidad') : 'datos')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'curvaUfc'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="curvaUfc" /></Cajon>
       {avisosSuave.length > 0 && <p className="ayuda">Sin curva suavizada: {avisosSuave.join(' · ')}.</p>}
       <div className="tarjeta">
-        <Grafico series={series} yTxt={lin ? `UFC/mL${pot ? ` (× 10^${pot})` : ''}` : 'log₁₀ UFC/mL'} alto={420} nombre={`ufc_${exp.nombre}`} titulo={exp.nombre} ceroY={lin} estilo={s.estiloGrafico('curvaUfc')} />
+        <Grafico series={series} yTxt={lin ? `UFC/mL${pot ? ` (× 10^${pot})` : ''}` : 'log₁₀ UFC/mL'} alto={420} nombre={`ufc_${exp.nombre}`} titulo={exp.nombre} ceroY={lin} estilo={s.estiloGrafico('curvaUfc')} idEstilo="curvaUfc" />
       </div>
       <div className="tarjeta">
         <h2>Parámetros de crecimiento por recuento</h2>

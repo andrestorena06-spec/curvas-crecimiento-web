@@ -4,6 +4,7 @@
 //         -> control de calidad por pocillo -> pocillos excluidos -> suavizado -> normalización
 // Los datos originales nunca se modifican.
 // ============================================================
+import { detectarCV } from './atipicos.js'
 import { analizarCurva, aplicarHampel, finito, mediana, media, suavizarVector, trapz } from './analisis.js'
 import { pocillos96 } from './lectura.js'
 import { tCuantil } from '../utils.js'
@@ -158,6 +159,16 @@ function aplicarDixon(marcado, E, aj) {
     })
   })
   grupos.forEach((g) => {
+    if (aj.od_atip_metodo === 'cv') {
+      const lim = Number(aj.od_cvmax) || 20
+      const c = detectarCV(g.map((x) => x.f.y), lim)
+      if (c.idx === null) return
+      const { w, f } = g[c.idx]
+      f.marca = 'Aberrante (RSD)'
+      f.detalle = `RSD de las réplicas en ese tiempo = ${c.stat.toFixed(1)} % > límite ${lim} % (réplica más alejada de la media, extremo ${c.lado}; sin ella, RSD = ${c.cvSin.toFixed(1)} %).`
+      f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+      return
+    }
     const d = dixonQ(g.map((x) => x.f.y), conf)
     if (!d) return
     const { w, f } = g[d.i]
@@ -190,7 +201,7 @@ export function calcularQC({ marcado, config, E, aj }) {
   const porPoc = Object.fromEntries(marcado.map((w) => [w.Pocillo, w]))
 
   // puntos quitados con su tipo (automáticos, interpolados y manuales)
-  const tipoAuto = { 'Aberrante (Dixon)': 'Dixon', 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
+  const tipoAuto = { 'Aberrante (Dixon)': 'Dixon', 'Aberrante (RSD)': 'RSD', 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
   const quitados = {}
   marcado.forEach((w) => w.filas.forEach((f) => {
     if (f.motivo) (quitados[w.Pocillo] ||= []).push({ t: f.t, tipo: tipoAuto[f.motivo] })

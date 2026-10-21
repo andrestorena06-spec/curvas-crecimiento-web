@@ -1,4 +1,5 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { usePlanilla } from '../ui/planilla.js'
 import { TEXTO_OD, odCorregida } from '../motor/odmanual.js'
 import { Campo, Check, Encabezado, Icono, navegarTabla, Num, Sel } from '../ui/base.jsx'
 import { BotonCinta, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
@@ -17,6 +18,13 @@ export function Cubeta({ s }) {
   const tiemposSerie = () => Array.from({ length: Math.max(0, Math.round(Number(serie.n) || 0)) }, (_, i) => Math.round(i * (Number(serie.cada) || 0) * 1000) / 1000)
   const textoTiempos = () => { const ts = tiemposSerie(); return ts.length > 4 ? `${ts.slice(0, 3).join(', ')} … ${ts[ts.length - 1]}` : ts.join(', ') }
   const primero = useRef()
+  const planilla = usePlanilla()
+  // la carga sigue a la cinta: cepa elegida arriba; Enter pasa a la réplica siguiente y, después de la última, al tiempo siguiente
+  useEffect(() => { if (serie.muestra) setF((ff) => ({ ...ff, muestra: serie.muestra })) }, [serie.muestra])
+  const siguiente = (ff) => {
+    const reps = Math.max(1, Math.round(Number(serie.reps) || 1)), r = Number(ff.replica) || 1
+    return r < reps ? { replica: r + 1, t: ff.t } : { replica: 1, t: Math.round((Number(ff.t) + (Number(serie.cada) || 0)) * 1000) / 1000 }
+  }
 
   const agregar = () => {
     if (!f.muestra) return avisar('Elegí la cepa.', 'error')
@@ -29,8 +37,8 @@ export function Cubeta({ s }) {
       if (i >= 0) return { filas: mm.filas.map((x, j) => (j === i ? { ...x, od: { ...x.od, ...od } } : x)) }
       return { filas: [...mm.filas, { id: nuevoId(), muestra: f.muestra, replica: Number(f.replica) || 1, t: Number(f.t), od }] }
     })
-    // siguiente: misma cepa y tiempo, réplica siguiente
-    setF({ ...f, replica: Number(f.replica) + 1, od: {} })
+    // siguiente: réplica siguiente; después de la última réplica, el tiempo siguiente (t + intervalo de la cinta)
+    setF({ ...f, ...siguiente(f), od: {} })
     setTimeout(() => primero.current?.focus(), 30)
   }
   const crearSerie = () => {
@@ -89,7 +97,7 @@ export function Cubeta({ s }) {
               ))}
               <button className="primario" onClick={agregar}><Icono n="mas" size={15} />Agregar</button>
             </div>
-            <p className="ayuda" style={{ margin: '10px 0 0' }}>Enter agrega la lectura y pasa a la réplica siguiente. Si ya existe la misma cepa, réplica y tiempo, se completa esa fila.</p>
+            <p className="ayuda" style={{ margin: '10px 0 0' }}>Enter agrega la lectura y pasa a la réplica siguiente; después de la réplica {serie.reps} pasa al tiempo siguiente (t + {serie.cada} h), según la cinta. Si ya existe la misma cepa, réplica y tiempo, se completa esa fila.</p>
           </div>
           <div className="tarjeta">
             <div className="fila" style={{ marginBottom: 12 }}>
@@ -99,7 +107,7 @@ export function Cubeta({ s }) {
             </div>
             {!filas.length ? <p className="ayuda">Todavía no hay lecturas.</p> : (
               <div className="tabla-scroll">
-                <table className="tabla" onKeyDown={navegarTabla}>
+                <table className="tabla" ref={planilla} onKeyDown={navegarTabla}>
                   <thead><tr><th>Cepa</th><th className="num">Réplica</th><th className="num">Tiempo (h)</th>{ks.map((k) => <th key={k} className="num">{etqDil(k, m.factor)}</th>)}<th className="num">OD corregida</th><th>Estado</th><th /></tr></thead>
                   <tbody>{filas.map((x) => {
                     const c = odCorregida(x, m)
