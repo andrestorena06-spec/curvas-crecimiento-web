@@ -8,7 +8,7 @@ import { detectarCV } from '../motor/atipicos.js'
 import { desvio, media } from '../motor/analisis.js'
 import { Campo, Check, Encabezado, Icono, navegarTabla, Num, Sel, Seg } from '../ui/base.jsx'
 import { BotonCinta, CampoCinta, Cinta, Grupo } from '../ui/cinta.jsx'
-import { fin, nuevoId, sciCorto } from '../utils.js'
+import { fin, nuevoId, sciCorto, tiemposDeSerie, textoTiemposSerie, siguienteReplica } from '../utils.js'
 
 const SUP = { '-': '⁻', 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹' }
 const sup = (t) => t.replace(/[-0-9.]/g, (c) => (c === '.' ? '·' : SUP[c]))
@@ -29,16 +29,13 @@ export function Conteo({ s }) {
   // k0: dilución con la que empieza cada réplica; paso: cuántas diluciones de la réplica ya se cargaron
   const [f, setF] = useState({ muestra: exp.cepas[0] || '', replica: 1, t: 0, k: 4, k0: 4, paso: 0, n: '', vol: '' })
   const [serie, setSerie] = useState({ muestra: exp.cepas[0] || '', reps: 3, n: 7, cada: 2, nDil: 3 })
-  const tiemposSerie = () => Array.from({ length: Math.max(0, Math.round(Number(serie.n) || 0)) }, (_, i) => Math.round(i * (Number(serie.cada) || 0) * 1000) / 1000)
-  const textoTiempos = () => { const ts = tiemposSerie(); return ts.length > 4 ? `${ts.slice(0, 3).join(', ')} … ${ts[ts.length - 1]}` : ts.join(', ') }
+  const tiemposSerie = () => tiemposDeSerie(serie)
+  const textoTiempos = () => textoTiemposSerie(serie)
   const refN = useRef()
   const planilla = usePlanilla(), planillaDil = usePlanilla()
   // la carga sigue a la cinta: cepa elegida arriba; Enter pasa a la réplica siguiente y, después de la última, al tiempo siguiente
   useEffect(() => { if (serie.muestra) setF((ff) => ({ ...ff, muestra: serie.muestra })) }, [serie.muestra])
-  const siguiente = (ff) => {
-    const reps = Math.max(1, Math.round(Number(serie.reps) || 1)), r = Number(ff.replica) || 1
-    return r < reps ? { replica: r + 1, t: ff.t } : { replica: 1, t: Math.round((Number(ff.t) + (Number(serie.cada) || 0)) * 1000) / 1000 }
-  }
+  const siguiente = (ff) => siguienteReplica(serie, ff)
   let nDil = 0
   const dilG = dilucionesUfc(u)
   // Para cada cepa y tiempo, y cada dilución posible: UFC/mL de cada réplica con esa dilución, DE de log10,
@@ -132,11 +129,8 @@ export function Conteo({ s }) {
         <Grupo titulo="Fuera de rango">
           <BotonCinta simbolo="≈" texto="Usar estimados" activo={u.estimados} onClick={() => setU({ estimados: !u.estimados })} tip={'Usar estimados\nSi ninguna dilución es contable, se estima con la más cercana al rango, se marca y entra en las medias.'} />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="escudo" texto="Calidad UFC" deshabilitado={!u.filas.length} onClick={() => s.irA('calidadUfc')} /></Grupo>
       </Cinta>
-      <Encabezado titulo="Conteo de colonias" sub="Elegí la cepa, la réplica y el tiempo, y anotá las colonias de cada dilución. Las UFC/mL se calculan solas con las diluciones dentro del rango contable.">
-        <button className="primario" disabled={!u.filas.length} onClick={() => s.irA('calidadUfc')}>Calidad UFC<Icono n="flecha" size={16} /></button>
-      </Encabezado>
+      <Encabezado titulo="Colonias" sub="Elegí la cepa, la réplica y el tiempo, y anotá las colonias de cada dilución. Las UFC/mL se calculan solas con las diluciones dentro del rango contable."></Encabezado>
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}>
@@ -179,7 +173,7 @@ export function Conteo({ s }) {
                         <td className="num"><Num value={x.replica} onChange={(v) => setFila(x.id, { replica: v })} ancho={52} /></td>
                         <td className="num"><Num value={x.t} onChange={(v) => setFila(x.id, { t: v })} ancho={58} /></td>
                         <td className="num"><Num value={x.vol} placeholder={String(u.vol)} onChange={(v) => setFila(x.id, { vol: v })} ancho={58} /></td>
-                        <td data-tip={conDatos.length ? ['Opciones de dilución para esta cepa y tiempo:', ...Object.entries(candDe(claveGrupoUfc(x))).map(([k, c]) => `${etqD(serieD[k])}: ${resumenCand(c)}${c.dixon ? ` (${c.dixon.texto})` : ''}`)].join('\n') : undefined}>{conDatos.length > 0 && <Sel value={dilG[claveGrupoUfc(x)]?.manual ? String(dilG[claveGrupoUfc(x)].k) : ''} onChange={(v) => setDilGrupo(claveGrupoUfc(x), v === '' ? undefined : Number(v))} style={{ minWidth: 120 }}
+                        <td data-tip={conDatos.length ? ['Opciones de dilución para esta cepa y tiempo:', ...Object.entries(candDe(claveGrupoUfc(x))).map(([k, c]) => `${etqD(serieD[k])}: ${resumenCand(c)}${c.dixon ? ` (${c.dixon.texto})` : ''}`)].join('\n') : undefined}>{conDatos.length > 0 && <Sel value={dilG[claveGrupoUfc(x)]?.manual ? String(dilG[claveGrupoUfc(x)].k) : ''} onChange={(v) => setDilGrupo(claveGrupoUfc(x), v === '' ? undefined : Number(v))} style={{ minWidth: 120, maxWidth: 200 }}
                           opciones={[['', `Auto · ${dilG[claveGrupoUfc(x)]?.sugerida != null ? etqD(serieD[dilG[claveGrupoUfc(x)].sugerida]) : '—'}`], ...Object.entries(candDe(claveGrupoUfc(x))).map(([k, c]) => [k, `${etqD(serieD[k])} · ${resumenCand(c)}`])]} />}</td>
                         {(() => { const g = claveGrupoUfc(x), c = candDe(g)[dilG[g]?.k]; if (!c) return <td />; const sale = c.dixon && c.dixon.replica === x.replica
                           return <td data-tip={resumenCand(c) + (c.dixon ? `\n${c.dixon.texto}` : '')}>{sale ? <span className="aviso-texto">⚠ {nomTest}</span> : <small className="ayuda">DE {dec(c.sd)} log</small>}</td> })()}

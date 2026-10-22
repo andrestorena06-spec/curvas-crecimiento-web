@@ -83,6 +83,8 @@ export const fmtTick = (v, paso) => {
 
 // ---- Descargas ----
 export async function descargarBlob(blob, nombre) {
+  // app de Android: guardar y abrir «Compartir»
+  if (window.Capacitor?.isNativePlatform?.()) { const { guardarNativo } = await import('./nativo.js'); return guardarNativo(blob, nombre) }
   if (window.showSaveFilePicker) {
     try {
       const ext = '.' + nombre.split('.').pop().toLowerCase()
@@ -137,3 +139,12 @@ export function exportarSVG(svg, nombre, formato = 'png', fondo = '#ffffff', esc
 export const LETRAS = 'ABCDEFGH'.split('')
 export const pocillos96 = () => LETRAS.flatMap((f) => Array.from({ length: 12 }, (_, i) => f + (i + 1)))
 export const ordenPocillo = (p) => LETRAS.indexOf(p[0]) * 12 + Number(p.slice(1)) - 1
+
+// ---- Series de carga («Crear filas vacías» en Lecturas de OD y en Colonias) ----
+// tiempos 0, cada, 2·cada… (n tiempos); avance al cargar: réplica siguiente y, después de la última, el tiempo siguiente
+export const tiemposDeSerie = (serie) => Array.from({ length: Math.max(0, Math.round(Number(serie.n) || 0)) }, (_, i) => Math.round(i * (Number(serie.cada) || 0) * 1000) / 1000)
+export const textoTiemposSerie = (serie) => { const ts = tiemposDeSerie(serie); return ts.length > 4 ? `${ts.slice(0, 3).join(', ')} … ${ts[ts.length - 1]}` : ts.join(', ') }
+export function siguienteReplica(serie, ff) {
+  const reps = Math.max(1, Math.round(Number(serie.reps) || 1)), r = Number(ff.replica) || 1
+  return r < reps ? { replica: r + 1, t: ff.t } : { replica: 1, t: Math.round((Number(ff.t) + (Number(serie.cada) || 0)) * 1000) / 1000 }
+}

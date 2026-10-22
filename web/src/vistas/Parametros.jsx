@@ -102,7 +102,7 @@ export function Parametros({ s }) {
   const p = sel && res.some((r) => r.Pocillo === sel) ? sel : res[0].Pocillo
   return (
     <div className="pagina">
-      <Encabezado titulo="Parámetros de crecimiento" sub={s.porCepa ? 'Cada placa es un tiempo: los parámetros se calculan sobre la curva de cada cepa, armada con sus pocillos de cada tiempo después del control de calidad. Pasá el mouse por un parámetro para ver qué significa y cómo se calculó.' : 'Calculados sobre cada réplica después del control de calidad. Pasá el mouse por un parámetro para ver qué significa y cómo se calculó.'}>
+      <Encabezado titulo="Parámetros" sub={s.porCepa ? 'Cada placa es un tiempo: los parámetros se calculan sobre la curva de cada cepa, armada con sus pocillos de cada tiempo después del control de calidad. Pasá el mouse por un parámetro para ver qué significa y cómo se calculó.' : 'Calculados sobre cada réplica después del control de calidad. Pasá el mouse por un parámetro para ver qué significa y cómo se calculó.'}>
       </Encabezado>
       <Cinta>
         <Grupo titulo="Curva">
@@ -126,7 +126,6 @@ export function Parametros({ s }) {
         <Grupo titulo="Gráfico">
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'parametros'} onClick={() => setPers(pers === 'parametros' ? null : 'parametros')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="tabla" texto="Datos" onClick={() => s.irA('datos')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'parametros'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="parametros" /></Cajon>
       <Cajon titulo="Umbrales y fases" abierto={pers === 'fases'} onClose={() => setPers(null)}>

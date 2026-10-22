@@ -3,7 +3,7 @@ import { usePlanilla } from '../ui/planilla.js'
 import { TEXTO_OD, odCorregida } from '../motor/odmanual.js'
 import { Campo, Check, Encabezado, Icono, navegarTabla, Num, Sel } from '../ui/base.jsx'
 import { BotonCinta, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
-import { fx, fin, nuevoId } from '../utils.js'
+import { fx, fin, nuevoId, tiemposDeSerie, textoTiemposSerie, siguienteReplica } from '../utils.js'
 
 const etqDil = (k, f) => (k === 0 ? 'Sin diluir' : `1:${f ** k}`)
 
@@ -15,16 +15,13 @@ export function Cubeta({ s }) {
   const ult = m.filas[m.filas.length - 1]
   const [f, setF] = useState({ muestra: ult?.muestra || exp.cepas[0] || '', replica: 1, t: ult ? ult.t : 0, od: {} })
   const [serie, setSerie] = useState({ muestra: exp.cepas[0] || '', reps: 3, n: 7, cada: 2 })
-  const tiemposSerie = () => Array.from({ length: Math.max(0, Math.round(Number(serie.n) || 0)) }, (_, i) => Math.round(i * (Number(serie.cada) || 0) * 1000) / 1000)
-  const textoTiempos = () => { const ts = tiemposSerie(); return ts.length > 4 ? `${ts.slice(0, 3).join(', ')} … ${ts[ts.length - 1]}` : ts.join(', ') }
+  const tiemposSerie = () => tiemposDeSerie(serie)
+  const textoTiempos = () => textoTiemposSerie(serie)
   const primero = useRef()
   const planilla = usePlanilla()
   // la carga sigue a la cinta: cepa elegida arriba; Enter pasa a la réplica siguiente y, después de la última, al tiempo siguiente
   useEffect(() => { if (serie.muestra) setF((ff) => ({ ...ff, muestra: serie.muestra })) }, [serie.muestra])
-  const siguiente = (ff) => {
-    const reps = Math.max(1, Math.round(Number(serie.reps) || 1)), r = Number(ff.replica) || 1
-    return r < reps ? { replica: r + 1, t: ff.t } : { replica: 1, t: Math.round((Number(ff.t) + (Number(serie.cada) || 0)) * 1000) / 1000 }
-  }
+  const siguiente = (ff) => siguienteReplica(serie, ff)
 
   const agregar = () => {
     if (!f.muestra) return avisar('Elegí la cepa.', 'error')
@@ -78,9 +75,8 @@ export function Cubeta({ s }) {
           <CampoCinta etiqueta="Factor" tip={'OD = (lectura − blanco) × factorᵏ\nSi hay varias lecturas dentro de la ventana se promedian; si ninguna cae, se usa la más cercana y se avisa.'}><Num value={m.factor} onChange={(v) => setM({ factor: v })} ancho={52} /></CampoCinta>
           <CampoCinta etiqueta="Columnas"><Num value={m.nd} onChange={(v) => { if (fin(v)) setM({ nd: Math.min(6, Math.max(1, Math.round(v))) }) }} ancho={52} /></CampoCinta>
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="escudo" texto="Control de calidad" onClick={() => s.irA('calidad')} deshabilitado={!m.filas.length} /></Grupo>
       </Cinta>
-      <Encabezado titulo="Lecturas en cubeta" sub="Cargá la absorbancia de cada cepa, réplica y tiempo. Si la lectura se salió de la zona lineal del equipo, cargá también la de la dilución: se usa la que cae dentro de la ventana lineal." />
+      <Encabezado titulo="Lecturas de OD" sub="Espectrofotómetro en cubeta. Cargá la absorbancia de cada cepa, réplica y tiempo. Si la lectura se salió de la zona lineal del equipo, cargá también la de la dilución: se usa la que cae dentro de la ventana lineal." />
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}>

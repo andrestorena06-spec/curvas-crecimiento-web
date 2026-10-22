@@ -150,6 +150,7 @@ export function Grafico(props) {
       {exportar && interactivo && (
         <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4, gap: 6 }}>
           {zoom && <button className="fantasma chico" onClick={() => setZoom(null)} data-tip="También con doble clic sobre el gráfico"><Icono n="refrescar" size={14} />Vista completa</button>}
+          <button className="fantasma chico solo-movil" onClick={(ev) => { const r = cont.current.getBoundingClientRect(), b = ev.currentTarget.getBoundingClientRect(); setMenu({ cx: Math.max(0, b.left - r.left - 120), cy: b.bottom - r.top }) }} aria-label="Opciones del gráfico"><Icono n="mas" size={14} />Opciones</button>
           <button className="fantasma chico" onClick={() => setGuardar(true)} data-tip={'Guardar imagen\nFormato (PNG, JPG o SVG), tamaño, resolución y fondo'}><Icono n="bajar" size={14} />Guardar imagen</button>
         </div>
       )}
@@ -283,11 +284,13 @@ export function Grafico(props) {
         })}
       </svg>
       {menu && (
-        <div className="menu-contextual" style={{ left: menu.cx, top: menu.cy, position: 'absolute' }} onMouseDown={(ev) => ev.stopPropagation()}>
+        <div className="menu-contextual" style={{ left: Math.max(0, Math.min(menu.cx, (cont.current?.clientWidth || 400) - 230)), top: menu.cy, position: 'absolute', zIndex: 30 }} onMouseDown={(ev) => ev.stopPropagation()}>
           {ctx.abrirPersonalizar && idEstilo && <button onClick={() => { setMenu(null); ctx.abrirPersonalizar(idEstilo) }}><Icono n="editar" size={15} />Personalizar gráfico…</button>}
           <button onClick={() => { setMenu(null); setGuardar(true) }}><Icono n="bajar" size={15} />Guardar imagen…</button>
+          <button onClick={() => { const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, dx = (x1 - x0) / 4, dy = (y1 - y0) / 4; setMenu(null); setZoom({ x0: cx - dx, x1: cx + dx, y0: cy - dy, y1: cy + dy }) }}><Icono n="mas" size={15} />Acercar</button>
+          {zoom && <button onClick={() => { const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, dx = (x1 - x0), dy = (y1 - y0); setMenu(null); setZoom({ x0: cx - dx, x1: cx + dx, y0: cy - dy, y1: cy + dy }) }}><Icono n="menos" size={15} />Alejar</button>}
           {zoom && <button onClick={() => { setMenu(null); setZoom(null) }}><Icono n="refrescar" size={15} />Vista completa</button>}
-          <div className="ayuda" style={{ padding: '6px 10px', fontSize: 11.5, maxWidth: 240 }}>Arrastrá para acercar; con zoom, arrastrá para moverte (Shift + arrastrar acerca más). Doble clic: vista completa.</div>
+          <div className="ayuda solo-compu" style={{ padding: '6px 10px', fontSize: 11.5, maxWidth: 240 }}>Arrastrá para acercar; con zoom, arrastrá para moverte (Shift + arrastrar acerca más). Doble clic: vista completa.</div>
         </div>
       )}
       {guardar && (

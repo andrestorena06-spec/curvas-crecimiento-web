@@ -26,7 +26,7 @@ export function CalidadUfc({ s }) {
     })
     return [...g.values()].sort((a, b) => (a.Muestra < b.Muestra ? -1 : a.Muestra > b.Muestra ? 1 : a.T_h - b.T_h))
   }, [ufcRes])
-  if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Control de calidad UFC" /><Vacio titulo="Todavía no hay conteos" accion={<button className="primario" onClick={() => s.irA('conteo')}>Cargar conteos</button>}>Cargá las colonias contadas.</Vacio></div>
+  if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Calidad UFC" /><Vacio titulo="Todavía no hay conteos" accion={<button className="primario" onClick={() => s.irA('conteo')}>Cargar conteos</button>}>Cargá las colonias contadas.</Vacio></div>
 
   const clave = (r) => `${r.Muestra}|${r.T_h}|${r.Replica}`
   const alternar = (r) => {
@@ -49,7 +49,7 @@ export function CalidadUfc({ s }) {
 
   return (
     <div className="pagina">
-      <Encabezado titulo="Control de calidad de los conteos" sub="Revisá qué diluciones entraron en el cálculo de cada réplica, cuáles se estimaron fuera del rango contable y qué réplicas se apartan de las demás (test Q de Dixon sobre log₁₀ o RSD %, a elección en la cinta).">
+      <Encabezado titulo="Calidad UFC" sub="Revisá qué diluciones entraron en el cálculo de cada réplica, cuáles se estimaron fuera del rango contable y qué réplicas se apartan de las demás (test Q de Dixon sobre log₁₀ o RSD %, a elección en la cinta).">
       </Encabezado>
       <Cinta>
         <Grupo titulo="Réplicas atípicas">
@@ -65,7 +65,6 @@ export function CalidadUfc({ s }) {
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'calidadUfc'} onClick={() => setPers(pers === 'calidadUfc' ? null : 'calidadUfc')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="curva" texto="Curva UFC vs t" onClick={() => s.irA('curvaUfc')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'calidadUfc'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="calidadUfc" /></Cajon>
       <div>

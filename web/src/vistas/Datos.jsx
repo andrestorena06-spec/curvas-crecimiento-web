@@ -70,6 +70,18 @@ export function tablasDe(s) {
   return T.map((t) => ({ ...t, filas: limpiar(t.filas) }))
 }
 
+// Excel completo: una hoja con las condiciones y los ajustes, y una hoja por tabla
+export async function descargarExcel(s, tablas = tablasDe(s)) {
+  const exp = s.exp
+  const info = [
+    { Campo: 'Experimento', Valor: exp.nombre }, { Campo: 'Tipo', Valor: TIPOS[exp.tipo].titulo + (exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : '') },
+    ...Object.entries(exp.cond).map(([k, v]) => ({ Campo: k, Valor: v })), { Campo: 'Generado', Valor: new Date().toLocaleString('es') },
+    ...Object.entries(exp.aj).map(([k, v]) => ({ Campo: `ajuste: ${k}`, Valor: String(v) })),
+  ]
+  const hojas = [{ nombre: 'Experimento', columnas: ['Campo', 'Valor'], filas: info }, ...tablas.map((x) => ({ nombre: x.titulo.slice(0, 31), columnas: x.columnas, filas: x.filas }))]
+  descargarBlob(await excelDe(hojas), `${exp.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')} - analisis.xlsx`)
+}
+
 const celda = (v) => (v === null || v === undefined ? '' : typeof v === 'number' ? (Math.abs(v) >= 1e5 || (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(3) : String(signif(v, 5)).replace('.', ',')) : String(v))
 
 export function Datos({ s }) {
@@ -77,15 +89,7 @@ export function Datos({ s }) {
   const [act, setAct] = useState(null)
   const t = tablas.find((x) => x.id === act) || tablas[0]
   const exp = s.exp
-  const descargar = async () => {
-    const info = [
-      { Campo: 'Experimento', Valor: exp.nombre }, { Campo: 'Tipo', Valor: TIPOS[exp.tipo].titulo + (exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : '') },
-      ...Object.entries(exp.cond).map(([k, v]) => ({ Campo: k, Valor: v })), { Campo: 'Generado', Valor: new Date().toLocaleString('es') },
-      ...Object.entries(exp.aj).map(([k, v]) => ({ Campo: `ajuste: ${k}`, Valor: String(v) })),
-    ]
-    const hojas = [{ nombre: 'Experimento', columnas: ['Campo', 'Valor'], filas: info }, ...tablas.map((x) => ({ nombre: x.titulo.slice(0, 31), columnas: x.columnas, filas: x.filas }))]
-    descargarBlob(await excelDe(hojas), `${exp.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')} - analisis.xlsx`)
-  }
+  const descargar = () => descargarExcel(s, tablas)
   if (!tablas.length) return <div className="pagina"><Encabezado titulo="Datos" /><Vacio titulo="Todavía no hay datos">Cargá datos para ver las tablas.</Vacio></div>
   return (
     <div className="pagina">
@@ -94,7 +98,6 @@ export function Datos({ s }) {
           <BotonCinta icono="bajar" texto="Excel completo" onClick={descargar} />
           <BotonCinta icono="imprimir" texto="Imprimir / PDF" onClick={() => window.print()} />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="libro" texto="Métodos" onClick={() => s.irA('metodos')} /></Grupo>
       </Cinta>
       <Encabezado titulo="Datos" sub="Todas las tablas del análisis, desde la lectura original hasta los parámetros. El Excel incluye una hoja por tabla y otra con las condiciones y todos los ajustes usados." />
       <div className="pestanas no-imprimir">

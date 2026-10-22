@@ -29,6 +29,7 @@ export function PlacaEditor({ layout, onAsignar, cepas, colores, disponibles = n
   const [sel, setSel] = useState(null)
   const [extra, setExtra] = useState([])        // selección acumulada con Shift/Ctrl (pocillos salteados)
   const mod = useRef(false)
+  const [multi, setMulti] = useState(false)    // celular: cada toque suma pocillos, como Shift en la computadora
   const reps = useMemo(() => numerarReplicas(layout), [layout])
   const ok = (p) => !disponibles || disponibles.has(p)
 
@@ -60,12 +61,16 @@ export function PlacaEditor({ layout, onAsignar, cepas, colores, disponibles = n
     window.addEventListener('keyup', k)
     return () => window.removeEventListener('keyup', k)
   }, [extra])
-  const elegirGrupo = (ids, e) => { const v = ids.filter(ok); if (!v.length) return; if (e?.shiftKey || e?.ctrlKey) acumular(v); else setSel(v) }
+  const elegirGrupo = (ids, e) => { const v = ids.filter(ok); if (!v.length) return; if (e?.shiftKey || e?.ctrlKey || multi) acumular(v); else setSel(v) }
   const enExtra = new Set(extra)
 
   const W = compacta ? 55 : 74
   return (
     <>
+      <div className="fila" style={{ margin: '0 0 8px', gap: 8 }}>
+        <button className={`chico ${multi ? 'primario' : ''}`} onClick={() => { setMulti(!multi); if (multi && extra.length) { setSel(extra); setExtra([]) } }}>{multi ? 'Listo: asignar' : 'Elegir varios pocillos'}</button>
+        {multi ? <span className="ayuda">Tocá los pocillos, filas o columnas que quieras sumar y después «Listo».</span> : <span className="ayuda solo-compu">También: Shift o Ctrl + clic para sumar pocillos salteados.</span>}
+      </div>
       <div className="placa-wrap">
         <table className="placa">
           <thead><tr>
@@ -85,7 +90,7 @@ export function PlacaEditor({ layout, onAsignar, cepas, colores, disponibles = n
                   const col = info?.muestra ? (info.blanco ? '#8C9BB0' : colores[info.muestra] || '#8C9BB0') : null
                   const v = valores?.[p]
                   return (
-                    <td key={p} onMouseDown={(e) => { if (e.button === 0 && ok(p)) { e.preventDefault(); mod.current = e.shiftKey || e.ctrlKey; setIni({ f, c }); setAct({ f, c }) } }}
+                    <td key={p} onMouseDown={(e) => { if (e.button === 0 && ok(p)) { e.preventDefault(); mod.current = e.shiftKey || e.ctrlKey || multi; setIni({ f, c }); setAct({ f, c }) } }}
                       onMouseEnter={() => ini && setAct({ f, c })}>
                       <div className={`pozo ${enRect(f, c) || enExtra.has(p) ? 'sel' : ''} ${!ok(p) ? 'vacio-poz' : ''} ${info?.blanco ? 'blanco' : ''}`}
                         style={{ width: W, height: compacta ? 44 : 50, fontSize: compacta ? 10.5 : undefined, background: col ? rellenoPocillo(col, T) : undefined, borderColor: col || undefined }}
