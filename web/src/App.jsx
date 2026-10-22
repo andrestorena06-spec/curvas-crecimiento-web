@@ -1,6 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { TEMAS, TemaCtx, coloresCepas, estilosSeries } from './tema.js'
-import { TIPOS, ORIGENES, analizarPorCepa, expNuevo, idCepa, muestrasDe, normalizarExp, resultadosUfc, seriesOd, seriesPorCepa, tieneOd, tieneUfc } from './modelo.js'
+import { TIPOS, ORIGENES, analizarPorCepa, expNuevo, filasConConteo, filasConOd, idCepa, importarArchivo, muestrasDe, normalizarExp, resultadosUfc, seriesOd, seriesPorCepa, tieneOd, tieneUfc } from './modelo.js'
 import { analizarTodos, clavePunto, preprocesar } from './motor/pipeline.js'
 import { Globo, Icono } from './ui/base.jsx'
 import { Cajon, CintaCtx } from './ui/cinta.jsx'
@@ -27,6 +27,10 @@ import { Metodos } from './vistas/Metodos.jsx'
 const CLAVE = 'curvas-crecimiento-v2'
 const CLAVE_TEMA = 'curvas-crecimiento-v2-tema-mesada'
 const CLAVE_MENU = 'curvas-crecimiento-v2-menu-corto'
+const CLAVE_RECIENTES = 'curvas-crecimiento-v2-recientes'
+const MAX_RECIENTES = 8
+const CLAVE_PROGRAMA_ANTERIOR = 'curvas-crecimiento-v1'   // guardado automático del programa anterior (mismo sitio web)
+const CLAVE_MIGRADO = 'curvas-crecimiento-v2-migrado'
 const leer = (k) => { try { return JSON.parse(localStorage.getItem(k)) } catch { return null } }
 
 const ICONOS = { resumen: 'nuevo', archivo: 'tecan', placa: 'placa', placas: 'tiempo', lecturas: 'cubeta', conteo: 'colonia', calidad: 'escudo', calidadUfc: 'escudo', curva: 'curva', curvaUfc: 'curva', combinado: 'combinar', parametros: 'sigma', datos: 'tabla', metodos: 'libro' }
@@ -70,9 +74,31 @@ const Logo = () => (
   </svg>
 )
 
+// Guarda la lista de recientes (máximo 8); si no hay lugar en el navegador, se quedan los más nuevos que entren
+function guardarRecientes(lista) {
+  const nuevo = lista.slice(0, MAX_RECIENTES)
+  for (let n = nuevo.length; n > 0; n--) {
+    try { localStorage.setItem(CLAVE_RECIENTES, JSON.stringify(nuevo.slice(0, n))); localStorage.removeItem(CLAVE); return nuevo.slice(0, n) } catch { /* sin espacio: se guardan menos */ }
+  }
+  return nuevo
+}
+
 export default function App() {
   const [tema, setTema] = useState(() => leer(CLAVE_TEMA) || 'claro')
-  const guardado = useMemo(() => leer(CLAVE), [])
+  const [recientes, setRecientes] = useState(() => {
+    let r = leer(CLAVE_RECIENTES)
+    if (!Array.isArray(r)) { const g = leer(CLAVE); r = g?.exp ? [{ fecha: g.fecha, exp: g.exp }] : [] }
+    // una sola vez: lo que había quedado guardado en este navegador con el programa anterior pasa a «Recientes»
+    if (!leer(CLAVE_MIGRADO)) {
+      try {
+        const viejo = leer(CLAVE_PROGRAMA_ANTERIOR)
+        const j = viejo?.exps ? viejo : viejo?.datos ? { ...viejo, tipo: 'curvas-crecimiento' } : null
+        if (j) r = guardarRecientes([...importarArchivo(j).exps.map((e) => ({ fecha: viejo.fecha || new Date().toISOString(), exp: e })), ...r])
+      } catch { /* datos viejos ilegibles: se ignoran */ }
+      try { localStorage.setItem(CLAVE_MIGRADO, 'true') } catch { /* sin almacenamiento */ }
+    }
+    return r
+  })
   const [exp, setExp] = useState(null)
   const [paso, setPaso] = useState(null)
   const [archivoAbierto, setArchivoAbierto] = useState(false)   // pestaña «Archivo» (nuevo, abrir, guardar)
@@ -82,8 +108,9 @@ export default function App() {
   const [panelRev, setPanelRev] = useState(false)
   const [nodoCinta, setNodoCinta] = useState(null)
   const [menuCorto, setMenuCorto] = useState(() => leer(CLAVE_MENU) || false)
-  const [gruposCerrados, setGruposCerrados] = useState([])
-  const [persGraf, setPersGraf] = useState(null)   // gráfico abierto con clic derecho › Personalizar   // grupos del menú plegados a mano
+  const [gruposCerrados, setGruposCerrados] = useState([])   // grupos del menú plegados a mano
+  const [persGraf, setPersGraf] = useState(null)               // gráfico abierto con clic derecho › Personalizar
+  const [menuMovil, setMenuMovil] = useState(false)            // celular: el menú lateral se abre como cajón
   const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
   const inputCargar = useRef()
 
@@ -92,11 +119,13 @@ export default function App() {
     try { localStorage.setItem(CLAVE_TEMA, JSON.stringify(tema)) } catch { /* sin almacenamiento */ }
   }, [tema])
   useEffect(() => { try { localStorage.setItem(CLAVE_MENU, JSON.stringify(menuCorto)) } catch { /* sin almacenamiento */ } }, [menuCorto])
+  // guardado automático: el experimento abierto pasa al primer lugar de «Recientes» (máximo 8)
   useEffect(() => {
     if (!exp) return
-    const t = setTimeout(() => { try { localStorage.setItem(CLAVE, JSON.stringify({ fecha: new Date().toISOString(), exp })) } catch { /* sin espacio */ } }, 500)
+    const t = setTimeout(() => setRecientes((rs) => guardarRecientes([{ fecha: new Date().toISOString(), exp }, ...rs.filter((r) => r.exp?.id !== exp.id)])), 600)
     return () => clearTimeout(t)
   }, [exp])
+  const borrarReciente = (r) => setRecientes((rs) => { const n = rs.filter((x) => x.exp?.id !== r.exp?.id); try { localStorage.setItem(CLAVE_RECIENTES, JSON.stringify(n)) } catch { /* nada */ } return n })
   useEffect(() => {
     const k = (e) => { if (e.key === 'Escape' && revisar && !['TEXTAREA', 'INPUT'].includes(document.activeElement?.tagName)) setRevisar(false) }
     window.addEventListener('keydown', k)
@@ -108,24 +137,78 @@ export default function App() {
     setAvisos((x) => [...x, { id, texto, tipo }])
     setTimeout(() => setAvisos((x) => x.filter((v) => v.id !== id)), 4500)
   }, [])
+  // Android: el botón Atrás cierra el menú o la ventana abierta antes de salir de la app
+  const menuMovilRef = useRef(false)
+  menuMovilRef.current = menuMovil
+  useEffect(() => {
+    let quitar = () => {}
+    import('./nativo.js').then(({ escucharAtras }) => escucharAtras(() => {
+      if (menuMovilRef.current) { setMenuMovil(false); return true }
+      if (document.querySelector('.velo, .panel-cinta, .menu-contextual')) { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); return true }
+      return false
+    }, avisar)).then((f) => { quitar = f })
+    return () => quitar()
+  }, [avisar])
 
   const pasos = pasosDe(exp)
   const pasoAct = pasos.includes(paso) ? paso : pasos[0]
-  const irA = (p) => { setPaso(p); setArchivoAbierto(false); setAsistente(false); document.querySelector('.principal')?.scrollTo(0, 0) }
+  const irA = (p) => { setPaso(p); setArchivoAbierto(false); setAsistente(false); setMenuMovil(false); document.querySelector('.principal')?.scrollTo(0, 0) }
 
   // ---------- experimento ----------
-  const abrir = (e, aviso, primero) => { setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
+  const abrir = (e, aviso, primero) => { hist.current = { pasado: [], futuro: [], ultimo: 0 }; setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
   const crear = (datos) => { const e = expNuevo(datos); abrir(e, `Experimento «${datos.nombre}» creado.`, pasosDe(e)[1]) }
   const guardar = () => {
     if (!exp) return
     descargarTexto(JSON.stringify({ tipo: 'curvas-de-crecimiento', ...exp, guardado: new Date().toISOString() }), `${exp.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')}.curvas.json`, 'application/json')
   }
+  // Abre un .curvas.json o una sesión de una versión anterior del programa. Si el archivo trae varios
+  // experimentos (versión anterior), se abre el que estaba activo y los demás quedan en «Recientes».
   const cargarArchivo = async (file) => {
-    try { abrir(normalizarExp(JSON.parse(await file.text())), `Experimento «${file.name}» cargado.`) } catch (e) { avisar(`No se pudo cargar: ${e.message}`, 'error') }
+    try {
+      const { exps, activo, avisos: notas } = importarArchivo(JSON.parse((await file.text()).replace(/^﻿/, '')))
+      const otros = exps.filter((_, i) => i !== activo)
+      if (otros.length) setRecientes((rs) => guardarRecientes([...otros.map((e) => ({ fecha: new Date().toISOString(), exp: e })), ...rs.filter((r) => !exps.some((e) => e.id === r.exp?.id))]))
+      abrir(exps[activo], `Experimento «${file.name}» cargado${otros.length ? `; los otros ${otros.length} del archivo quedaron en «Recientes»` : ''}.`)
+      notas.forEach((n) => avisar(n, 'error'))
+    } catch (e) { avisar(`No se pudo cargar: ${e.message}`, 'error') }
   }
-  const continuar = () => { try { abrir(normalizarExp(guardado.exp), 'Experimento recuperado.') } catch (e) { avisar(e.message, 'error') } }
+  const abrirReciente = (r) => { try { abrir(normalizarExp(r.exp), `«${r.exp.nombre}» abierto.`) } catch (e) { avisar(e.message, 'error') } }
 
-  const upd = useCallback((patch) => setExp((e) => (e ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e)), [])
+  // Deshacer / rehacer: los cambios seguidos (menos de 0,7 s entre uno y otro, como al escribir) cuentan como uno solo
+  const expRef = useRef(null)
+  expRef.current = exp
+  const hist = useRef({ pasado: [], futuro: [], ultimo: 0 })
+  const [, setNHist] = useState(0)
+  const upd = useCallback((patch) => {
+    const h = hist.current, ahora = Date.now()
+    if (expRef.current && ahora - h.ultimo > 700) { h.pasado.push(expRef.current); if (h.pasado.length > 80) h.pasado.shift() }
+    h.ultimo = ahora
+    h.futuro = []
+    setNHist((n) => n + 1)
+    setExp((e) => (e ? { ...e, ...(typeof patch === 'function' ? patch(e) : patch) } : e))
+  }, [])
+  const deshacer = useCallback(() => {
+    const h = hist.current
+    if (!h.pasado.length) return
+    h.futuro.push(expRef.current); h.ultimo = 0
+    setExp(h.pasado.pop()); setNHist((n) => n + 1)
+  }, [])
+  const rehacer = useCallback(() => {
+    const h = hist.current
+    if (!h.futuro.length) return
+    h.pasado.push(expRef.current); h.ultimo = 0
+    setExp(h.futuro.pop()); setNHist((n) => n + 1)
+  }, [])
+  useEffect(() => {
+    const k = (ev) => {
+      if (!(ev.ctrlKey || ev.metaKey) || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+      const t = ev.key.toLowerCase()
+      if (t === 'z' && !ev.shiftKey) { ev.preventDefault(); deshacer() }
+      else if (t === 'y' || (t === 'z' && ev.shiftKey)) { ev.preventDefault(); rehacer() }
+    }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [deshacer, rehacer])
   const setAj = (k, v) => upd((e) => ({ aj: { ...e.aj, [k]: v } }))
   const setE = (f) => upd((e) => ({ E: f(e.E) }))
 
@@ -187,8 +270,8 @@ export default function App() {
       case 'archivo': return !!exp.tecan.datos
       case 'placa': return exp.tecan.config.length > 0
       case 'placas': return exp.placas.some((p) => p.valores)
-      case 'lecturas': return exp.manual.filas.length > 0
-      case 'conteo': return exp.ufc.filas.length > 0
+      case 'lecturas': return filasConOd(exp).length > 0
+      case 'conteo': return filasConConteo(exp).length > 0
       case 'calidad': case 'curva': case 'parametros': return !!res?.length
       case 'calidadUfc': case 'curvaUfc': return !!ufcRes?.hay
       case 'combinado': return !!res?.length && !!ufcRes?.hay
@@ -210,7 +293,7 @@ export default function App() {
     if (exp.origenOd === 'placas') { const l = serie.extra?.lecturas || []; p.push(`${exp.placas.length} tiempos`, `${l.filter((x) => x.Usado).length}/${l.length} lecturas aceptadas`) }
     if (res?.length) { const mu = res.map((r) => r.mu_max).filter(Number.isFinite); if (mu.length) p.push(`μmax medio ${fs(mu.reduce((a, b) => a + b, 0) / mu.length, 3)} h⁻¹`) }
     if (ufcRes?.hay) p.push(`${ufcRes.reps.filter((r) => r.Conteos > 0).length} conteos de UFC`)
-    p.push('guardado en este navegador')
+    p.push('guardado automático en «Recientes»')
     return p.join(' · ')
   })()
 
@@ -223,10 +306,15 @@ export default function App() {
       <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}>
         <div className="app">
           <header className="barra-titulo">
+            <button className="titulo-boton solo-movil hamburguesa" onClick={() => setMenuMovil(!menuMovil)} aria-label="Menú"><Icono n={menuMovil ? 'x' : 'hamburguesa'} size={18} /></button>
             <Logo /><b>Curvas de crecimiento</b>
             <span className="titulo-exp">{exp ? exp.nombre : ''}</span>
             <span className="espacio" />
-            <button className={`titulo-boton ${panelRev ? 'on' : ''}`} onClick={() => setPanelRev(!panelRev)} data-tip={'Modo revisión\nMarcá zonas de la pantalla y comentá qué cambiarías'}>
+            {exp && <>
+              <button className="titulo-boton" onClick={deshacer} disabled={!hist.current.pasado.length} aria-label="Deshacer" data-tip="Deshacer (Ctrl + Z)"><Icono n="deshacer" size={16} /></button>
+              <button className="titulo-boton" onClick={rehacer} disabled={!hist.current.futuro.length} aria-label="Rehacer" data-tip="Rehacer (Ctrl + Y)"><Icono n="rehacer" size={16} /></button>
+            </>}
+            <button className={`titulo-boton solo-compu ${panelRev ? 'on' : ''}`} onClick={() => setPanelRev(!panelRev)} data-tip={'Modo revisión\nMarcá zonas de la pantalla y comentá qué cambiarías'}>
               💬 Revisión
             </button>
             <button className="titulo-boton" onClick={() => setTema(tema === 'oscuro' ? 'claro' : 'oscuro')} data-tip="Cambiar entre tema claro y oscuro">
@@ -234,8 +322,9 @@ export default function App() {
             </button>
           </header>
           <div className="cuerpo-app">
-          <nav className={`menu-lateral ${menuCorto ? 'corto' : ''}`}>
-            <button className={`item-menu archivo ${enArchivo && !asistente ? 'on' : ''}`} onClick={() => { setArchivoAbierto(true); setAsistente(false) }} data-tip={menuCorto ? 'Archivo' : undefined}>
+          {menuMovil && <div className="velo-menu solo-movil" onClick={() => setMenuMovil(false)} />}
+          <nav className={`menu-lateral ${menuCorto ? 'corto' : ''} ${menuMovil ? 'abierto' : ''}`}>
+            <button className={`item-menu archivo ${enArchivo && !asistente ? 'on' : ''}`} onClick={() => { setArchivoAbierto(true); setAsistente(false); setMenuMovil(false) }} data-tip={menuCorto ? 'Archivo' : undefined}>
               <span className="ico"><Icono n="carpeta" size={18} /></span><span className="txt">Archivo</span>
             </button>
             {exp && <div className="sep-menu" />}
@@ -283,9 +372,22 @@ export default function App() {
           <div className="zona-trabajo">
           <div className="cinta" ref={setNodoCinta} />
           <main className="principal">
+            {Vista && (() => {
+              const i = pasos.indexOf(pasoAct), g = grupoDe(pasoAct)
+              const ant = pasos[i - 1], sig = pasos[i + 1]
+              return (
+                <nav className="migas no-imprimir" aria-label="Ubicación">
+                  <span className="ruta">{g && <span>{GRUPOS[g].titulo}</span>}<b>{PASOS[pasoAct][0]}</b></span>
+                  <span className="paso-n">paso {i + 1} de {pasos.length}</span>
+                  <span className="espacio" />
+                  {ant && <button className="fantasma chico" onClick={() => irA(ant)} data-tip={`Anterior: ${PASOS[ant][0]}`}><Icono n="flecha" size={13} style={{ transform: 'rotate(180deg)' }} />{PASOS[ant][0]}</button>}
+                  {sig && <button className="chico" onClick={() => irA(sig)} data-tip={`Siguiente: ${PASOS[sig][0]}`}>{PASOS[sig][0]}<Icono n="flecha" size={13} /></button>}
+                </nav>
+              )
+            })()}
             {asistente ? <Asistente onCrear={crear} onCancelar={() => setAsistente(false)} hayExperimento={!!exp} />
               : Vista ? <Vista s={s} key={exp.id + pasoAct} />
-                : <Inicio onNuevo={() => setAsistente(true)} onCargar={() => inputCargar.current.click()} guardado={guardado} onContinuar={continuar}
+                : <Inicio onNuevo={() => setAsistente(true)} onCargar={() => inputCargar.current.click()} recientes={recientes} onAbrirReciente={abrirReciente} onBorrarReciente={borrarReciente}
                   exp={exp} onGuardar={guardar} onVolver={() => setArchivoAbierto(false)} />}
           </main>
           </div>

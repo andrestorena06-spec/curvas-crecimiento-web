@@ -22,7 +22,7 @@ export function CurvaUfc({ s }) {
   const [error, setError] = useState('sd')
   const [pers, setPers] = useState(null)
   const crec = useMemo(() => (ufcRes?.hay ? crecimientoPorCepa(ufcRes.res) : []), [ufcRes])
-  if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Curva UFC" /><Vacio titulo="Todavía no hay conteos">Cargá las colonias en «Conteo».</Vacio></div>
+  if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Curva UFC vs t" /><Vacio titulo="Todavía no hay conteos">Cargá las colonias en «Conteo».</Vacio></div>
   const res = ufcRes.res.filter((r) => finito(r.log10))
   const muestras = [...new Set(res.map((r) => r.Muestra))]
   const lin = escala === 'lineal'
@@ -53,7 +53,7 @@ export function CurvaUfc({ s }) {
   })
   return (
     <div className="pagina">
-      <Encabezado titulo="Curva de crecimiento por UFC/mL" sub={`Media geométrica de las réplicas incluidas en cada tiempo (cuadrados).${exp.aj.ufc_suave !== false ? ((exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave) === 'spline' ? ' Línea continua: curva suavizada (spline monótona por las medias).' : ' Línea continua: curva del modelo de Baranyi-Roberts ajustado a ln UFC/mL.') : ''}${exp.aj.ufc_recta ? ' Línea punteada: recta de μ.' : ''}`}>
+      <Encabezado titulo="Curva UFC vs t" sub={`Media geométrica de las réplicas incluidas en cada tiempo (cuadrados).${exp.aj.ufc_suave !== false ? ((exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave) === 'spline' ? ' Línea continua: curva suavizada (spline monótona por las medias).' : ' Línea continua: curva del modelo de Baranyi-Roberts ajustado a ln UFC/mL.') : ''}${exp.aj.ufc_recta ? ' Línea punteada: recta de μ.' : ''}`}>
       </Encabezado>
       <Cinta>
         <Grupo titulo="Escala"><OpcionesCinta valor={escala} onChange={setEscala} opciones={[['log10', 'log₁₀', 'lg'], ['lineal', 'Lineal', 'N']]} /></Grupo>
@@ -63,7 +63,6 @@ export function CurvaUfc({ s }) {
           <BotonCinta simbolo="⟋" texto="Recta de μ" activo={!!exp.aj.ufc_recta} onClick={() => s.setAj('ufc_recta', !exp.aj.ufc_recta)} tip="Recta de la pendiente máxima de ln(UFC/mL) usada para μ" />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'curvaUfc'} onClick={() => setPers(pers === 'curvaUfc' ? null : 'curvaUfc')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono={exp.tipo === 'odufc' ? 'placa' : 'tabla'} texto={exp.tipo === 'odufc' ? 'Lecturas de OD' : 'Datos'} onClick={() => s.irA(exp.tipo === 'odufc' ? ({ tecan: 'archivo', placas: 'placas', cubeta: 'lecturas' }[exp.origenOd] || 'calidad') : 'datos')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'curvaUfc'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="curvaUfc" /></Cajon>
       {avisosSuave.length > 0 && <p className="ayuda">Sin curva suavizada: {avisosSuave.join(' · ')}.</p>}

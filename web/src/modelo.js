@@ -117,8 +117,77 @@ export function incorporarExcelsSueltos(placas, excels) {
   return cambio ? { placas: ps, excels: lista } : null
 }
 
+// ------------------------------------------------------------
+// Archivos de versiones anteriores del programa
+//   versión 1 («curvas-crecimiento»): una sesión del lector Tecan (archivo, datos, config, exclusiones y ajustes)
+//   versión 2 («curvas-de-crecimiento» con `exps`): varios experimentos en un archivo; cada uno con modo
+//     od / conteo / ambos y OD del Tecan, de una placa por pocillos o manual (cubeta)
+// ------------------------------------------------------------
+const sinExtension = (n) => String(n || '').replace(/\.[^.]+$/, '')
+const unicas = (xs) => [...new Set(xs.filter((m) => m !== undefined && m !== null && String(m).trim() !== '').map(String))]
+
+function desdeSesionTecan(x) {
+  return {
+    tipo: 'od', origenOd: 'tecan', id: nuevoId(),
+    nombre: sinExtension(x.archivo?.nombre) || 'Curva Tecan',
+    cond: { fecha: String(x.fecha || '').slice(0, 10) || condDef().fecha },
+    cepas: unicas([...(x.muestras || []), ...(x.config || []).map((c) => c.Muestra)]),
+    aj: x.aj || {},
+    tecan: { archivo: x.archivo ? { ...x.archivo, unidad: x.archivo.unidad || 'auto' } : null, datos: x.datos, preview: x.preview || null, config: x.config || [] },
+    E: x.E, blancosSel: Array.isArray(x.blancosSel) && x.blancosSel.length ? x.blancosSel : null,
+  }
+}
+
+function desdeExpUnificado(e, global) {
+  const avisos = []
+  const tipo = e.modo === 'conteo' ? 'ufc' : e.modo === 'ambos' ? 'odufc' : 'od'
+  const origen = tipo === 'ufc' ? null : ({ tecan: 'tecan', manual: 'cubeta', placa: 'placas' }[e.origenOd] || 'tecan')
+  const nombre = e.nombre || 'Experimento'
+  const c = e.cond || {}
+  const agit = c.agitacion === 'si' ? `Con agitación${c.rpm ? ` (${c.rpm} rpm)` : ''}.` : c.agitacion === 'no' ? 'Sin agitación.' : ''
+  const ufcViejo = e.ufc || {}
+  const tabla = ufcViejo.metodo === 'extendida' ? ufcViejo.tabla : null
+  if (origen === 'placas') avisos.push(`«${nombre}»: la OD estaba en una placa leída por pocillos; volvé a cargar los Excel en «Lecturas de OD».`)
+  if (tipo !== 'od' && ufcViejo.metodo !== 'extendida' && (ufcViejo.placasG || []).some((p) => Object.keys(p.conteos || {}).length))
+    avisos.push(`«${nombre}»: los conteos por gota del programa anterior no se pueden convertir; volvé a cargarlos en «Colonias».`)
+  const cepas = unicas([
+    ...(Array.isArray(e.cepas) ? e.cepas : []),
+    ...(e.config || []).map((x) => x.Muestra),
+    ...(e.manual?.filas || []).map((f) => f.muestra),
+    ...(tabla?.filas || []).map((f) => f.muestra),
+  ])
+  const sinVacios = (o) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined))
+  return {
+    avisos,
+    exp: sinVacios({
+      tipo, origenOd: origen, id: e.id || nuevoId(), nombre,
+      cond: { organismo: c.organismo || '', medio: c.medio || '', temperatura: c.temperatura ?? '', lambda: c.lambda || 600, equipo: c.equipo || '', fecha: c.fecha || condDef().fecha, notas: [c.notas, agit].filter(Boolean).join(' ') },
+      cepas: cepas.length ? cepas : undefined,
+      aj: { ...(global.aj || {}), ...(e.aj || {}) },
+      tecan: origen === 'tecan' ? { archivo: e.archivo ? { ...e.archivo, unidad: e.archivo.unidad || 'auto' } : null, datos: e.datos, preview: e.preview || null, config: e.config || [] } : undefined,
+      manual: origen === 'cubeta' ? e.manual : undefined,
+      ufc: tabla ? { ...tabla, filas: tabla.filas || [] } : undefined,
+      E: e.E, blancosSel: Array.isArray(e.blancosSel) && e.blancosSel.length ? e.blancosSel : null,
+    }),
+  }
+}
+
+// Lee cualquier archivo .curvas.json / sesión (actual o de versiones anteriores).
+// Devuelve { exps: [experimentos normalizados], activo: índice del que se abre, avisos: [textos] }
+export function importarArchivo(j) {
+  if (j && Array.isArray(j.exps)) {
+    const conv = j.exps.map((e) => desdeExpUnificado(e, j))
+    const exps = conv.map((c) => normalizarExp(c.exp))
+    if (!exps.length) throw new Error('El archivo no tiene experimentos.')
+    const activo = Math.max(0, j.exps.findIndex((e) => e.id && e.id === j.activeId))
+    return { exps, activo, avisos: conv.flatMap((c) => c.avisos) }
+  }
+  return { exps: [normalizarExp(j)], activo: 0, avisos: [] }
+}
+
 export function normalizarExp(x) {
-  if (!x || !x.tipo) throw new Error('El archivo no es un experimento de esta versión del programa.')
+  if (x && x.tipo === 'curvas-crecimiento' && x.datos) x = desdeSesionTecan(x)
+  if (!x || !TIPOS[x.tipo]) throw new Error('El archivo no es un experimento de Curvas de crecimiento.')
   const base = expNuevo(x)
   return {
     ...base, ...x,
@@ -135,6 +204,10 @@ export function normalizarExp(x) {
 }
 
 export const tieneOd = (e) => !!e && e.tipo !== 'ufc'
+// filas que ya tienen algún valor cargado (las filas creadas en bloque empiezan vacías)
+const conValor = (o) => Object.values(o || {}).some((v) => v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)))
+export const filasConConteo = (e) => (e?.ufc?.filas || []).filter((f) => conValor(f.c))
+export const filasConOd = (e) => (e?.manual?.filas || []).filter((f) => conValor(f.od))
 export const tieneUfc = (e) => !!e && e.tipo !== 'od'
 
 // ------------------------------------------------------------
@@ -414,4 +487,30 @@ export function analizarPorCepa(proc, aj, ventanas, modo = 'media') {
     }
     return { Pocillo: c.Pocillo, Muestra: c.Muestra, Replica: null, n_pocillos: c.nPocillos, modo_curva: modo, ...r }
   })
+}
+
+// ------------------------------------------------------------
+// Cepas: renombrar en todo el experimento (lista, pocillos, placas, lecturas, conteos, colores y claves)
+// ------------------------------------------------------------
+export function usosDeCepa(e, c) {
+  return e.tecan.config.filter((x) => x.Muestra === c).length
+    + e.placas.reduce((n, p) => n + Object.values(p.layout || {}).filter((l) => l?.muestra === c).length, 0)
+    + e.manual.filas.filter((f) => f.muestra === c).length + e.ufc.filas.filter((f) => f.muestra === c).length
+}
+export function renombrarCepa(e, viejo, nuevo) {
+  const n = String(nuevo || '').trim()
+  if (!n || n === viejo) return {}
+  const ren = (m) => (m === viejo ? n : m)
+  const prefijo = (k) => (k.startsWith(viejo + '|') ? n + k.slice(viejo.length) : k)
+  const colores = { ...(e.coloresCepa || {}) }
+  if (colores[viejo]) { colores[n] = colores[viejo]; delete colores[viejo] }
+  return {
+    cepas: [...new Set(e.cepas.map(ren))],
+    tecan: { ...e.tecan, config: e.tecan.config.map((c) => ({ ...c, Muestra: ren(c.Muestra) })) },
+    placas: e.placas.map((p) => ({ ...p, layout: Object.fromEntries(Object.entries(p.layout || {}).map(([k, l]) => [k, l ? { ...l, muestra: ren(l.muestra) } : l])) })),
+    manual: { ...e.manual, filas: e.manual.filas.map((f) => ({ ...f, muestra: ren(f.muestra) })) },
+    ufc: { ...e.ufc, filas: e.ufc.filas.map((f) => ({ ...f, muestra: ren(f.muestra) })), dilGrupo: Object.fromEntries(Object.entries(e.ufc.dilGrupo || {}).map(([k, v]) => [prefijo(k), v])) },
+    ufcExcl: e.ufcExcl.map(prefijo), ufcForz: e.ufcForz.map(prefijo),
+    coloresCepa: colores,
+  }
 }

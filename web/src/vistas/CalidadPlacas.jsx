@@ -225,7 +225,6 @@ export function VistaCalidadPlacas({ s }) {
         <Grupo titulo="Tipo de error">
           <OpcionesCinta valor={o.error} onChange={(v) => setO('error', v)} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan los pocillos entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="flecha" texto="Curva OD vs t" onClick={() => s.irA('curva')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="exclusion" /></Cajon>
       <div className="tiempos" style={{ marginBottom: 12 }}>

@@ -1,49 +1,70 @@
 import { Icono } from '../ui/base.jsx'
 import { BotonCinta, Cinta, Grupo } from '../ui/cinta.jsx'
-import { IlusOD } from '../ui/ilustraciones.jsx'
 import { TIPOS, ORIGENES } from '../modelo.js'
 
-const Accion = ({ icono, titulo, texto, onClick, primaria }) => (
-  <button className={`opcion ${primaria ? 'on' : ''}`} onClick={onClick}>
-    <div className="txt" style={{ padding: '18px 18px 20px' }}>
-      <Icono n={icono} size={24} style={{ color: 'var(--acento)', marginBottom: 8 }} />
-      <b>{titulo}</b>
-      <small>{texto}</small>
-    </div>
-  </button>
-)
+const fecha = (f) => { try { return new Date(f).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }) } catch { return '' } }
 
-// Pestaña «Archivo»: empezar, abrir, guardar y continuar
-export function Inicio({ onNuevo, onCargar, guardado, onContinuar, exp, onGuardar, onVolver }) {
+// Pestaña «Archivo»: empezar, abrir, guardar y retomar los experimentos recientes de este equipo
+export function Inicio({ onNuevo, onCargar, exp, onGuardar, onVolver, recientes = [], onAbrirReciente, onBorrarReciente }) {
+  const otros = recientes.filter((r) => r.exp?.id !== exp?.id)
   return (
-    <div className="inicio">
+    <div className="pagina inicio">
       <Cinta>
         <Grupo titulo="Experimento">
           <BotonCinta icono="nuevo" texto="Nuevo" onClick={onNuevo} tip="Empezar un experimento nuevo: elegís el tipo de curva y cómo mediste" />
           <BotonCinta icono="carpeta" texto="Abrir" onClick={onCargar} tip="Abrir un experimento guardado (.curvas.json)" />
           <BotonCinta icono="guardar" texto="Guardar" onClick={onGuardar} deshabilitado={!exp} tip="Descarga un .curvas.json con todo el experimento" />
-          {guardado?.exp && !exp && <BotonCinta icono="tiempo" texto="Continuar el último" onClick={onContinuar} tip={`${guardado.exp.nombre}\nGuardado en este navegador el ${new Date(guardado.fecha).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' })}`} />}
         </Grupo>
         {exp && <Grupo titulo="Volver"><BotonCinta icono="flecha" texto="Al experimento" onClick={onVolver} /></Grupo>}
       </Cinta>
-      <IlusOD />
-      <h1>Curvas de crecimiento</h1>
-      <p className="sub" style={{ fontSize: 15 }}>
-        Análisis de crecimiento bacteriano por densidad óptica (lector Tecan, placas leídas por tiempo o cubeta), por conteo de UFC/mL o por ambos.
-        Todo se calcula en este navegador: los archivos no se envían a ningún lado.
-      </p>
+
+      <div className="portada">
+        <div>
+          <span className="etiqueta-seccion">Análisis de crecimiento bacteriano</span>
+          <h1>Curvas de crecimiento</h1>
+          <p className="sub">Densidad óptica (lector Tecan, placas leídas por tiempo o cubeta), recuento de UFC/mL o ambos.
+            Todo se calcula en este equipo: los archivos no se envían a ningún lado.</p>
+        </div>
+        <div className="acciones-portada">
+          <button className="accion-portada primaria" onClick={onNuevo}><Icono n="nuevo" size={22} /><b>Nuevo experimento</b><small>Elegís qué medir y cómo; el asistente arma los pasos.</small></button>
+          <button className="accion-portada" onClick={onCargar}><Icono n="carpeta" size={22} /><b>Abrir un archivo</b><small>Un .curvas.json guardado antes, en esta u otra computadora.</small></button>
+        </div>
+      </div>
+
       {exp && (
-        <div className="mosaico" style={{ marginTop: 18 }}>
+        <section className="tarjeta ficha-abierta">
+          <div className="cabeza-tarjeta"><span className="etiqueta-seccion">Experimento abierto</span></div>
           <div className="fila">
-            <div style={{ flex: 1 }}>
-              <small className="ayuda">Experimento abierto</small>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <h2 style={{ margin: '2px 0' }}>{exp.nombre}</h2>
               <span className="ayuda">{TIPOS[exp.tipo].titulo}{exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : ''}</span>
             </div>
+            <button onClick={onGuardar}><Icono n="guardar" size={15} />Guardar archivo</button>
+            <button className="primario" onClick={onVolver}>Seguir trabajando<Icono n="flecha" size={15} /></button>
           </div>
-        </div>
+        </section>
       )}
-      {!exp && <p className="ayuda" style={{ marginTop: 16 }}>Usá los botones de arriba: <strong>Nuevo</strong> para empezar{guardado?.exp ? <>, <strong>Continuar el último</strong> para seguir con «{guardado.exp.nombre}»</> : ''} o <strong>Abrir</strong> para cargar un experimento guardado.</p>}
+
+      <section className="tarjeta">
+        <div className="cabeza-tarjeta">
+          <span className="etiqueta-seccion">Recientes en este equipo</span>
+          <span className="ayuda">Se guardan solos mientras trabajás. Para llevarlos a otro equipo, usá «Guardar».</span>
+        </div>
+        {!otros.length ? <p className="ayuda" style={{ margin: '8px 0 0' }}>{exp ? 'No hay otros experimentos recientes.' : 'Todavía no hay experimentos recientes.'}</p> : (
+          <div className="lista-recientes">
+            {otros.map((r) => (
+              <div key={r.exp.id} className="reciente">
+                <button className="abrir-reciente" onClick={() => onAbrirReciente(r)}>
+                  <Icono n={r.exp.tipo === 'ufc' ? 'colonia' : r.exp.tipo === 'od' ? 'curva' : 'combinar'} size={18} />
+                  <span><b>{r.exp.nombre}</b><small>{TIPOS[r.exp.tipo]?.titulo}{r.exp.origenOd ? ` · ${ORIGENES[r.exp.origenOd]?.titulo}` : ''}{r.exp.cond?.organismo ? ` · ${r.exp.cond.organismo}` : ''}</small></span>
+                  <small className="fecha-reciente">{fecha(r.fecha)}</small>
+                </button>
+                <button className="fantasma icono" aria-label="Quitar de recientes" data-tip="Quitar de la lista (no borra archivos guardados)" onClick={() => onBorrarReciente(r)}><Icono n="x" size={15} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

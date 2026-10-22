@@ -4,10 +4,9 @@
 //         -> control de calidad por pocillo -> pocillos excluidos -> suavizado -> normalización
 // Los datos originales nunca se modifican.
 // ============================================================
-import { detectarCV } from './atipicos.js'
+import { detectar, detectarCV } from './atipicos.js'
 import { analizarCurva, aplicarHampel, finito, mediana, media, suavizarVector, trapz } from './analisis.js'
 import { pocillos96 } from './lectura.js'
-import { tCuantil } from '../utils.js'
 
 export const r3 = (t) => Math.round(t * 1000) / 1000
 export const clavePunto = (p, t) => `${p}|${r3(t)}`
@@ -113,35 +112,12 @@ function marcarPozo(datos, c, E, aj, blanco) {
   return { ...c, ReplicaNombre: nombreReplica(c.Muestra, c.Replica), filas }
 }
 
-// Test Q de Dixon (Rorabacher 1991, razón r10, n = 3 a 10)
-const Q_CRIT = { 90: [0.941, 0.765, 0.642, 0.56, 0.507, 0.468, 0.437, 0.412], 95: [0.97, 0.829, 0.71, 0.625, 0.568, 0.526, 0.493, 0.466], 99: [0.994, 0.926, 0.821, 0.74, 0.68, 0.634, 0.598, 0.568] }
-// Grubbs (dos colas) para más de 10 réplicas: G = máx|x − x̄| / s ; crítico = (n − 1)/√n · √(t² / (n − 2 + t²)), t = t(α/(2n); n − 2)
-export function grubbs(vals, conf = 95) {
-  const n = vals.length
-  if (n < 7) return null
-  const m = media(vals)
-  const s = Math.sqrt(vals.reduce((a, v) => a + (v - m) ** 2, 0) / (n - 1))
-  if (!(s > 0)) return null
-  let i = 0
-  vals.forEach((v, j) => { if (Math.abs(v - m) > Math.abs(vals[i] - m)) i = j })
-  const G = Math.abs(vals[i] - m) / s
-  const t = tCuantil(1 - (1 - conf / 100) / (2 * n), n - 2)
-  const crit = ((n - 1) / Math.sqrt(n)) * Math.sqrt((t * t) / (n - 2 + t * t))
-  return G > crit ? { i, lado: vals[i] > m ? 'superior' : 'inferior', q: G, crit, n, conf, metodo: 'Grubbs' } : null
-}
-
+// Test Q de Dixon (3 a 10 valores) y, con más de 10, Grubbs: una sola implementación, la de atipicos.js
+// (la misma que usa el control de calidad de las placas). Devuelve null si no hay atípico.
 export function dixonQ(vals, conf = 95) {
-  const n = vals.length
-  if (n > 10) return grubbs(vals, conf)
-  if (n < 3) return null
-  const s = vals.map((v, i) => ({ v, i })).sort((a, b) => a.v - b.v)
-  const rango = s[n - 1].v - s[0].v
-  if (!(rango > 0)) return null
-  const qInf = (s[1].v - s[0].v) / rango, qSup = (s[n - 1].v - s[n - 2].v) / rango
-  const sup = qSup >= qInf
-  const q = sup ? qSup : qInf
-  const crit = (Q_CRIT[conf] || Q_CRIT[95])[n - 3]
-  return q > crit ? { i: (sup ? s[n - 1] : s[0]).i, lado: sup ? 'superior' : 'inferior', q, crit, n, conf, metodo: 'Dixon' } : null
+  const d = detectar(vals, { metodo: 'q', conf })
+  if (d.idx === null || d.idx === undefined) return null
+  return { i: d.idx, lado: d.lado, q: d.stat, crit: d.crit, n: d.n, conf, metodo: vals.length > 10 ? 'Grubbs' : 'Dixon' }
 }
 
 // Valores atípicos entre réplicas (misma muestra y mismo tiempo) con el test Q de Dixon: para lecturas de placas y de cubeta

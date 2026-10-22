@@ -36,7 +36,7 @@ export function Curva({ s }) {
   const muestras = [...new Set(wsTodas.map((w) => w.Muestra))]
   // las réplicas ocultas no se dibujan ni entran en la media del gráfico (el análisis no cambia)
   const ws = s.porCepa ? wsTodas : wsTodas.filter((w) => !ocultasRep.includes(w.Pocillo))
-  if (!wsTodas.length) return <div className="pagina"><Encabezado titulo="Curva" /><Vacio titulo="Todavía no hay curvas procesadas">{s.pre?.error || 'Completá la carga de datos y el control de calidad.'}</Vacio></div>
+  if (!wsTodas.length) return <div className="pagina"><Encabezado titulo="Curva OD vs t" /><Vacio titulo="Todavía no hay curvas procesadas">{s.pre?.error || 'Completá la carga de datos y el control de calidad.'}</Vacio></div>
 
   const tr = TRANS[escala]
   const visibles = muestras.filter((m) => !ocultas.includes(m))
@@ -104,12 +104,9 @@ export function Curva({ s }) {
         <Grupo titulo="Gráfico">
           <BotonCinta icono="editar" texto="Personalizar" activo={pers} onClick={() => setPers(!pers)} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente">
-          <BotonCinta icono="flecha" texto={exp.tipo === 'odufc' ? 'OD + UFC' : 'Parámetros'} onClick={() => s.irA(exp.tipo === 'odufc' ? 'combinado' : 'parametros')} />
-        </Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="curva" /></Cajon>
-      <Encabezado titulo="Curva de crecimiento" sub={`${exp.cond.organismo ? exp.cond.organismo + ' · ' : ''}${exp.cond.medio ? exp.cond.medio + ' · ' : ''}${exp.cond.temperatura ? exp.cond.temperatura + ' °C · ' : ''}OD${exp.cond.lambda ? ` a ${exp.cond.lambda} nm` : ''}, con blanco restado y sin los puntos excluidos.${exp.aj.camino_on && exp.origenOd !== 'cubeta' ? ' OD llevada a 1 cm de camino óptico.' : ''}`} />
+      <Encabezado titulo="Curva OD vs t" sub={`${exp.cond.organismo ? exp.cond.organismo + ' · ' : ''}${exp.cond.medio ? exp.cond.medio + ' · ' : ''}${exp.cond.temperatura ? exp.cond.temperatura + ' °C · ' : ''}OD${exp.cond.lambda ? ` a ${exp.cond.lambda} nm` : ''}, con blanco restado y sin los puntos excluidos.${exp.aj.camino_on && exp.origenOd !== 'cubeta' ? ' OD llevada a 1 cm de camino óptico.' : ''}`} />
       <div className="selector-cepas">
         {muestras.map((m) => {
           const on = !ocultas.includes(m)

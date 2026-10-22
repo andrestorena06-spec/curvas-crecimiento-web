@@ -344,12 +344,9 @@ export function Calidad({ s }) {
           <Grupo titulo="Detalle">
             <BotonCinta icono="editar" texto="Todos los ajustes" activo={ajustes} onClick={() => setAjustes(!ajustes)} />
           </Grupo>
-          <Grupo titulo="Siguiente">
-            <BotonCinta icono="flecha" texto="Curva OD vs t" onClick={() => s.irA('curva')} deshabilitado={sinDatos} />
-          </Grupo>
         </Cinta>
       )}
-      <Encabezado titulo="Control de calidad" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva, Dixon entre réplicas) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
+      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon o RSD entre réplicas) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
       {s.serie.avisos.map((a, i) => <div key={i} className="aviso-caja">{a}</div>)}
       {sinDatos ? <Vacio titulo="Todavía no hay curvas" accion={<button className="primario" onClick={() => s.irA(irDatos)}>Ir a cargar los datos</button>}>Cargá los datos y definí las cepas para ver el control de calidad.</Vacio> : s.porCepa ? <VistaCalidadPlacas s={s} /> : (
         pre?.error ? <div className="aviso-caja error">{pre.error}</div> : pre && (<>

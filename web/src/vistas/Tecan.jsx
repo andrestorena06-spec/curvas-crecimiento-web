@@ -43,6 +43,12 @@ export function ArchivoTecan({ s }) {
   const d = t.datos
   const dur = d ? (d.tiempos[d.tiempos.length - 1] - d.tiempos[0]) / 3600 : 0
   const paso = d && d.tiempos.length > 1 ? (d.tiempos[1] - d.tiempos[0]) / 60 : NaN
+  // vista previa: las filas crudas del Excel; si el experimento se abrió de un .curvas.json (sin el Excel), las lecturas ya interpretadas
+  const crudo = t.preview?.length > 0
+  const previa = crudo ? t.preview : d ? (() => {
+    const pos = Object.keys(d.pocillos)
+    return [['Tiempo (h)', ...pos], ...d.tiempos.slice(0, 12).map((ti, i) => [fx(ti / 3600, 2), ...pos.map((p) => d.pocillos[p][i] == null ? '' : fx(d.pocillos[p][i], 3))])]
+  })() : []
   return (
     <div className="pagina">
       <Cinta>
@@ -57,9 +63,8 @@ export function ArchivoTecan({ s }) {
           </Grupo>
         )}
         {d && <GrupoCamino s={s} />}
-        <Grupo titulo="Siguiente"><BotonCinta icono="placa" texto="Definir pocillos" onClick={() => s.irA('placa')} deshabilitado={!d} /></Grupo>
       </Cinta>
-      <Encabezado titulo="Archivo del lector" sub={`Excel exportado por el Tecan (o cualquier lector con cinética). Se aceptan ${TEXTO_FORMATOS}, incluidos los .xls viejos y los de LibreOffice.`} />
+      <Encabezado titulo="Lecturas de OD" sub={`Excel exportado por el lector (Tecan u otro con cinética). Se aceptan ${TEXTO_FORMATOS}, incluidos los .xls viejos y los de LibreOffice.`} />
       <ZonaCarga acepta={ACEPTA_LIBRO} onArchivos={(f) => leer(f[0])} titulo={cargando ? 'Leyendo…' : d ? 'Reemplazar el archivo' : 'Elegí o soltá el Excel del lector'}
         texto="Formatos reconocidos: «Time [s]» en la columna A con los pocillos debajo, una fila con A1…H12 y una columna de tiempo, o bloques «T=…» con la matriz A–H." compacta={!!d} />
       {d && (
@@ -72,17 +77,12 @@ export function ArchivoTecan({ s }) {
             <div className="kpi"><small>Intervalo</small><b>{fx(paso, 1)} min</b></div>
           </div>
           <div className="tarjeta">
-            <div className="fila fin" style={{ marginBottom: 12 }}>
-              {t.archivo?.hojas?.length > 1 && (
-                <label className="campo"><span>Hoja</span><Sel value={t.archivo.hoja} onChange={(h) => releer(h, t.archivo.unidad)} opciones={t.archivo.hojas.map((h) => [h, h])} /></label>
-              )}
-              <label className="campo"><span>Unidad de tiempo del archivo</span><Sel value={t.archivo?.unidad || 'auto'} onChange={(u) => releer(t.archivo.hoja, u)} opciones={UNIDADES} /></label>
-              <span className="ayuda">Primeras filas del archivo, tal como se leyeron.</span>
-            </div>
+            <h2>{crudo ? 'Primeras filas del archivo, tal como se leyeron' : 'Primeras lecturas interpretadas'}</h2>
             <div className="tabla-scroll" style={{ maxHeight: 330 }}>
-              <table className="tabla mono"><tbody>
-                {t.preview?.map((f, i) => <tr key={i}>{f.map((c, j) => <td key={j}>{String(c).slice(0, 14)}</td>)}</tr>)}
-              </tbody></table>
+              <table className="tabla mono">
+                {!crudo && <thead><tr>{previa[0]?.map((c) => <th key={c} className="num">{c}</th>)}</tr></thead>}
+                <tbody>{(crudo ? previa : previa.slice(1)).map((f, i) => <tr key={i}>{f.map((c, j) => <td key={j} className={crudo ? undefined : 'num'}>{String(c).slice(0, 14)}</td>)}</tr>)}</tbody>
+              </table>
             </div>
           </div>
         </>
@@ -119,12 +119,8 @@ export function PlacaTecan({ s }) {
         <Grupo titulo="Placa">
           <BotonCinta icono="borrar" texto="Limpiar placa" peligro deshabilitado={!n} onClick={() => { if (window.confirm('Se borra la definición de todos los pocillos. ¿Continuar?')) upd((e) => ({ tecan: { ...e.tecan, config: [] } })) }} />
         </Grupo>
-        <Grupo titulo="Selección">
-          <BotonCinta simbolo="⇧" texto="Shift: sumar" tip={'Con Shift (o Ctrl) apretado, cada clic o arrastre suma pocillos salteados.\nAl soltar la tecla se abre la ventana para asignarlos.'} />
-        </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="escudo" texto="Control de calidad" onClick={() => s.irA('calidad')} deshabilitado={!n} /></Grupo>
       </Cinta>
-      <Encabezado titulo="Definir pocillos" sub="Asigná a cada pocillo su cepa (las réplicas se numeran solas) y marcá los blancos. Debajo de cada pocillo libre se ve la OD de la última lectura." />
+      <Encabezado titulo="Pocillos" sub="Asigná a cada pocillo su cepa (las réplicas se numeran solas) y marcá los blancos. Debajo de cada pocillo libre se ve la OD de la última lectura." />
       <div className="tarjeta">
         <PlacaEditor layout={layout} onAsignar={asignar} cepas={exp.cepas} colores={s.colores} disponibles={disp} valores={ultimos} onNuevaCepa={s.agregarCepa} />
       </div>

@@ -22,6 +22,11 @@ Abrir en línea: **https://andrestorena06-spec.github.io/curvas-crecimiento-web/
 - **OD + UFC**: ambas curvas con doble eje y calibración OD ↔ UFC/mL.
 - **Gráficos personalizables** (textos, tamaños, ejes, colores de las cepas, fondo blanco) y exportación PNG/SVG; tablas a Excel.
 - **Métodos**: descripción completa de los cálculos y texto para el informe.
+- **Resumen** con el avance del análisis y una lista «Para revisar» (avisos con acceso directo a la pantalla que corresponde).
+- **Recientes**: los experimentos se guardan solos en el navegador (hasta 8); deshacer y rehacer (Ctrl + Z / Ctrl + Y);
+  edición de los datos del experimento y renombrado de cepas en todo el experimento.
+- **Compatible con archivos anteriores**: abre los `.curvas.json` de versiones previas y las sesiones del programa anterior
+  (sesión del Tecan y archivos con varios experimentos); lo que había quedado guardado en el navegador pasa a «Recientes».
 - Planillas Excel y LibreOffice (.xlsx, .xls, .ods). Tema oscuro y claro.
 
 ## Código

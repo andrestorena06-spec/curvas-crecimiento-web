@@ -74,11 +74,10 @@ export function Combinado({ s }) {
           <BotonCinta icono="editar" texto="OD + UFC" activo={pers === 'combinado'} onClick={() => setPers(pers === 'combinado' ? null : 'combinado')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
           <BotonCinta icono="editar" texto="Calibración" activo={pers === 'calibracion'} onClick={() => setPers(pers === 'calibracion' ? null : 'calibracion')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
-        <Grupo titulo="Siguiente"><BotonCinta icono="sigma" texto="Parámetros" onClick={() => s.irA('parametros')} /></Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'combinado'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="combinado" ejeDerecho /></Cajon>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'calibracion'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="calibracion" /></Cajon>
-      <Encabezado titulo="OD + UFC/mL" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
+      <Encabezado titulo="OD + UFC" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
       <div className="tarjeta">
         <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
         <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, media geométrica ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
