@@ -18,11 +18,13 @@ Abrir en línea: **https://andrestorena06-spec.github.io/curvas-crecimiento-web/
 - **Control de calidad** con exclusión de puntos (Dixon, Grubbs o CV; Hampel en cinéticas) y todo reversible con un clic.
 - **Parámetros**: μmax por ventana deslizante, tiempo de duplicación, lag, K, ΔOD, AUC, fases y modelos (Gompertz, logístico, Richards, Baranyi).
 - **Recuento de UFC**: serie de diluciones con volúmenes transferidos, una dilución por cepa y tiempo (sugerida o elegida a mano),
-  coherencia entre diluciones (prueba binomial), IC 95 % de Poisson exacto, media geométrica de las réplicas y test de atípicos.
+  coherencia entre diluciones (prueba binomial), promedio de las réplicas como suma de colonias / suma de volúmenes sembrados
+  (con IC 95 % de Poisson exacto) y test de atípicos.
 - **OD + UFC**: ambas curvas con doble eje y calibración OD ↔ UFC/mL.
 - **Gráficos personalizables** (textos, tamaños, ejes, colores de las cepas, fondo blanco) y exportación PNG/SVG; tablas a Excel.
 - **Métodos**: descripción completa de los cálculos y texto para el informe.
 - **Resumen** con el avance del análisis y una lista «Para revisar» (avisos con acceso directo a la pantalla que corresponde).
+- **Guardar** escribe sobre el archivo abierto (Chrome y Edge; Ctrl + S) y **Guardar como** hace una copia (Ctrl + Mayús + S).
 - **Recientes**: los experimentos se guardan solos en el navegador (hasta 8); deshacer y rehacer (Ctrl + Z / Ctrl + Y);
   edición de los datos del experimento y renombrado de cepas en todo el experimento.
 - **Compatible con archivos anteriores**: abre los `.curvas.json` de versiones previas y las sesiones del programa anterior

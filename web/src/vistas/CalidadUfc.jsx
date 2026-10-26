@@ -43,6 +43,11 @@ export function CalidadUfc({ s }) {
     id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, radio: 3.6,
     data: ufcRes.reps.filter((r) => r.Muestra === m && finito(r.log10) && !ufcRes.fuera.has(clave(r))).map((r) => ({ x: r.T_h, y: r.log10, key: clave(r), tip: `${m} · réplica ${r.Replica}\nT = ${r.T_h} h\nlog₁₀ UFC/mL = ${fx(r.log10, 2)}\n${r.Estado}\nClic para excluir` })),
   }))
+  // promedio de cada tiempo (suma de colonias / suma de volúmenes de las réplicas incluidas)
+  const promedios = muestras.map((m) => ({
+    id: 'prom' + m, nombre: '', color: s.colores[m], linea: false, puntos: true, forma: 'cuadrado', hueco: true, radio: 5.5,
+    data: ufcRes.res.filter((r) => r.Muestra === m && finito(r.log10)).map((r) => ({ x: r.T_h, y: r.log10, tip: `${m} · T = ${r.T_h} h\nPromedio de ${r.N} réplica${r.N === 1 ? '' : 's'}: ${r.Colonias_suma} colonias / ${fx(r.Volumen_mL * 1000, 3)} µL de suspensión original\nlog₁₀ UFC/mL = ${fx(r.log10, 2)}` })),
+  }))
   // curva suavizada (opcional) en lugar de unir las medias con líneas
   const medias = exp.aj.ufc_suave === false ? [] : muestras.map((m) => { const cs = curvaSuaveUfc(ufcRes.res.filter((r) => r.Muestra === m), (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)); return cs.ok ? { id: 'sv' + m, nombre: '', color: s.colores[m], ancho: 1.6, opacidad: 0.7, data: cs.puntos } : null }).filter(Boolean)
   const extras = ufcRes.reps.filter((r) => finito(r.log10) && ufcRes.fuera.has(clave(r))).map((r) => ({ x: r.T_h, y: r.log10, key: clave(r), color: T.peligro, forma: 'x', tip: `${r.Muestra} · réplica ${r.Replica} (excluida)\n${ufcRes.dixon[clave(r)] || 'Excluida a mano'}\nClic para reincorporar` }))
@@ -70,8 +75,8 @@ export function CalidadUfc({ s }) {
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta">
-            <Grafico series={[...medias, ...series]} extras={extras} yTxt="log₁₀ UFC/mL (cada réplica)" alto={300} estilo={s.estiloGrafico('calidadUfc')} idEstilo="calidadUfc" onPuntoClick={(k) => { const r = ufcRes.reps.find((x) => clave(x) === k); if (r) alternar(r) }} nombre="calidad_ufc" />
-            <p className="ayuda" style={{ marginTop: 6 }}>Cada punto es una réplica{exp.aj.ufc_suave !== false ? '; la línea es la curva suavizada de las medias geométricas' : ''}. Clic en un punto para excluirlo o reincorporarlo. · {ufcRes.reps.filter((r) => r.Conteos > 0).length} réplicas · {nFuera} excluidas · {nEst} estimadas · {Object.keys(ufcRes.dixon).length} marcadas por {aj.ufc_atip_metodo === 'cv' ? 'RSD' : 'Dixon'}</p>
+            <Grafico series={[...medias, ...promedios, ...series]} extras={extras} yTxt="log₁₀ UFC/mL (cada réplica)" alto={300} estilo={s.estiloGrafico('calidadUfc')} idEstilo="calidadUfc" onPuntoClick={(k) => { const r = ufcRes.reps.find((x) => clave(x) === k); if (r) alternar(r) }} nombre="calidad_ufc" />
+            <p className="ayuda" style={{ marginTop: 6 }}>Cada punto es una réplica y el cuadrado, el promedio del tiempo (suma de colonias / suma de volúmenes){exp.aj.ufc_suave !== false ? '; la línea es la curva suavizada de los promedios' : ''}. Clic en un punto para excluirlo o reincorporarlo. · {ufcRes.reps.filter((r) => r.Conteos > 0).length} réplicas · {nFuera} excluidas · {nEst} estimadas · {Object.keys(ufcRes.dixon).length} marcadas por {aj.ufc_atip_metodo === 'cv' ? 'RSD' : 'Dixon'}</p>
           </div>
           <div className="tarjeta">
             <div className="tabla-scroll alta"><table className="tabla">

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { dGeo, dMuUfc } from '../calculos.js'
+import { dMuUfc, dPromedioUfc } from '../calculos.js'
 import { finito } from '../motor/analisis.js'
 import { crecimientoUfc, curvaSuaveUfc } from '../motor/ufc.js'
 import { useTema } from '../tema.js'
@@ -34,7 +34,7 @@ export function CurvaUfc({ s }) {
       const y = lin ? r.UFC_mL / 10 ** pot : r.log10
       const lo = lin ? (finito(e) ? 10 ** (r.log10 - e) / 10 ** pot : NaN) : r.log10 - e
       const hi = lin ? (finito(e) ? 10 ** (r.log10 + e) / 10 ** pot : NaN) : r.log10 + e
-      return { x: r.T_h, y, lo, hi, tip: `${m} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (media geométrica)\nlog₁₀ = ${fx(r.log10, 2)}${finito(r.DE_log10) ? ` ± ${fx(r.DE_log10, 2)}` : ''}\n${r.N} réplica${r.N === 1 ? '' : 's'}` }
+      return { x: r.T_h, y, lo, hi, tip: `${m} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)\n${r.Colonias_suma} colonias en ${r.N} réplica${r.N === 1 ? '' : 's'}\nlog₁₀ = ${fx(r.log10, 2)}${finito(r.DE_log10) ? ` (DE entre réplicas ${fx(r.DE_log10, 2)})` : ''}` }
     }),
   }))
   // recta de μ sobre la ventana elegida
@@ -53,11 +53,11 @@ export function CurvaUfc({ s }) {
   })
   return (
     <div className="pagina">
-      <Encabezado titulo="Curva UFC vs t" sub={`Media geométrica de las réplicas incluidas en cada tiempo (cuadrados).${exp.aj.ufc_suave !== false ? ((exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave) === 'spline' ? ' Línea continua: curva suavizada (spline monótona por las medias).' : ' Línea continua: curva del modelo de Baranyi-Roberts ajustado a ln UFC/mL.') : ''}${exp.aj.ufc_recta ? ' Línea punteada: recta de μ.' : ''}`}>
+      <Encabezado titulo="Curva UFC vs t" sub={`Cuadrados: promedio de las réplicas de cada tiempo (suma de colonias / suma de volúmenes sembrados).${exp.aj.ufc_suave !== false ? ((exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave) === 'spline' ? ' Línea continua: curva suavizada (spline monótona por las medias).' : ' Línea continua: curva del modelo de Baranyi-Roberts ajustado a ln UFC/mL.') : ''}${exp.aj.ufc_recta ? ' Línea punteada: recta de μ.' : ''}`}>
       </Encabezado>
       <Cinta>
         <Grupo titulo="Escala"><OpcionesCinta valor={escala} onChange={setEscala} opciones={[['log10', 'log₁₀', 'lg'], ['lineal', 'Lineal', 'N']]} /></Grupo>
-        <Grupo titulo="Barras"><OpcionesCinta valor={error} onChange={setError} opciones={[['sd', 'DE de log₁₀', 's'], ['ic', 'IC 95 %', 'IC']]} /></Grupo>
+        <Grupo titulo="Barras"><OpcionesCinta valor={error} onChange={setError} opciones={[['sd', 'DE de log₁₀', 's'], ['ic', 'IC 95 % (Poisson)', 'IC']]} /></Grupo>
         <Grupo titulo="Gráfico">
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
           <BotonCinta simbolo="⟋" texto="Recta de μ" activo={!!exp.aj.ufc_recta} onClick={() => s.setAj('ufc_recta', !exp.aj.ufc_recta)} tip="Recta de la pendiente máxima de ln(UFC/mL) usada para μ" />
@@ -86,10 +86,11 @@ export function CurvaUfc({ s }) {
       <div className="tarjeta">
         <h2>UFC/mL por cepa y tiempo</h2>
         <div className="tabla-scroll"><table className="tabla">
-          <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num">Réplicas</th><th className="num">UFC/mL</th><th className="num">IC 95 %</th><th className="num">log₁₀ ± DE</th><th className="num">CV %</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num">Réplicas</th><th className="num" data-tip={'Promedio de las réplicas\nSuma de colonias / suma de mL de suspensión original sembrados'}>UFC/mL</th><th className="num">Colonias</th><th className="num">IC 95 %</th><th className="num">log₁₀ ± DE</th><th className="num">CV %</th><th>Estado</th></tr></thead>
           <tbody>{ufcRes.res.map((r) => (
             <tr key={r.Muestra + r.T_h}><td>{r.Muestra}</td><td className="num">{r.T_h}</td><td className="num">{r.N} / {r.Con_conteos}</td>
-              <td className="num" data-tip={dGeo(r) || undefined}><b>{sciCorto(r.UFC_mL)}</b></td>
+              <td className="num" data-tip={dPromedioUfc(r) || undefined}><b>{sciCorto(r.UFC_mL)}</b></td>
+              <td className="num">{finito(r.Colonias_suma) ? r.Colonias_suma : '–'}</td>
               <td className="num">{finito(r.IC95_inf) ? `${sciCorto(r.IC95_inf)} – ${sciCorto(r.IC95_sup)}` : '–'}</td>
               <td className="num">{fx(r.log10, 2)}{finito(r.DE_log10) ? ` ± ${fx(r.DE_log10, 2)}` : ''}</td><td className="num">{fx(r.CV_pct, 0)}</td>
               <td style={{ color: T.sec, fontSize: 12 }}>{r.Estado}</td></tr>

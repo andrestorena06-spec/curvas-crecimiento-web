@@ -40,22 +40,19 @@ inferior = χ²(0.025; 2S) / 2 ; superior = χ²(0.975; 2S+2) / 2
 ambos multiplicados por D / V
 → ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL` : null)
 
-// media geométrica de las réplicas de una muestra en un tiempo
-export function dGeo(r) {
-  const v = r._vals
-  if (!v || !v.length) return null
-  const lg = v.map(Math.log10)
-  const m = lg.reduce((a, b) => a + b, 0) / lg.length
+// promedio de las réplicas de una cepa en un tiempo: suma de colonias / suma de volúmenes sembrados
+export function dPromedioUfc(r) {
+  const p = r._pool
+  if (!p || !p.length) return null
   const out = [
-    'Media geométrica de las réplicas',
-    `log₁₀ de cada réplica: ${lg.map((x) => F(x)).join(', ')}`,
-    `media de log₁₀ = (${lg.map((x) => F(x)).join(' + ')}) / ${lg.length} = ${F(m, 4)}`,
-    `UFC/mL = 10^${F(m, 4)} = ${sci(10 ** m)}`,
+    'Promedio de las réplicas (misma dilución)',
+    'UFC/mL = Σ colonias / Σ mL de suspensión original sembrados',
+    ...p.map((q) => `réplica ${q.Replica}: ${q.C} colonias en ${sci(q.D)} mL`),
+    `= (${p.map((q) => q.C).join(' + ')}) / (${p.map((q) => sci(q.D)).join(' + ')})`,
+    `= ${r.Colonias_suma} / ${sci(r.Volumen_mL)} = ${sci(r.UFC_mL)} UFC/mL`,
   ]
-  if (lg.length > 1) {
-    const sd = Math.sqrt(lg.reduce((a, x) => a + (x - m) ** 2, 0) / (lg.length - 1))
-    out.push(`DE(log₁₀) = ${F(sd, 3)}`, `IC 95 % = 10^(media ± t × DE/√n) = 10^(${F(m, 3)} ± ${F(r._t95, 3)} × ${F(sd, 3)}/√${lg.length}) = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`)
-  }
+  if (Number.isFinite(r.IC95_inf)) out.push(`IC 95 % (Poisson exacto sobre ${r.Colonias_suma} colonias): ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`)
+  if (Number.isFinite(r.DE_log10)) out.push(`Dispersión entre réplicas: DE(log₁₀) = ${F(r.DE_log10, 3)}${Number.isFinite(r.CV_pct) ? ` · CV = ${F(r.CV_pct, 0)} %` : ''}`)
   return out.join('\n')
 }
 export const dMuUfc = (c, filas) => (c && Number.isFinite(c.mu)

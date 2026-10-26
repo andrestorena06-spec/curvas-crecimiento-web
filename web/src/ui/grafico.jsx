@@ -246,7 +246,7 @@ export function Grafico(props) {
                 ))}
                 {s.puntos && s.data.filter((d) => fin(d.y) && dentro(d.x)).map((d, i) => (
                   s.forma === 'cuadrado'
-                    ? <rect key={i} x={px(d.x) - r} y={f(d.y) - r} width={r * 2} height={r * 2} fill={s.color} stroke={T.panel} strokeWidth="1" />
+                    ? <rect key={i} x={px(d.x) - r} y={f(d.y) - r} width={r * 2} height={r * 2} fill={s.hueco ? 'none' : s.color} stroke={s.hueco ? s.color : T.panel} strokeWidth={s.hueco ? 1.8 * e.grosor : 1} />
                     : <circle key={i} cx={px(d.x)} cy={f(d.y)} r={r} fill={s.color} stroke={e.fondo === 'blanco' ? '#fff' : T.panel} strokeWidth="0.8" />
                 ))}
               </g>
