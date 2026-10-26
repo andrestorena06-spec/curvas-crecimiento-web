@@ -4,13 +4,14 @@
 //   Cada placa (o gota) con C colonias y volumen V (mL) aporta C / V × factor^k UFC/mL.
 //   Con varias diluciones dentro del rango contable se usa la media ponderada (ISO 7218 / FDA BAM):
 //        UFC/mL = Σ C / ( V × Σ factor^(−k) )
-//   IC 95 % del conteo: Poisson exacto (Garwood). Réplicas: media geométrica (el error es multiplicativo).
+//   IC 95 % del conteo: Poisson exacto (Garwood).
+//   Réplicas de una cepa en un tiempo (misma dilución): se suman las colonias y se dividen por la suma de los
+//   volúmenes de suspensión original sembrados: UFC/mL = Σ Cᵢ / Σ (Vᵢ / dᵢ), con su IC 95 % de Poisson sobre Σ C.
 // Los recuentos pueden venir de la grilla de gotas sobre una placa de 96 (cada FILA es una réplica y cada
 // COLUMNA j es la dilución −j) o de una tabla (una fila por muestra, tiempo y réplica, una columna por dilución).
 // ============================================================
 import { LETRAS, convertirNumero } from './lectura.js'
 import { desvio, finito, interpolar, media } from './analisis.js'
-import { tCuantil } from '../utils.js'
 import { ajustarBaranyiLn } from './modelos.js'
 
 // ---------- parámetros ----------
@@ -174,7 +175,7 @@ export function estimarUfc(cont, par) {
   const manual = fija ? !!par.manual : false
   const c = e.find(([kk]) => kk === k)[1]
   const D = par.vol / dilDe(par, k)                 // mL de suspensión original sembrados
-  const base = { usados: [k], S: c, sugerida, manual }
+  const base = { usados: [k], S: c, sugerida, manual, D }
   if (c === 0) return { ...vacio, ...base, estado: 'cero', lim: 3 / D }   // límite de detección (≈ 3 colonias esperadas)
   if (c > 2 * par.max) return { ...vacio, ...base, estado: 'incontable' }
   const [lo, hi] = icPoisson(c)
@@ -274,7 +275,7 @@ export function calcularUfc(u) {
       _aj: ajusteDiluciones(r.cont, r.par), _manual: est.manual, _sugerida: est.sugerida,
       UFC_mL: est.ufc, IC95_inf: est.lo, IC95_sup: est.hi, Estado: textoEstado(est.estado), _estado: est.estado,
       log10: finito(est.ufc) && est.ufc > 0 ? Math.log10(est.ufc) : NaN, Colonias_usadas: est.S, Limite: est.lim,
-      _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S,
+      _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S, _D: est.D,
     }
   })
   const incluirEst = u.par.estimados !== false
@@ -282,22 +283,28 @@ export function calcularUfc(u) {
   const claves = [...new Map(reps.filter((r) => r.Conteos > 0).map((r) => [`${r.Muestra}|${r.T_h}`, [r.Muestra, r.T_h]])).values()]
   claves.forEach(([m, t]) => {
     const g = reps.filter((r) => r.Muestra === m && r.T_h === t)
-    const vals = g.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0 && (incluirEst || r._estado === 'ok'))
+    // réplicas que entran al promedio: con la dilución del grupo contada (las de 0 colonias también suman)
+    const pool = g.filter((r) => finito(r._D) && r._D > 0 && (r._estado === 'ok' || (incluirEst && ['bajo', 'alto', 'cero'].includes(r._estado))))
+    const S = pool.reduce((a, r) => a + r._S, 0)
+    const V = pool.reduce((a, r) => a + r._D, 0)
+    const ufc = pool.length && S > 0 ? S / V : NaN
+    const [lo, hi] = pool.length && S > 0 ? icPoisson(S) : [NaN, NaN]
+    // dispersión entre réplicas (para las barras de DE, el CV y el test de atípicos)
+    const vals = pool.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0)
     const lg = vals.map((r) => r.log10)
-    const n = lg.length
-    const mLog = n ? media(lg) : NaN
-    const sdLog = n > 1 ? desvio(lg) : NaN
-    const t95 = n > 1 ? tCuantil(0.975, n - 1) : NaN
-    const arit = n ? media(vals.map((r) => r.UFC_mL)) : NaN
-    const sd = n > 1 ? desvio(vals.map((r) => r.UFC_mL)) : NaN
+    const sdLog = lg.length > 1 ? desvio(lg) : NaN
+    const arit = vals.length ? media(vals.map((r) => r.UFC_mL)) : NaN
+    const sd = vals.length > 1 ? desvio(vals.map((r) => r.UFC_mL)) : NaN
     const estados = [...new Set(g.map((r) => r._estado))]
     res.push({
-      Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: n, _vals: vals.map((r) => r.UFC_mL), _t95: t95,
-      UFC_mL: n ? 10 ** mLog : NaN, DE: sd, log10: mLog, DE_log10: sdLog,
-      IC95_inf: n > 1 ? 10 ** (mLog - t95 * sdLog / Math.sqrt(n)) : NaN, IC95_sup: n > 1 ? 10 ** (mLog + t95 * sdLog / Math.sqrt(n)) : NaN,
-      Media_aritmetica: arit, CV_pct: n > 1 && arit ? (100 * sd) / arit : NaN,
+      Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: pool.length,
+      _vals: vals.map((r) => r.UFC_mL), _pool: pool.map((r) => ({ Replica: r.Replica, C: r._S, D: r._D, k: r._usados[0] })),
+      Colonias_suma: pool.length ? S : NaN, Volumen_mL: pool.length ? V : NaN,
+      UFC_mL: ufc, DE: sd, log10: finito(ufc) ? Math.log10(ufc) : NaN, DE_log10: sdLog,
+      IC95_inf: finito(lo) ? lo / V : NaN, IC95_sup: finito(hi) ? hi / V : NaN,
+      Media_geometrica: lg.length ? 10 ** media(lg) : NaN, CV_pct: vals.length > 1 && arit ? (100 * sd) / arit : NaN,
       Estado: estados.includes('ok') && estados.length === 1 ? 'En rango' : estados.map(textoEstado).join(' · '),
-      Limite: g.every((r) => r._estado === 'cero') ? Math.min(...g.map((r) => r.Limite).filter(finito)) : NaN,
+      Limite: pool.length && S === 0 ? 3 / V : NaN,
     })
   })
   res.sort((a, b) => (a.Muestra < b.Muestra ? -1 : a.Muestra > b.Muestra ? 1 : a.T_h - b.T_h))

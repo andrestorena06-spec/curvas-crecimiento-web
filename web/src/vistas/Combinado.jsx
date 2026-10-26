@@ -80,7 +80,7 @@ export function Combinado({ s }) {
       <Encabezado titulo="OD + UFC" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
       <div className="tarjeta">
         <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
-        <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, media geométrica ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
+        <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, promedio de las réplicas (suma de colonias / suma de volúmenes) ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
       </div>
       <div>
         <div className="tarjeta" style={{ minWidth: 0 }}>

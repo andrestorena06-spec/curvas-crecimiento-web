@@ -95,7 +95,8 @@ export function Resumen({ s }) {
     <div className="pagina">
       <Cinta>
         <Grupo titulo="Experimento">
-          <BotonCinta icono="guardar" texto="Guardar" onClick={s.guardar} tip="Descarga un .curvas.json con todo el experimento" />
+          <BotonCinta icono="guardar" texto="Guardar" onClick={s.guardar} tip={s.archivoExp ? `Guarda los cambios en «${s.archivoExp.nombre}» (Ctrl + S)` : 'Guarda el experimento en un archivo .curvas.json (Ctrl + S)'} />
+          <BotonCinta icono="guardarComo" texto="Guardar como" onClick={s.guardarComo} tip="Guarda una copia con otro nombre o en otra carpeta (Ctrl + Mayús + S)" />
           <BotonCinta icono="editar" texto="Datos del experimento" onClick={() => setEditar(true)} tip="Nombre, condiciones, notas y cepas (renombrar o agregar)" />
         </Grupo>
         <Grupo titulo="Exportar">

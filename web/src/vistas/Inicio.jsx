@@ -5,7 +5,7 @@ import { TIPOS, ORIGENES } from '../modelo.js'
 const fecha = (f) => { try { return new Date(f).toLocaleString('es', { dateStyle: 'medium', timeStyle: 'short' }) } catch { return '' } }
 
 // Pestaña «Archivo»: empezar, abrir, guardar y retomar los experimentos recientes de este equipo
-export function Inicio({ onNuevo, onCargar, exp, onGuardar, onVolver, recientes = [], onAbrirReciente, onBorrarReciente }) {
+export function Inicio({ onNuevo, onCargar, exp, onGuardar, onGuardarComo, archivoExp, onVolver, recientes = [], onAbrirReciente, onBorrarReciente }) {
   const otros = recientes.filter((r) => r.exp?.id !== exp?.id)
   return (
     <div className="pagina inicio">
@@ -13,7 +13,8 @@ export function Inicio({ onNuevo, onCargar, exp, onGuardar, onVolver, recientes 
         <Grupo titulo="Experimento">
           <BotonCinta icono="nuevo" texto="Nuevo" onClick={onNuevo} tip="Empezar un experimento nuevo: elegís el tipo de curva y cómo mediste" />
           <BotonCinta icono="carpeta" texto="Abrir" onClick={onCargar} tip="Abrir un experimento guardado (.curvas.json)" />
-          <BotonCinta icono="guardar" texto="Guardar" onClick={onGuardar} deshabilitado={!exp} tip="Descarga un .curvas.json con todo el experimento" />
+          <BotonCinta icono="guardar" texto="Guardar" onClick={onGuardar} deshabilitado={!exp} tip={archivoExp ? `Guarda los cambios en «${archivoExp.nombre}» (Ctrl + S)` : 'Guarda el experimento en un archivo .curvas.json (Ctrl + S)'} />
+          <BotonCinta icono="guardarComo" texto="Guardar como" onClick={onGuardarComo} deshabilitado={!exp} tip="Guarda una copia con otro nombre o en otra carpeta (Ctrl + Mayús + S)" />
         </Grupo>
         {exp && <Grupo titulo="Volver"><BotonCinta icono="flecha" texto="Al experimento" onClick={onVolver} /></Grupo>}
       </Cinta>
@@ -37,9 +38,9 @@ export function Inicio({ onNuevo, onCargar, exp, onGuardar, onVolver, recientes 
           <div className="fila">
             <div style={{ flex: 1, minWidth: 220 }}>
               <h2 style={{ margin: '2px 0' }}>{exp.nombre}</h2>
-              <span className="ayuda">{TIPOS[exp.tipo].titulo}{exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : ''}</span>
+              <span className="ayuda">{TIPOS[exp.tipo].titulo}{exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : ''}{archivoExp ? ` · archivo «${archivoExp.nombre}»` : ' · todavía sin archivo'}</span>
             </div>
-            <button onClick={onGuardar}><Icono n="guardar" size={15} />Guardar archivo</button>
+            <button onClick={onGuardar}><Icono n="guardar" size={15} />{archivoExp ? 'Guardar' : 'Guardar archivo'}</button>
             <button className="primario" onClick={onVolver}>Seguir trabajando<Icono n="flecha" size={15} /></button>
           </div>
         </section>

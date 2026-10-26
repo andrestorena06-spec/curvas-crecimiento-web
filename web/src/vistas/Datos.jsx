@@ -59,7 +59,7 @@ export function tablasDe(s) {
   if (ufcRes?.hay) {
     T.push({ id: 'ufc_rep', titulo: 'UFC/mL por réplica', columnas: ['Muestra', 'T_h', 'Replica', 'Diluciones_usadas', 'Colonias_usadas', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'log10', 'Estado', 'Incluida'],
       filas: ufcRes.reps.filter((r) => r.Conteos > 0).map((r) => ({ ...r, Incluida: ufcRes.fuera.has(`${r.Muestra}|${r.T_h}|${r.Replica}`) ? 'No' : 'Sí' })) })
-    T.push({ id: 'ufc_res', titulo: 'UFC/mL por cepa y tiempo (media geométrica)', columnas: ['Muestra', 'T_h', 'N', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'log10', 'DE_log10', 'Media_aritmetica', 'CV_pct', 'Estado'], filas: ufcRes.res })
+    T.push({ id: 'ufc_res', titulo: 'UFC/mL por cepa y tiempo (Σ colonias / Σ volumen sembrado)', columnas: ['Muestra', 'T_h', 'N', 'Colonias_suma', 'Volumen_mL', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'log10', 'DE_log10', 'Media_geometrica', 'CV_pct', 'Estado'], filas: ufcRes.res })
     const cr = crecimientoPorCepa(ufcRes.res).map(({ Muestra, c }) => ({ Muestra, mu_h: c?.mu, td_min: c?.td_min, lag_h: c?.lag_h, R2: c?.r2, Ventana: c?.ventana || c?.aviso, log10_N0: c?.log10_N0, aumento_log10: c?.crecimiento_log10, generaciones: c?.generaciones }))
     T.push({ id: 'ufc_crec', titulo: 'Crecimiento por recuento', columnas: Object.keys(cr[0] || { Muestra: 1 }), filas: cr })
   }

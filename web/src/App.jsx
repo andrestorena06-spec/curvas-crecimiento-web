@@ -8,6 +8,7 @@ import { GraficoCtx } from './ui/guardarImagen.jsx'
 import { PanelPersonalizar } from './ui/personalizar.jsx'
 import { Revision } from './ui/revision.jsx'
 import { descargarTexto, fs } from './utils.js'
+import { archivoDe, cancelado, elegirArchivo, elegirDestino, escribir, olvidarArchivo, puedeSobrescribir, recordarArchivo } from './archivoLocal.js'
 import { Asistente } from './vistas/Asistente.jsx'
 import { Inicio } from './vistas/Inicio.jsx'
 import { Resumen } from './vistas/Resumen.jsx'
@@ -112,6 +113,7 @@ export default function App() {
   const [persGraf, setPersGraf] = useState(null)               // gráfico abierto con clic derecho › Personalizar
   const [menuMovil, setMenuMovil] = useState(false)            // celular: el menú lateral se abre como cajón
   const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
+  const [archivoExp, setArchivoExp] = useState(null)   // { handle, nombre }: el .curvas.json de este experimento (Guardar lo sobrescribe)
   const inputCargar = useRef()
 
   useEffect(() => {
@@ -155,24 +157,64 @@ export default function App() {
   const irA = (p) => { setPaso(p); setArchivoAbierto(false); setAsistente(false); setMenuMovil(false); document.querySelector('.principal')?.scrollTo(0, 0) }
 
   // ---------- experimento ----------
-  const abrir = (e, aviso, primero) => { hist.current = { pasado: [], futuro: [], ultimo: 0 }; setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
+  const abrir = (e, aviso, primero) => { hist.current = { pasado: [], futuro: [], ultimo: 0 }; setArchivoExp(null); setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
   const crear = (datos) => { const e = expNuevo(datos); abrir(e, `Experimento «${datos.nombre}» creado.`, pasosDe(e)[1]) }
-  const guardar = () => {
+  const nombreSugerido = (e) => `${e.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')}.curvas.json`
+  const textoExp = (e) => JSON.stringify({ tipo: 'curvas-de-crecimiento', ...e, guardado: new Date().toISOString() })
+  // Guardar como: elegir dónde (Chrome / Edge); desde entonces «Guardar» escribe sobre ese archivo
+  const guardarComo = async () => {
     if (!exp) return
-    descargarTexto(JSON.stringify({ tipo: 'curvas-de-crecimiento', ...exp, guardado: new Date().toISOString() }), `${exp.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')}.curvas.json`, 'application/json')
+    if (!puedeSobrescribir()) return descargarTexto(textoExp(exp), nombreSugerido(exp), 'application/json')
+    try {
+      const handle = await elegirDestino(archivoExp?.nombre || nombreSugerido(exp))
+      await escribir(handle, textoExp(exp))
+      setArchivoExp({ handle, nombre: handle.name })
+      recordarArchivo(exp.id, handle)
+      avisar(`Guardado en «${handle.name}».`)
+    } catch (e) { if (!cancelado(e)) avisar(`No se pudo guardar: ${e.message}`, 'error') }
+  }
+  // Guardar: si el experimento vino de un archivo (o ya se guardó una vez), se sobrescribe ese archivo
+  const guardar = async () => {
+    if (!exp) return
+    if (!archivoExp?.handle) return guardarComo()
+    try {
+      await escribir(archivoExp.handle, textoExp(exp))
+      avisar(`Guardado en «${archivoExp.nombre}».`)
+    } catch (e) {
+      if (cancelado(e)) return
+      avisar(`No se pudo escribir «${archivoExp.nombre}» (${e.message}). Elegí dónde guardarlo.`, 'error')
+      guardarComo()
+    }
+  }
+  // Abrir: con Chrome / Edge se recuerda el archivo elegido para poder sobrescribirlo al guardar
+  const abrirArchivo = async () => {
+    if (!puedeSobrescribir()) return inputCargar.current.click()
+    try { const { handle, file } = await elegirArchivo(); cargarArchivo(file, handle) } catch (e) { if (!cancelado(e)) avisar(`No se pudo abrir: ${e.message}`, 'error') }
   }
   // Abre un .curvas.json o una sesión de una versión anterior del programa. Si el archivo trae varios
   // experimentos (versión anterior), se abre el que estaba activo y los demás quedan en «Recientes».
-  const cargarArchivo = async (file) => {
+  // Los archivos de versiones anteriores no se sobrescriben: el primer «Guardar» pide dónde guardar el nuevo.
+  const cargarArchivo = async (file, handle = null) => {
     try {
-      const { exps, activo, avisos: notas } = importarArchivo(JSON.parse((await file.text()).replace(/^﻿/, '')))
+      const j = JSON.parse((await file.text()).replace(/^\uFEFF/, ''))
+      const legado = Array.isArray(j?.exps) || j?.tipo === 'curvas-crecimiento'
+      const { exps, activo, avisos: notas } = importarArchivo(j)
       const otros = exps.filter((_, i) => i !== activo)
       if (otros.length) setRecientes((rs) => guardarRecientes([...otros.map((e) => ({ fecha: new Date().toISOString(), exp: e })), ...rs.filter((r) => !exps.some((e) => e.id === r.exp?.id))]))
       abrir(exps[activo], `Experimento «${file.name}» cargado${otros.length ? `; los otros ${otros.length} del archivo quedaron en «Recientes»` : ''}.`)
+      if (handle && !legado) { setArchivoExp({ handle, nombre: file.name }); recordarArchivo(exps[activo].id, handle) }
+      else olvidarArchivo(exps[activo].id)
+      if (legado) notas.unshift('Archivo de una versión anterior: al guardar se crea un archivo nuevo y el original queda como estaba.')
       notas.forEach((n) => avisar(n, 'error'))
     } catch (e) { avisar(`No se pudo cargar: ${e.message}`, 'error') }
   }
-  const abrirReciente = (r) => { try { abrir(normalizarExp(r.exp), `«${r.exp.nombre}» abierto.`) } catch (e) { avisar(e.message, 'error') } }
+  const guardarRef = useRef(null), guardarComoRef = useRef(null)
+  guardarRef.current = guardar
+  guardarComoRef.current = guardarComo
+  const abrirReciente = (r) => {
+    try { abrir(normalizarExp(r.exp), `«${r.exp.nombre}» abierto.`) } catch (e) { return avisar(e.message, 'error') }
+    archivoDe(r.exp.id).then((h) => setArchivoExp(h ? { handle: h, nombre: h.name } : null))
+  }
 
   // Deshacer / rehacer: los cambios seguidos (menos de 0,7 s entre uno y otro, como al escribir) cuentan como uno solo
   const expRef = useRef(null)
@@ -201,8 +243,10 @@ export default function App() {
   }, [])
   useEffect(() => {
     const k = (ev) => {
-      if (!(ev.ctrlKey || ev.metaKey) || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+      if (!(ev.ctrlKey || ev.metaKey)) return
       const t = ev.key.toLowerCase()
+      if (t === 's') { ev.preventDefault(); (ev.shiftKey ? guardarComoRef : guardarRef).current?.(); return }   // Ctrl + S / Ctrl + Mayús + S
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
       if (t === 'z' && !ev.shiftKey) { ev.preventDefault(); deshacer() }
       else if (t === 'y' || (t === 'z' && ev.shiftKey)) { ev.preventDefault(); rehacer() }
     }
@@ -280,7 +324,7 @@ export default function App() {
   }
 
   const s = {
-    exp, upd, setAj, setE, avisar, irA, archivoRef, agregarCepa, guardar, pasos, listo, estiloGrafico, setEstiloGrafico, setColorCepa, restablecerColores,
+    exp, upd, setAj, setE, avisar, irA, archivoRef, agregarCepa, guardar, guardarComo, archivoExp, pasos, listo, estiloGrafico, setEstiloGrafico, setColorCepa, restablecerColores,
     serie, pre, res, seriesAn, porCepa, modoCurva, ufcRes, muestras, colores, estilos, tema: TEMAS[tema],
     alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, alternarLectura, restablecerLecturas,
   }
@@ -293,7 +337,7 @@ export default function App() {
     if (exp.origenOd === 'placas') { const l = serie.extra?.lecturas || []; p.push(`${exp.placas.length} tiempos`, `${l.filter((x) => x.Usado).length}/${l.length} lecturas aceptadas`) }
     if (res?.length) { const mu = res.map((r) => r.mu_max).filter(Number.isFinite); if (mu.length) p.push(`μmax medio ${fs(mu.reduce((a, b) => a + b, 0) / mu.length, 3)} h⁻¹`) }
     if (ufcRes?.hay) p.push(`${ufcRes.reps.filter((r) => r.Conteos > 0).length} conteos de UFC`)
-    p.push('guardado automático en «Recientes»')
+    p.push(archivoExp ? `archivo «${archivoExp.nombre}» (Ctrl + S guarda)` : 'sin archivo: Ctrl + S para guardarlo', 'copia automática en «Recientes»')
     return p.join(' · ')
   })()
 
@@ -387,7 +431,7 @@ export default function App() {
             })()}
             {asistente ? <Asistente onCrear={crear} onCancelar={() => setAsistente(false)} hayExperimento={!!exp} />
               : Vista ? <Vista s={s} key={exp.id + pasoAct} />
-                : <Inicio onNuevo={() => setAsistente(true)} onCargar={() => inputCargar.current.click()} recientes={recientes} onAbrirReciente={abrirReciente} onBorrarReciente={borrarReciente}
+                : <Inicio onNuevo={() => setAsistente(true)} onCargar={abrirArchivo} onGuardarComo={guardarComo} archivoExp={archivoExp} recientes={recientes} onAbrirReciente={abrirReciente} onBorrarReciente={borrarReciente}
                   exp={exp} onGuardar={guardar} onVolver={() => setArchivoAbierto(false)} />}
           </main>
           </div>
