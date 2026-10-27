@@ -22,9 +22,11 @@ function regresion(x, y) {
 
 // pares: [{ od, ufc }] con od > 0 y ufc > 0
 export function ajustarCalibracion(pares, modelo) {
-  const p = pares.filter((q) => finito(q.od) && q.od > 0 && finito(q.ufc) && q.ufc > 0)
+  // la OD puede ser negativa (lecturas por debajo del blanco); solo el modelo log–log necesita OD > 0
+  const p = pares.filter((q) => finito(q.od) && (modelo !== 'potencia' || q.od > 0) && finito(q.ufc) && q.ufc > 0)
+  const sinPositiva = modelo === 'potencia' ? pares.filter((q) => finito(q.od) && q.od <= 0 && finito(q.ufc) && q.ufc > 0).length : 0
   const vacio = { ok: false, modelo, n: p.length }
-  if (p.length < 3) return { ...vacio, motivo: 'Hacen falta al menos 3 pares OD–UFC.' }
+  if (p.length < 3) return { ...vacio, motivo: sinPositiva ? `Hacen falta al menos 3 pares OD–UFC con OD > 0: el modelo log–log no admite OD ≤ 0 (${sinPositiva} par${sinPositiva > 1 ? 'es' : ''} con OD ≤ 0). Usá el modelo clásico o el lineal.` : 'Hacen falta al menos 3 pares OD–UFC.' }
   const od = p.map((q) => q.od), ufc = p.map((q) => q.ufc), lg = ufc.map(Math.log10)
   let pred, coef, eq
   if (modelo === 'clasico') {

@@ -129,7 +129,7 @@ export function Combinado({ s }) {
               <thead><tr><th>Cepa</th><th>Ecuación</th><th className="num">R² (log₁₀)</th><th className="num" data-tip="Error típico de la predicción, en órdenes de magnitud (log₁₀)">Error típico</th><th className="num">Pares</th><th className="num">Rango de OD</th></tr></thead>
               <tbody>{filas.map((f) => (
                 <tr key={f.nombre}><td><i className="punto" style={{ background: f.color, marginRight: 6 }} /><b>{f.nombre}</b></td>
-                  {f.c.ok ? <><td><code>{f.c.ecuacion}</code></td><td className="num">{fx(f.c.R2, 3)}</td><td className="num">{fx(f.c.sigma, 2)} log</td><td className="num">{f.c.n}</td><td className="num">{fx(f.c.rango[0], 2)}–{fx(f.c.rango[1], 2)}</td></>
+                  {f.c.ok ? <><td><code>{f.c.ecuacion}</code></td><td className="num">{fx(f.c.R2, 3)}</td><td className="num">{fx(f.c.sigma, 2)} log</td><td className="num">{f.c.n}</td><td className="num">{fx(f.c.rango[0], 2)} a {fx(f.c.rango[1], 2)}</td></>
                     : <td colSpan={5} className="ayuda">{f.c.motivo}</td>}
                 </tr>
               ))}</tbody>
