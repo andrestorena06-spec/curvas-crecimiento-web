@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { useOpcion } from '../ui/opciones.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { METODOS_ATIPICOS } from '../motor/atipicos.js'
 import { TEMAS, rellenoPocillo, useTema } from '../tema.js'
@@ -189,9 +190,9 @@ export function VistaCalidadPlacas({ s }) {
   const lecturas = s.serie.extra?.lecturas || []
   const tiempos = [...new Set(lecturas.map((l) => l.Placa_T_h))].sort((a, b) => a - b)
   const [t, setT] = useState(tiempos[0])
-  const [vista, setVista] = useState('puntos')
+  const [vista, setVista] = useOpcion('calidadPlacas.vista', 'puntos')
   const [pers, setPers] = useState(false)
-  const [o, setOAll] = useState({ puntos: true, medias: true, errores: true, error: 'sd', blanco: true })
+  const [o, setOAll] = useOpcion('calidadPlacas.grafico', { puntos: true, medias: true, errores: true, error: 'sd', blanco: true })
   const setO = (k, v) => setOAll({ ...o, [k]: v })
   const tt = tiempos.includes(t) ? t : tiempos[0]
   const lectT = lecturas.filter((l) => l.Placa_T_h === tt && (o.blanco || !l.EsBlanco))

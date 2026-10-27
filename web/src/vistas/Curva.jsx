@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useOpcion } from '../ui/opciones.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { nombreReplica } from '../motor/pipeline.js'
 import { Campo, Check, Encabezado, Icono, Seg, Vacio } from '../ui/base.jsx'
@@ -24,14 +25,14 @@ export function mediaPorTiempo(series, tr, error) {
 
 export function Curva({ s }) {
   const { pre, exp } = s
-  const [modo, setModo] = useState('media')
-  const [escala, setEscala] = useState('lineal')
-  const [error, setError] = useState('sd')
+  const [modo, setModo] = useOpcion('curva.modo', 'media')
+  const [escala, setEscala] = useOpcion('curva.escala', 'lineal')
+  const [error, setError] = useOpcion('curva.error', 'sd')
   const ocultas = cepasOcultas(exp)
   const [ocultasRep, setOcultasRep] = useState([])   // réplicas (pocillos) ocultas en el gráfico
-  const [puntos, setPuntos] = useState(exp.origenOd !== 'tecan')
-  const [verValor, setVerValor] = useState(false)
-  const [verError, setVerError] = useState(false)
+  const [puntos, setPuntos] = useOpcion('curva.puntos.' + exp.origenOd, exp.origenOd !== 'tecan')
+  const [verValor, setVerValor] = useOpcion('curva.valor', false)
+  const [verError, setVerError] = useOpcion('curva.conError', false)
   const [pers, setPers] = useState(false)
   const wsTodas = useMemo(() => (pre && !pre.error ? pre.proc.filter((w) => !w.EsBlanco) : []), [pre])
   const muestras = [...new Set(wsTodas.map((w) => w.Muestra))]
