@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useOpcion } from '../ui/opciones.js'
 import { dMuUfc, dPromedioUfc } from '../calculos.js'
 import { finito } from '../motor/analisis.js'
 import { ERRORES_UFC, crecimientoUfc, curvaSuaveUfc, errorUfc, textoErrorUfc } from '../motor/ufc.js'
@@ -20,7 +21,7 @@ export const crecimientoPorCepa = (res) => {
 export function CurvaUfc({ s }) {
   const T = useTema()
   const { exp, ufcRes } = s
-  const [escala, setEscala] = useState('log10')
+  const [escala, setEscala] = useOpcion('curvaUfc.escala', 'log10')
   const tipoErr = verUfc(exp.aj).error
   const v = { replicas: false, valores: false, conError: false, errores: true, ...(exp.aj.ufc_ver_curva || {}) }
   const setV = (k, x) => s.upd((e) => ({ aj: { ...e.aj, ufc_ver_curva: { ...(e.aj.ufc_ver_curva || {}), [k]: x } } }))

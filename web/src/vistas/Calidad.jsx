@@ -1,4 +1,5 @@
 import { METODOS_ATIPICOS } from '../motor/atipicos.js'
+import { useOpcion } from '../ui/opciones.js'
 import { useMemo, useState } from 'react'
 import { finito } from '../motor/analisis.js'
 import { clavePunto, nombreReplica, r3 } from '../motor/pipeline.js'
@@ -115,8 +116,8 @@ const ESTILO_EST = (T) => ({
 // ---------- ventana emergente de un pocillo ----------
 export function ModalPocillo({ s, p, onClose }) {
   const T = useTema()
-  const [ln, setLn] = useState(false)
-  const [otras, setOtras] = useState(true)
+  const [ln, setLn] = useOpcion('calidad.ln', false)
+  const [otras, setOtras] = useOpcion('calidad.otras', true)
   const c = s.serie.config.find((x) => x.Pocillo === p)
   const pts = puntosDe(s, p)
   const tr = (v) => (ln ? Math.log(v) : v)
@@ -308,7 +309,7 @@ function TablaQC({ s, onAbrir }) {
 }
 
 export function Calidad({ s }) {
-  const [vista, setVista] = useState(s.exp.origenOd === 'tecan' ? 'placa' : 'cepas')
+  const [vista, setVista] = useOpcion('calidad.vista.' + s.exp.origenOd, s.exp.origenOd === 'tecan' ? 'placa' : 'cepas')
   const [abierto, setAbierto] = useState(null)
   const [ajustes, setAjustes] = useState(false)
   const { pre, exp, setAj } = s

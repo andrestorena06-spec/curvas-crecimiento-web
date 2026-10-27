@@ -1,4 +1,5 @@
 import { curvaSuaveUfc } from '../motor/ufc.js'
+import { useOpcion } from '../ui/opciones.js'
 import { useMemo, useState } from 'react'
 import { MODELOS_CALIB, ajustarCalibracion, odDesdeUfc } from '../motor/calibracion.js'
 import { finito, interpolar, media } from '../motor/analisis.js'
@@ -34,7 +35,7 @@ export function paresOdUfc(s) {
 export function Combinado({ s }) {
   const T = useTema()
   const { pre, ufcRes, exp, res } = s
-  const [modelo, setModelo] = useState('clasico')
+  const [modelo, setModelo] = useOpcion('combinado.modelo', 'clasico')
   const [odIn, setOdIn] = useState(0.5)
   const [ufcIn, setUfcIn] = useState(1e8)
   const [pers, setPers] = useState(null)
