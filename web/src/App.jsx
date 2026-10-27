@@ -8,6 +8,7 @@ import { GraficoCtx } from './ui/guardarImagen.jsx'
 import { PanelPersonalizar } from './ui/personalizar.jsx'
 import { Revision } from './ui/revision.jsx'
 import { descargarTexto, fs } from './utils.js'
+import { OpcionesCtx } from './ui/opciones.js'
 import { archivoDe, cancelado, elegirArchivo, elegirDestino, escribir, olvidarArchivo, puedeSobrescribir, recordarArchivo } from './archivoLocal.js'
 import { Asistente } from './vistas/Asistente.jsx'
 import { Inicio } from './vistas/Inicio.jsx'
@@ -109,7 +110,6 @@ export default function App() {
   const [panelRev, setPanelRev] = useState(false)
   const [nodoCinta, setNodoCinta] = useState(null)
   const [menuCorto, setMenuCorto] = useState(() => leer(CLAVE_MENU) || false)
-  const [gruposCerrados, setGruposCerrados] = useState([])   // grupos del menú plegados a mano
   const [persGraf, setPersGraf] = useState(null)               // gráfico abierto con clic derecho › Personalizar
   const [menuMovil, setMenuMovil] = useState(false)            // celular: el menú lateral se abre como cajón
   const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
@@ -154,10 +154,10 @@ export default function App() {
 
   const pasos = pasosDe(exp)
   const pasoAct = pasos.includes(paso) ? paso : pasos[0]
-  const irA = (p) => { setPaso(p); setArchivoAbierto(false); setAsistente(false); setMenuMovil(false); document.querySelector('.principal')?.scrollTo(0, 0) }
+  const irA = (p) => { setPaso(p); guardarOpcion('app.paso', p); setArchivoAbierto(false); setAsistente(false); setMenuMovil(false); document.querySelector('.principal')?.scrollTo(0, 0) }
 
   // ---------- experimento ----------
-  const abrir = (e, aviso, primero) => { hist.current = { pasado: [], futuro: [], ultimo: 0 }; setArchivoExp(null); setExp(e); setPaso(primero || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
+  const abrir = (e, aviso, primero) => { hist.current = { pasado: [], futuro: [], ultimo: 0 }; setArchivoExp(null); setExp(e); setPaso(primero || e.opciones?.['app.paso'] || 'resumen'); setAsistente(false); setArchivoAbierto(false); archivoRef.current = null; if (aviso) avisar(aviso) }
   const crear = (datos) => { const e = expNuevo(datos); abrir(e, `Experimento «${datos.nombre}» creado.`, pasosDe(e)[1]) }
   const nombreSugerido = (e) => `${e.nombre.replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g, '_')}.curvas.json`
   const textoExp = (e) => JSON.stringify({ tipo: 'curvas-de-crecimiento', ...e, guardado: new Date().toISOString() })
@@ -217,6 +217,10 @@ export default function App() {
   }
 
   // Deshacer / rehacer: los cambios seguidos (menos de 0,7 s entre uno y otro, como al escribir) cuentan como uno solo
+  // opciones de vista guardadas en el experimento (sin pasar por deshacer / rehacer)
+  const guardarOpcion = useCallback((clave, valor) => setExp((e) => (e ? { ...e, opciones: { ...(e.opciones || {}), [clave]: valor } } : e)), [])
+  const gruposCerrados = exp?.opciones?.['menu.cerrados'] || []
+  const setGruposCerrados = (x) => guardarOpcion('menu.cerrados', typeof x === 'function' ? x(gruposCerrados) : x)
   const expRef = useRef(null)
   expRef.current = exp
   const hist = useRef({ pasado: [], futuro: [], ultimo: 0 })
@@ -347,7 +351,7 @@ export default function App() {
 
   return (
     <TemaCtx.Provider value={TEMAS[tema]}>
-      <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}>
+      <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}><OpcionesCtx.Provider value={{ opciones: exp?.opciones || {}, set: guardarOpcion }}>
         <div className="app">
           <header className="barra-titulo">
             <button className="titulo-boton solo-movil hamburguesa" onClick={() => setMenuMovil(!menuMovil)} aria-label="Menú"><Icono n={menuMovil ? 'x' : 'hamburguesa'} size={18} /></button>
@@ -443,7 +447,7 @@ export default function App() {
           {exp && <Cajon titulo="Personalizar gráfico" abierto={!!persGraf} onClose={() => setPersGraf(null)}><PanelPersonalizar s={s} id={persGraf} /></Cajon>}
           <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
         </div>
-      </CintaCtx.Provider></GraficoCtx.Provider>
+      </OpcionesCtx.Provider></CintaCtx.Provider></GraficoCtx.Provider>
     </TemaCtx.Provider>
   )
 }
