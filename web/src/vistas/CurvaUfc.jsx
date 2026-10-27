@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { dMuUfc, dPromedioUfc } from '../calculos.js'
 import { finito } from '../motor/analisis.js'
-import { crecimientoUfc, curvaSuaveUfc } from '../motor/ufc.js'
+import { ERRORES_UFC, crecimientoUfc, curvaSuaveUfc, errorUfc, textoErrorUfc } from '../motor/ufc.js'
+import { OPCIONES_CURVA_UFC, OPCIONES_ERROR_UFC, curvaUfcDe, verUfc } from './CalidadUfc.jsx'
 import { useTema } from '../tema.js'
 import { Campo, Encabezado, Icono, Seg, Vacio } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
@@ -19,7 +20,9 @@ export function CurvaUfc({ s }) {
   const T = useTema()
   const { exp, ufcRes } = s
   const [escala, setEscala] = useState('log10')
-  const [error, setError] = useState('sd')
+  const tipoErr = verUfc(exp.aj).error
+  const v = { replicas: false, valores: false, errores: true, ...(exp.aj.ufc_ver_curva || {}) }
+  const setV = (k, x) => s.upd((e) => ({ aj: { ...e.aj, ufc_ver_curva: { ...(e.aj.ufc_ver_curva || {}), [k]: x } } }))
   const [pers, setPers] = useState(null)
   const crec = useMemo(() => (ufcRes?.hay ? crecimientoPorCepa(ufcRes.res) : []), [ufcRes])
   if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Curva UFC vs t" /><Vacio titulo="Todavía no hay conteos">Cargá las colonias en «Conteo».</Vacio></div>
@@ -28,15 +31,20 @@ export function CurvaUfc({ s }) {
   const lin = escala === 'lineal'
   const pot = lin ? Math.floor(Math.log10(Math.max(...res.map((r) => r.UFC_mL)))) : 0
   const series = muestras.map((m) => ({
-    id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, forma: 'cuadrado', radio: 4, ancho: 2, errores: true,
+    id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, forma: 'cuadrado', radio: 4, ancho: 2, errores: v.errores,
+    etiqueta: v.valores ? (d) => d.valor : undefined,
     data: res.filter((r) => r.Muestra === m).sort((a, b) => a.T_h - b.T_h).map((r) => {
-      const e = error === 'sd' ? r.DE_log10 : finito(r.IC95_inf) ? r.log10 - Math.log10(r.IC95_inf) : NaN
-      const y = lin ? r.UFC_mL / 10 ** pot : r.log10
-      const lo = lin ? (finito(e) ? 10 ** (r.log10 - e) / 10 ** pot : NaN) : r.log10 - e
-      const hi = lin ? (finito(e) ? 10 ** (r.log10 + e) / 10 ** pot : NaN) : r.log10 + e
-      return { x: r.T_h, y, lo, hi, tip: `${m} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)\n${r.Colonias_suma} colonias en ${r.N} réplica${r.N === 1 ? '' : 's'}\nlog₁₀ = ${fx(r.log10, 2)}${finito(r.DE_log10) ? ` (DE entre réplicas ${fx(r.DE_log10, 2)})` : ''}` }
+      const e = errorUfc(r, lin ? 'lineal' : 'log10', tipoErr)
+      const k = lin ? 10 ** pot : 1
+      const valor = (v.errores ? textoErrorUfc(e, lin, tipoErr) : lin ? sciCorto(e.m) : fx(e.m, 2)).replace('\n', ' ')
+      return { x: r.T_h, y: e.m / k, lo: e.lo / k, hi: e.hi / k, valor, tip: `${m} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)\n${r.Colonias_suma} colonias en ${r.N} réplica${r.N === 1 ? '' : 's'}\nlog₁₀ = ${fx(r.log10, 2)}${finito(r.DE_log10) ? ` (DE entre réplicas ${fx(r.DE_log10, 2)})` : ''}` }
     }),
   }))
+  // réplicas: cada conteo como un punto chico, para ver cuánto se aparta de la media
+  if (v.replicas) muestras.forEach((m) => {
+    series.push({ id: 'rep' + m, nombre: '', color: s.colores[m], linea: false, puntos: true, radio: 3, opacidad: 0.75,
+      data: ufcRes.reps.filter((r) => r.Muestra === m && finito(r.log10) && !ufcRes.fuera.has(`${r.Muestra}|${r.T_h}|${r.Replica}`)).map((r) => ({ x: r.T_h, y: lin ? r.UFC_mL / 10 ** pot : r.log10, tip: `${m} · réplica ${r.Replica} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (log₁₀ ${fx(r.log10, 2)})` })) })
+  })
   // recta de μ sobre la ventana elegida
   crec.forEach(({ Muestra, c }) => {
     if (!exp.aj.ufc_recta || !c || !finito(c.mu) || lin) return
@@ -57,9 +65,14 @@ export function CurvaUfc({ s }) {
       </Encabezado>
       <Cinta>
         <Grupo titulo="Escala"><OpcionesCinta valor={escala} onChange={setEscala} opciones={[['log10', 'log₁₀', 'lg'], ['lineal', 'Lineal', 'N']]} /></Grupo>
-        <Grupo titulo="Barras"><OpcionesCinta valor={error} onChange={setError} opciones={[['sd', 'DE de log₁₀', 's'], ['ic', 'IC 95 % (Poisson)', 'IC']]} /></Grupo>
+        <Grupo titulo="Mostrar">
+          <BotonCinta simbolo="•" texto="Réplicas" activo={v.replicas} onClick={() => setV('replicas', !v.replicas)} tip={'Cada conteo como un punto\nPara ver cuánto se aparta cada réplica de la media'} />
+          <BotonCinta simbolo="12" texto="Valores" activo={v.valores} onClick={() => setV('valores', !v.valores)} tip={'Valor de cada media\nCon su error si «Error» está activo'} />
+          <BotonCinta simbolo="±" texto="Error" activo={v.errores} onClick={() => setV('errores', !v.errores)} tip={'Barras de error\nDel tipo elegido en «Tipo de error»'} />
+        </Grupo>
+        <Grupo titulo="Tipo de error"><OpcionesCinta valor={tipoErr} onChange={(x) => s.setAj('ufc_err', x)} opciones={OPCIONES_ERROR_UFC} /></Grupo>
         <Grupo titulo="Gráfico">
-          <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
+          <OpcionesCinta valor={curvaUfcDe(exp.aj)} onChange={(x) => s.setAj('ufc_suave', x === 'no' ? false : x)} opciones={OPCIONES_CURVA_UFC} />
           <BotonCinta simbolo="⟋" texto="Recta de μ" activo={!!exp.aj.ufc_recta} onClick={() => s.setAj('ufc_recta', !exp.aj.ufc_recta)} tip="Recta de la pendiente máxima de ln(UFC/mL) usada para μ" />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'curvaUfc'} onClick={() => setPers(pers === 'curvaUfc' ? null : 'curvaUfc')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
