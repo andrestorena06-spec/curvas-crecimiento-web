@@ -422,13 +422,19 @@ export function resultadosUfc(e) {
       if (d.idx !== null) { const r = g[d.idx]; dixon[`${r.Muestra}|${r.T_h}|${r.Replica}`] = `RSD del grupo = ${d.stat.toFixed(1)} % > límite ${lim} % (réplica más alejada de la media, extremo ${d.lado}; sin ella, RSD = ${d.cvSin.toFixed(1)} %).` }
       return
     }
+    if (e.aj.ufc_atip_metodo === 'grubbs') {
+      const conf = Number(e.aj.ufc_dixon_conf) || 95
+      const d = detectar(g.map((r) => r.log10), { metodo: 'grubbs', conf })
+      if (d.idx !== null && d.idx !== undefined) { const r = g[d.idx]; dixon[`${r.Muestra}|${r.T_h}|${r.Replica}`] = `Test de Grubbs sobre log₁₀: G = ${d.stat.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n}, ${conf} %), extremo ${d.lado}.` }
+      return
+    }
     const d = dixonQ(g.map((r) => r.log10), Number(e.aj.ufc_dixon_conf) || 95)
     if (d) {
       const r = g[d.i]
       dixon[`${r.Muestra}|${r.T_h}|${r.Replica}`] = `${d.metodo === 'Grubbs' ? 'Test de Grubbs' : 'Test Q de Dixon'} sobre log₁₀: ${d.metodo === 'Grubbs' ? 'G' : 'Q'} = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n}, ${d.conf} %), extremo ${d.lado}.`
     }
   })
-  const fuera = new Set([...e.ufcExcl, ...(e.aj.ufc_dixon_on !== false ? Object.keys(dixon).filter((k) => !forz.has(k)) : [])])
+  const fuera = new Set([...e.ufcExcl, ...(e.aj.ufc_dixon_on !== false && e.aj.ufc_auto !== false ? Object.keys(dixon).filter((k) => !forz.has(k)) : [])])
   const usadas = filasD.filter((f) => !fuera.has(claveUfc(f)))
   const res = motor(usadas)
   return { ...res, reps: todas.reps, dixon, fuera }

@@ -13,6 +13,7 @@
 import { LETRAS, convertirNumero } from './lectura.js'
 import { desvio, finito, interpolar, media } from './analisis.js'
 import { ajustarBaranyiLn } from './modelos.js'
+import { tCuantil } from '../utils.js'
 
 // ---------- parámetros ----------
 export const ufcDef = () => ({
@@ -312,6 +313,31 @@ export function calcularUfc(u) {
   const ts = [...new Set(regs.map((r) => r.T_h))].sort((a, b) => a - b)
   return { reps, res, muestras, ts, hay: reps.some((r) => r.Conteos > 0) }
 }
+
+// ---------- error de un promedio de UFC para mostrar ----------
+// r: fila de resultados (cepa y tiempo). escala: 'log10' | 'lineal'. tipo: 'sd' (DE), 'cv' (DE % = CV de las UFC/mL;
+// las barras son la DE), 'sem' (EEM = DE / √n) o 'ic95' (IC 95 % = media ± t(0,975; n − 1) · DE / √n), como en Calidad OD.
+// En log₁₀ la DE es la de log₁₀ de cada réplica; en lineal, la de las UFC/mL. Devuelve { m, lo, hi, err, cv, n }.
+export const ERRORES_UFC = { sd: 'DE', cv: 'DE %', sem: 'EEM', ic95: 'IC 95 %' }
+export function errorUfc(r, escala = 'log10', tipo = 'sd') {
+  const lin = escala === 'lineal'
+  const vals = (r._vals || []).filter((v) => finito(v) && v > 0)
+  const xs = lin ? vals : vals.map(Math.log10)
+  const m = lin ? r.UFC_mL : r.log10
+  const n = xs.length
+  const sd = n > 1 ? desvio(xs) : NaN
+  const cv = vals.length > 1 ? (100 * desvio(vals)) / media(vals) : NaN
+  const err = tipo === 'sem' ? sd / Math.sqrt(n) : tipo === 'ic95' ? (n > 1 ? (tCuantil(0.975, n - 1) * sd) / Math.sqrt(n) : NaN) : sd
+  return { m, lo: m - err, hi: m + err, err, cv, n }
+}
+// texto «media ± error» para poner sobre la media
+export function textoErrorUfc(e, lin, tipo) {
+  const f = (v) => (lin ? sciUfc(v) : v.toFixed(2).replace('.', ','))
+  if (!finito(e.m)) return ''
+  if (tipo === 'cv') return finito(e.cv) ? `${f(e.m)}\n± ${e.cv.toFixed(0)} %` : f(e.m)
+  return finito(e.err) ? `${f(e.m)}\n± ${f(e.err)}` : f(e.m)
+}
+const sciUfc = (v) => (finito(v) ? v.toExponential(2).replace('.', ',').replace('e+', 'E+').replace('e-', 'E-') : '–')
 
 // ---------- crecimiento a partir de los recuentos ----------
 // μ: pendiente máxima de ln(UFC/mL) contra el tiempo en 3 o más tiempos consecutivos; lag: tangente contra el nivel inicial
