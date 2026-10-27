@@ -14,20 +14,22 @@ import { SelectorCepas, cepasOcultas } from '../ui/cepas.jsx'
 import { crecimientoPorCepa } from './CurvaUfc.jsx'
 
 // Pares OD–UFC de la misma cepa y tiempo (la OD media se interpola si no hay lectura exacta en ese tiempo)
-export function paresOdUfc(s) {
+// tipoErr: error de la OD media (DE, EEM o IC 95 %) que acompaña a cada par
+export function paresOdUfc(s, tipoErr = 'sd') {
   if (!s.pre || s.pre.error || !s.ufcRes?.hay) return []
   const ws = s.pre.proc.filter((w) => !w.EsBlanco)
   const out = []
   s.ufcRes.res.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0).forEach((r) => {
     const g = ws.filter((w) => w.Muestra === r.Muestra)
     if (!g.length) return
-    const mt = mediaPorTiempo(g, (v) => v, 'sd')
+    const mt = mediaPorTiempo(g, (v) => v, tipoErr)
     if (mt.length < 1) return
     const ts = mt.map((q) => q.t / 3600)
     if (r.T_h < ts[0] - 1e-9 || r.T_h > ts[ts.length - 1] + 1e-9) return
     const exacto = mt.find((q) => Math.abs(q.t / 3600 - r.T_h) < 1e-6)
     const od = exacto ? exacto.m : interpolar(ts, mt.map((q) => q.m), [r.T_h])[0]
-    out.push({ Muestra: r.Muestra, T_h: r.T_h, OD: od, OD_interpolada: !exacto, UFC_mL: r.UFC_mL, log10_UFC: r.log10, UFC_por_OD: od > 0 ? r.UFC_mL / od : NaN })
+    const eOd = exacto ? exacto.hi - exacto.m : interpolar(ts, mt.map((q) => q.hi - q.m), [r.T_h])[0]
+    out.push({ Muestra: r.Muestra, T_h: r.T_h, OD: od, OD_err: eOd, _ufc: r, OD_interpolada: !exacto, UFC_mL: r.UFC_mL, log10_UFC: r.log10, UFC_por_OD: od > 0 ? r.UFC_mL / od : NaN })
   })
   return out
 }
@@ -44,8 +46,11 @@ export function Combinado({ s }) {
   const [verValor, setVerValor] = useOpcion('combinado.valor', false)
   const [valorErr, setValorErr] = useOpcion('combinado.conError', false)
   const nomErr = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }[tipoErr] || 'DE'
-  const pares = useMemo(() => paresOdUfc(s), [pre, ufcRes]) // eslint-disable-line react-hooks/exhaustive-deps
+  const pares = useMemo(() => paresOdUfc(s, tipoErr), [pre, ufcRes, tipoErr]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [ajuste, setAjuste] = useOpcion('combinado.ajuste', 'cepa')     // 'cepa': una ecuación por cepa · 'todas': una sola con todas las cepas visibles
+  const [cepaConv, setCepaConv] = useOpcion('combinado.cepaConv', '')
   const cal = useMemo(() => ajustarCalibracion(pares.filter((p) => !cepasOcultas(exp).includes(p.Muestra)).map((p) => ({ od: p.OD, ufc: p.UFC_mL })), modelo), [pares, modelo, exp.aj.cepas_ocultas])
+  const calCepa = useMemo(() => Object.fromEntries([...new Set(pares.map((p) => p.Muestra))].map((m) => [m, ajustarCalibracion(pares.filter((p) => p.Muestra === m).map((p) => ({ od: p.OD, ufc: p.UFC_mL })), modelo)])), [pares, modelo])
   if (!pre || pre.error || !ufcRes?.hay) return <div className="pagina"><Encabezado titulo="OD + UFC" /><Vacio titulo="Faltan datos">Hacen falta curvas de OD procesadas y conteos de UFC.</Vacio></div>
 
   const ws = pre.proc.filter((w) => !w.EsBlanco)
@@ -64,9 +69,17 @@ export function Combinado({ s }) {
   })
   // calibración
   const pv = pares.filter((p) => vis.includes(p.Muestra))
-  const calSeries = [...new Set(pv.map((p) => p.Muestra))].map((m) => ({ id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, radio: 4,
-    data: pv.filter((p) => p.Muestra === m).map((p) => ({ x: p.OD, y: p.log10_UFC, tip: `${m} · T = ${p.T_h} h\nOD = ${fx(p.OD, 3)}${p.OD_interpolada ? ' (interpolada)' : ''}\nUFC/mL = ${sciCorto(p.UFC_mL)}` })) }))
-  if (cal.ok) {
+  const calSeries = [...new Set(pv.map((p) => p.Muestra))].map((m) => ({ id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, radio: 4, errores: conErr,
+    etiqueta: verValor ? (d) => d.valor : undefined,
+    data: pv.filter((p) => p.Muestra === m).map((p) => {
+      const e = errorUfc(p._ufc, 'log10', tipoErr)
+      return { x: p.OD, y: p.log10_UFC, lo: e.lo, hi: e.hi, xlo: finito(p.OD_err) ? p.OD - p.OD_err : NaN, xhi: finito(p.OD_err) ? p.OD + p.OD_err : NaN,
+        valor: (valorErr ? textoErrorUfc(e, false, tipoErr) : fx(p.log10_UFC, 2)).replace('\n', ' '),
+        tip: `${m} · T = ${p.T_h} h\nOD = ${fx(p.OD, 3)}${finito(p.OD_err) ? ` ± ${fx(p.OD_err, 3)} (${nomErr})` : ''}${p.OD_interpolada ? ' (interpolada)' : ''}\nUFC/mL = ${sciCorto(p.UFC_mL)}\nlog₁₀ = ${fx(p.log10_UFC, 2)}${finito(e.err) ? ` ± ${fx(e.err, 2)} (${nomErr})` : ''}` }
+    }) }))
+  const recta = (c) => { const xs = Array.from({ length: 60 }, (_, i) => c.rango[0] + ((c.rango[1] - c.rango[0]) * i) / 59); return xs.map((x) => ({ x, y: Math.log10(c.pred(x)) })).filter((d) => finito(d.y)) }
+  if (ajuste === 'cepa') vis.forEach((m) => { const c = calCepa[m]; if (c?.ok) calSeries.push({ id: 'aj' + m, nombre: '', color: s.colores[m], ancho: 1.8, data: recta(c) }) })
+  if (ajuste === 'todas' && cal.ok) {
     const xs = Array.from({ length: 60 }, (_, i) => cal.rango[0] + ((cal.rango[1] - cal.rango[0]) * i) / 59)
     calSeries.push({ id: 'ajuste', nombre: 'Ajuste', color: T.acento, ancho: 2, data: xs.map((x) => ({ x, y: Math.log10(cal.pred(x)) })).filter((d) => finito(d.y)) })
   }
@@ -82,7 +95,9 @@ export function Combinado({ s }) {
           <BotonCinta simbolo="±" texto="Con error" activo={valorErr} onClick={() => { setValorErr(!valorErr); if (!verValor) setVerValor(true) }} tip="Agregar el error al valor" />
         </Grupo>
         <Grupo titulo="Tipo de error"><OpcionesCinta valor={tipoErr} onChange={setTipoErr} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan las réplicas entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} /></Grupo>
-        <Grupo titulo="Calibración"><CampoCinta etiqueta="Modelo"><Sel value={modelo} onChange={setModelo} opciones={Object.entries(MODELOS_CALIB)} /></CampoCinta></Grupo>
+        <Grupo titulo="Calibración">
+          <OpcionesCinta valor={ajuste} onChange={setAjuste} opciones={[['cepa', 'Por cepa', '≡', null, 'Una ecuación para cada cepa'], ['todas', 'Todas juntas', '∑', null, 'Una sola ecuación con todas las cepas visibles (se muestran también las de cada cepa)']]} />
+          <CampoCinta etiqueta="Modelo"><Sel value={modelo} onChange={setModelo} opciones={Object.entries(MODELOS_CALIB)} /></CampoCinta></Grupo>
         <Grupo titulo="Gráfico">
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
           <BotonCinta icono="editar" texto="Personalizar OD + UFC" activo={pers === 'combinado'} onClick={() => setPers(pers === 'combinado' ? null : 'combinado')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
@@ -100,23 +115,34 @@ export function Combinado({ s }) {
       <div>
         <div className="tarjeta" style={{ minWidth: 0 }}>
           <h2>Calibración OD ↔ UFC/mL</h2>
+          <SelectorCepas s={s} muestras={[...new Set(pares.map((p) => p.Muestra))]} />
           {pv.length < 3 ? <p className="aviso-caja">Hacen falta al menos 3 pares OD–UFC (misma cepa y tiempo) dentro del rango de tiempo de la OD.</p> : (
             <Grafico series={calSeries} xTxt="OD" yTxt="log₁₀ UFC/mL" alto={330} nombre="calibracion" estilo={s.estiloGrafico('calibracion')} idEstilo="calibracion" />
           )}
           <div className="calib-resultado" style={{ marginTop: 12 }}>
-        {cal.ok ? (<>
-          <p style={{ marginTop: 0 }}><b>{MODELOS_CALIB[modelo]}</b> · <code>{cal.ecuacion}</code></p>
-          <div className="grid-kpi" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-            <div className="kpi"><small>R² (log₁₀)</small><b>{fx(cal.R2, 3)}</b></div>
-            <div className="kpi" data-tip="Error típico de la predicción, en órdenes de magnitud (log₁₀) y como porcentaje"><small>Error típico</small><b>{fx(cal.sigma, 2)} log</b></div>
-            <div className="kpi"><small>Pares</small><b>{cal.n}</b></div>
-            <div className="kpi"><small>Rango de OD</small><b style={{ fontSize: 14 }}>{fx(cal.rango[0], 2)}–{fx(cal.rango[1], 2)}</b></div>
-          </div>
-          <h3>Convertir</h3>
-          <Campo label="OD → UFC/mL"><div className="fila"><Num value={odIn} onChange={setOdIn} ancho={90} /><b>{sciCorto(cal.pred(Number(odIn)))}</b></div></Campo>
-          <Campo label="UFC/mL → OD"><div className="fila"><Num value={ufcIn} onChange={setUfcIn} ancho={110} /><b>{fx(odDesdeUfc(cal, Number(ufcIn)), 3)}</b></div></Campo>
-          {(Number(odIn) < cal.rango[0] || Number(odIn) > cal.rango[1]) && <p className="aviso-caja">Esa OD está fuera del rango calibrado: es una extrapolación.</p>}
-        </>) : <p className="ayuda" style={{ marginTop: 10 }}>{cal.motivo}</p>}
+        {(() => {
+          const filas = [...vis.filter((m) => calCepa[m]).map((m) => ({ id: m, nombre: m, color: s.colores[m], c: calCepa[m] })), ...(ajuste === 'todas' ? [{ id: '', nombre: 'Todas juntas', color: T.acento, c: cal }] : [])]
+          const usar = filas.find((f) => f.id === cepaConv && f.c.ok) || filas.find((f) => (ajuste === 'todas' ? f.id === '' : true) && f.c.ok)
+          return (<>
+            <p style={{ marginTop: 0 }}><b>{MODELOS_CALIB[modelo]}</b> · {ajuste === 'cepa' ? 'una ecuación por cepa' : 'una ecuación con todas las cepas visibles (y la de cada cepa)'}</p>
+            <div className="tabla-scroll"><table className="tabla">
+              <thead><tr><th>Cepa</th><th>Ecuación</th><th className="num">R² (log₁₀)</th><th className="num" data-tip="Error típico de la predicción, en órdenes de magnitud (log₁₀)">Error típico</th><th className="num">Pares</th><th className="num">Rango de OD</th></tr></thead>
+              <tbody>{filas.map((f) => (
+                <tr key={f.nombre}><td><i className="punto" style={{ background: f.color, marginRight: 6 }} /><b>{f.nombre}</b></td>
+                  {f.c.ok ? <><td><code>{f.c.ecuacion}</code></td><td className="num">{fx(f.c.R2, 3)}</td><td className="num">{fx(f.c.sigma, 2)} log</td><td className="num">{f.c.n}</td><td className="num">{fx(f.c.rango[0], 2)}–{fx(f.c.rango[1], 2)}</td></>
+                    : <td colSpan={5} className="ayuda">{f.c.motivo}</td>}
+                </tr>
+              ))}</tbody>
+            </table></div>
+            {usar && (<>
+              <h3>Convertir</h3>
+              <Campo label="Ecuación"><Sel value={usar.id} onChange={setCepaConv} opciones={filas.filter((f) => f.c.ok).map((f) => [f.id, f.nombre])} /></Campo>
+              <Campo label="OD → UFC/mL"><div className="fila"><Num value={odIn} onChange={setOdIn} ancho={90} /><b>{sciCorto(usar.c.pred(Number(odIn)))}</b></div></Campo>
+              <Campo label="UFC/mL → OD"><div className="fila"><Num value={ufcIn} onChange={setUfcIn} ancho={110} /><b>{fx(odDesdeUfc(usar.c, Number(ufcIn)), 3)}</b></div></Campo>
+              {(Number(odIn) < usar.c.rango[0] || Number(odIn) > usar.c.rango[1]) && <p className="aviso-caja">Esa OD está fuera del rango calibrado de {usar.nombre}: es una extrapolación.</p>}
+            </>)}
+          </>)
+        })()}
           </div>
         </div>
       </div>

@@ -81,7 +81,7 @@ export function Grafico(props) {
   let altoBase = fin(num(e.alto)) && num(e.alto) > 120 ? num(e.alto) : alto
   const izq = series.filter((s) => !s.der), der = series.filter((s) => s.der)
   const ys = (ss) => ss.flatMap((s) => s.data.flatMap((d) => [d.y, d.lo, d.hi]))
-  let [x0, x1] = xlim || rango([...series.flatMap((s) => s.data.map((d) => d.x)), ...extras.map((q) => q.x)], 0.03)
+  let [x0, x1] = xlim || rango([...series.flatMap((s) => s.data.flatMap((d) => [d.x, s.errores ? d.xlo : NaN, s.errores ? d.xhi : NaN])), ...extras.map((q) => q.x)], 0.03)
   let [y0, y1] = ylim || rango([...ys(izq), ...extras.map((q) => q.y)], 0.07, ceroY)
   if (fin(num(e.xmin))) x0 = num(e.xmin)
   if (fin(num(e.xmax))) x1 = num(e.xmax)
@@ -243,6 +243,9 @@ export function Grafico(props) {
                 {s.linea !== false && <polyline points={linea(s, f)} fill="none" stroke={s.color} strokeWidth={(s.ancho || 1.7) * e.grosor} strokeDasharray={s.dash || undefined} strokeLinejoin="round" strokeLinecap="round" opacity={s.opacidad ?? 1} />}
                 {s.errores && s.data.filter((d) => fin(d.lo) && fin(d.hi) && dentro(d.x)).map((d, i) => (
                   <path key={i} d={`M${px(d.x)},${f(d.lo)}V${f(d.hi)}M${px(d.x) - 4},${f(d.lo)}h8M${px(d.x) - 4},${f(d.hi)}h8`} stroke={s.color} strokeWidth={1.2 * e.grosor} fill="none" />
+                ))}
+                {s.errores && s.data.filter((d) => fin(d.xlo) && fin(d.xhi) && fin(d.y)).map((d, i) => (
+                  <path key={'h' + i} d={`M${px(d.xlo)},${f(d.y)}H${px(d.xhi)}M${px(d.xlo)},${f(d.y) - 4}v8M${px(d.xhi)},${f(d.y) - 4}v8`} stroke={s.color} strokeWidth={1.2 * e.grosor} fill="none" />
                 ))}
                 {s.puntos && s.data.filter((d) => fin(d.y) && dentro(d.x)).map((d, i) => (
                   s.forma === 'cuadrado'
