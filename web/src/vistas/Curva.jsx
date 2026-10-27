@@ -6,6 +6,7 @@ import { Grafico } from '../ui/grafico.jsx'
 import { fs, fx, tCuantil } from '../utils.js'
 import { BotonCinta, Cajon, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
+import { SelectorCepas, cepasOcultas } from '../ui/cepas.jsx'
 
 const TRANS = { lineal: (v) => v, ln: (v) => (v > 0 ? Math.log(v) : NaN), log10: (v) => (v > 0 ? Math.log10(v) : NaN) }
 const ETQ_Y = { lineal: 'OD', ln: 'ln(OD)', log10: 'log₁₀(OD)' }
@@ -26,7 +27,7 @@ export function Curva({ s }) {
   const [modo, setModo] = useState('media')
   const [escala, setEscala] = useState('lineal')
   const [error, setError] = useState('sd')
-  const [ocultas, setOcultas] = useState([])
+  const ocultas = cepasOcultas(exp)
   const [ocultasRep, setOcultasRep] = useState([])   // réplicas (pocillos) ocultas en el gráfico
   const [puntos, setPuntos] = useState(exp.origenOd !== 'tecan')
   const [verValor, setVerValor] = useState(false)
@@ -92,8 +93,8 @@ export function Curva({ s }) {
           <OpcionesCinta valor={escala} onChange={setEscala} opciones={[['lineal', 'Lineal', 'OD', null, 'OD tal cual'], ['ln', 'ln', 'ln', null, 'Logaritmo natural: la fase exponencial se ve como una recta'], ['log10', 'log₁₀', 'lg', null, 'Logaritmo decimal']]} />
         </Grupo>
         {modo === 'media' && (
-          <Grupo titulo="Error">
-            <OpcionesCinta valor={error} onChange={setError} opciones={[['sd', 'DE', '±', null, 'Desviación estándar de las réplicas'], ['sem', 'EEM', 'σ/√n', null, 'Error estándar de la media = DE / √n'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 % (t de Student)']]} />
+          <Grupo titulo="Tipo de error">
+            <OpcionesCinta valor={error} onChange={setError} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan las réplicas entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} />
           </Grupo>
         )}
         {s.porCepa && (
@@ -107,27 +108,17 @@ export function Curva({ s }) {
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="curva" /></Cajon>
       <Encabezado titulo="Curva OD vs t" sub={`${exp.cond.organismo ? exp.cond.organismo + ' · ' : ''}${exp.cond.medio ? exp.cond.medio + ' · ' : ''}${exp.cond.temperatura ? exp.cond.temperatura + ' °C · ' : ''}OD${exp.cond.lambda ? ` a ${exp.cond.lambda} nm` : ''}, con blanco restado y sin los puntos excluidos.${exp.aj.camino_on && exp.origenOd !== 'cubeta' ? ' OD llevada a 1 cm de camino óptico.' : ''}`} />
-      <div className="selector-cepas">
-        {muestras.map((m) => {
-          const on = !ocultas.includes(m)
+      <SelectorCepas s={s} muestras={muestras} hayMas={ocultasRep.length > 0} onMostrarTodas={() => setOcultasRep([])}
+        tip={(m, on) => `${m}\nμmax ${fs(muDe(m), 3)} h⁻¹${finito(tdDe(m)) ? ` · td ${fx(tdDe(m), 0)} min` : ''}\n${on ? 'Clic para ocultar la cepa' : 'Clic para mostrarla'}`}
+        extra={(m, on) => {
           const reps = s.porCepa ? [] : wsTodas.filter((w) => w.Muestra === m).sort((a, b) => a.Replica - b.Replica)
-          return (
-            <div key={m} className={`chip-cepa ${on ? '' : 'apagado'}`}>
-              <button className="nombre-cepa" onClick={() => setOcultas(on ? [...ocultas, m] : ocultas.filter((x) => x !== m))}
-                data-tip={`${m}\nμmax ${fs(muDe(m), 3)} h⁻¹${finito(tdDe(m)) ? ` · td ${fx(tdDe(m), 0)} min` : ''}\n${on ? 'Clic para ocultar la cepa' : 'Clic para mostrarla'}`}>
-                <i className="punto" style={{ background: on ? s.colores[m] : 'var(--tenue)' }} />{m}
-              </button>
-              {on && reps.length > 1 && reps.map((w) => {
-                const vis = !ocultasRep.includes(w.Pocillo)
-                return <button key={w.Pocillo} className={`rep ${vis ? 'on' : ''}`} style={vis ? { background: s.estilos[w.Pocillo]?.color || s.colores[m] } : undefined}
-                  onClick={() => setOcultasRep(vis ? [...ocultasRep, w.Pocillo] : ocultasRep.filter((x) => x !== w.Pocillo))}
-                  data-tip={`${nombreReplica(w.Muestra, w.Replica)}${exp.origenOd === 'tecan' ? ` · pocillo ${w.Pocillo}` : ''}\n${vis ? 'Clic para ocultarla del gráfico y de la media' : 'Clic para mostrarla'}`}>{w.Replica}</button>
-              })}
-            </div>
-          )
-        })}
-        {(ocultas.length > 0 || ocultasRep.length > 0) && <button className="fantasma chico" onClick={() => { setOcultas([]); setOcultasRep([]) }}><Icono n="refrescar" size={13} />Mostrar todas</button>}
-      </div>
+          return on && reps.length > 1 && reps.map((w) => {
+            const vis = !ocultasRep.includes(w.Pocillo)
+            return <button key={w.Pocillo} className={`rep ${vis ? 'on' : ''}`} style={vis ? { background: s.estilos[w.Pocillo]?.color || s.colores[m] } : undefined}
+              onClick={() => setOcultasRep(vis ? [...ocultasRep, w.Pocillo] : ocultasRep.filter((x) => x !== w.Pocillo))}
+              data-tip={`${nombreReplica(w.Muestra, w.Replica)}${exp.origenOd === 'tecan' ? ` · pocillo ${w.Pocillo}` : ''}\n${vis ? 'Clic para ocultarla del gráfico y de la media' : 'Clic para mostrarla'}`}>{w.Replica}</button>
+          })
+        }} />
       <Mosaico titulo={`OD vs tiempo · ${modo === 'media' ? `media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'}` : s.porCepa ? 'todos los pocillos' : 'cada réplica'}`}>
         <Grafico series={series} yTxt={ETQ_Y[escala] + (modo === 'media' ? ` (media ± ${error === 'ic95' ? 'IC 95 %' : error === 'sd' ? 'DE' : 'EEM'})` : '')} alto={470} nombre={`curva_${exp.nombre}`}
           titulo={exp.nombre} estilo={s.estiloGrafico('curva')} idEstilo="curva" />

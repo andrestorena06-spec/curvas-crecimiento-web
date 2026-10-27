@@ -145,6 +145,15 @@ function aplicarDixon(marcado, E, aj) {
       f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
       return
     }
+    if (aj.od_atip_metodo === 'grubbs') {
+      const gr = detectar(g.map((x) => x.f.y), { metodo: 'grubbs', conf })
+      if (gr.idx === null || gr.idx === undefined) return
+      const { w, f } = g[gr.idx]
+      f.marca = 'Aberrante (Grubbs)'
+      f.detalle = `Test de Grubbs (extremo ${gr.lado}): G = ${gr.stat.toFixed(3)} > crítico ${gr.crit.toFixed(3)} (n = ${gr.n} réplicas, confianza ${conf} %).`
+      f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+      return
+    }
     const d = dixonQ(g.map((x) => x.f.y), conf)
     if (!d) return
     const { w, f } = g[d.i]
