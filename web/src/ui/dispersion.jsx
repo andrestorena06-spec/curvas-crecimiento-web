@@ -2,9 +2,10 @@
 // Gráfico de dispersión de réplicas (como el de «Calidad» de Biofilm):
 // una columna por cepa en cada tiempo, cada réplica como un punto, la media como una raya,
 // el error como bigote y, si se pide, el valor «media ± error» arriba.
-// Clic en un punto: excluir o reincorporar esa réplica. Clic derecho: personalizar o guardar imagen.
+// Clic en un punto: excluir o reincorporar esa réplica. Arrastrar: acercar a la zona elegida (con zoom, arrastrar
+// desplaza; Shift + arrastrar acerca más). Doble clic: vista completa. Clic derecho: personalizar o guardar imagen.
 // ============================================================
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { TEMAS, useTema } from '../tema.js'
 import { fmtTick, ticks } from '../utils.js'
 import { ModalGuardarImagen, useGraficoCtx } from './guardarImagen.jsx'
@@ -19,7 +20,7 @@ const fin = Number.isFinite
 export function GraficoDispersion(props) {
   const {
     grupos, o, curvas = [], xTxt = 'Tiempo (h)', yTxt = '', titulo = '', estilo = {}, idEstilo, nombre = 'grafico', onPuntoClick, leyenda = [],
-    anchoFijo, altoTotal, refSvg, interactivo = true, exportar = true, alto = 360,
+    anchoFijo, altoTotal, refSvg, interactivo = true, exportar = true, alto = 360, zoomInicial = null,
   } = props
   const Tt = useTema()
   const e = { ...estiloGraficoDef(), ...estilo }
@@ -27,6 +28,13 @@ export function GraficoDispersion(props) {
   const [cont, anchoMedido] = useAncho(900)
   const [menu, setMenu] = useState(null)
   const [guardar, setGuardar] = useState(false)
+  const [zoom, setZoom] = useState(zoomInicial)   // { t0, t1, y0, y1 } en horas y unidades del eje Y
+  const [caja, setCaja] = useState(null)          // recuadro de zoom en px: { a: {mx, my}, b: {mx, my} }
+  const [paneo, setPaneo] = useState(null)
+  const movido = useRef(false)
+  const refInt = useRef()
+  const ref = refSvg || refInt
+  const idClip = 'clipd-' + useId().replace(/[^a-zA-Z0-9]/g, '')
   const ctx = useGraficoCtx()
   useEffect(() => {
     if (!menu) return
@@ -59,20 +67,27 @@ export function GraficoDispersion(props) {
   y0 -= pad; y1 += pad
   if (fin(Number(e.ymin)) && e.ymin !== '') y0 = Number(e.ymin)
   if (fin(Number(e.ymax)) && e.ymax !== '') y1 = Number(e.ymax)
+  if (zoom) { y0 = zoom.y0; y1 = zoom.y1 }
   const ty = ticks(y0, y1, 7)
   const py = (y) => TOP + (1 - (y - y0) / (y1 - y0 || 1)) * (H - TOP - B)
 
   // eje X en horas: cada tiempo en su lugar; las cepas de un mismo tiempo, una al lado de la otra
-  const ts = grupos.map((g) => g.t)
-  const t0 = Math.min(...ts), t1 = Math.max(...ts)
-  const nMax = Math.max(1, ...grupos.map((g) => g.cols.length))
+  const todosT = grupos.map((g) => g.t)
+  const vis = zoom ? grupos.filter((g) => g.t >= zoom.t0 - 1e-9 && g.t <= zoom.t1 + 1e-9) : grupos
+  const ts = vis.map((g) => g.t)
+  const t0 = zoom ? zoom.t0 : Math.min(...todosT), t1 = zoom ? zoom.t1 : Math.max(...todosT)
+  const nMax = Math.max(1, ...vis.map((g) => g.cols.length))
   const dif = ts.slice(1).map((t, i) => t - ts[i]).filter((d) => d > 0)
   const ancho = W - L - R
-  const fr = dif.length ? Math.min(...dif) / (t1 - t0) : 1            // separación mínima entre tiempos, en fracción del eje
+  const fr = dif.length && t1 > t0 ? Math.min(1, Math.min(...dif) / (t1 - t0)) : 1            // separación mínima entre tiempos, en fracción del eje
   const anchoCol = Math.min(70, (ancho * fr * 0.8) / (1 + fr) / nMax, ancho / nMax / 2.2)
   const margen = (anchoCol * nMax) / 2 + 12
   const px = (t) => L + margen + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (ancho - 2 * margen)
-  const cxCol = (gi, ci, n) => px(grupos[gi].t) + (ci - (n - 1) / 2) * anchoCol
+  const cxCol = (gi, ci, n) => px(vis[gi].t) + (ci - (n - 1) / 2) * anchoCol
+  const invT = (mx) => t0 + ((mx - L - margen) / (ancho - 2 * margen || 1)) * (t1 - t0)
+  const invY = (my) => y0 + (1 - (my - TOP) / (H - TOP - B)) * (y1 - y0)
+  const pos = (ev) => { const b = ref.current.getBoundingClientRect(), k = W / b.width; return { mx: (ev.clientX - b.left) * k, my: (ev.clientY - b.top) * k } }
+  const rangoT = t1 - t0 || 1
   const fondo = e.fondo === 'blanco' ? '#ffffff' : T.panel
   const fuente = `'${e.fuente}', system-ui, sans-serif`
   const r = 4.2 * e.radio
@@ -81,10 +96,40 @@ export function GraficoDispersion(props) {
     <div className="grafico" ref={cont} style={{ position: 'relative' }}>
       {exportar && interactivo && (
         <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4, gap: 6 }}>
+          {zoom && <button className="fantasma chico" onClick={() => setZoom(null)} data-tip="También con doble clic sobre el gráfico"><Icono n="refrescar" size={14} />Vista completa</button>}
           <button className="fantasma chico" onClick={() => setGuardar(true)} data-tip={'Guardar imagen\nFormato (PNG, JPG o SVG), tamaño, resolución y fondo'}><Icono n="bajar" size={14} />Guardar imagen</button>
         </div>
       )}
-      <svg ref={refSvg} viewBox={`0 0 ${W} ${H}`} fontFamily={fuente} style={{ userSelect: 'none', borderRadius: e.fondo === 'blanco' ? 8 : 0 }}
+      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={fuente} style={{ userSelect: 'none', borderRadius: e.fondo === 'blanco' ? 8 : 0, cursor: !interactivo ? undefined : paneo ? 'grabbing' : zoom ? 'grab' : 'crosshair' }}
+        onMouseDown={!interactivo ? undefined : (ev) => {
+          if (ev.button !== 0) return
+          const q = pos(ev)
+          movido.current = false
+          if (zoom && !ev.shiftKey) return setPaneo({ ...q, z: { t0, t1, y0, y1 } })
+          setCaja({ a: q, b: q })
+        }}
+        onMouseMove={!interactivo ? undefined : (ev) => {
+          const q = pos(ev)
+          if (caja) { if (Math.abs(q.mx - caja.a.mx) + Math.abs(q.my - caja.a.my) > 4) movido.current = true; setCaja({ ...caja, b: q }) }
+          if (paneo) {
+            if (Math.abs(q.mx - paneo.mx) + Math.abs(q.my - paneo.my) > 3) movido.current = true
+            const dt = ((q.mx - paneo.mx) / (ancho - 2 * margen || 1)) * (paneo.z.t1 - paneo.z.t0), dy = ((q.my - paneo.my) / (H - TOP - B)) * (paneo.z.y1 - paneo.z.y0)
+            setZoom({ t0: paneo.z.t0 - dt, t1: paneo.z.t1 - dt, y0: paneo.z.y0 + dy, y1: paneo.z.y1 + dy })
+          }
+        }}
+        onMouseUp={!interactivo ? undefined : () => {
+          if (paneo) setPaneo(null)
+          if (!caja) return
+          const { a, b } = caja
+          setCaja(null)
+          if (Math.abs(b.mx - a.mx) > 8 && Math.abs(b.my - a.my) > 8) {
+            const ta = invT(Math.min(a.mx, b.mx)), tb = invT(Math.max(a.mx, b.mx))
+            const pad = Math.max(rangoT * 0.02, 1e-6)
+            setZoom({ t0: ta - pad, t1: tb + pad, y0: invY(Math.max(a.my, b.my)), y1: invY(Math.min(a.my, b.my)) })
+          }
+        }}
+        onMouseLeave={() => { setCaja(null); setPaneo(null) }}
+        onDoubleClick={!interactivo ? undefined : () => setZoom(null)}
         onContextMenu={!interactivo ? undefined : (ev) => { ev.preventDefault(); const b = cont.current.getBoundingClientRect(); setMenu({ cx: ev.clientX - b.left, cy: ev.clientY - b.top }) }}>
         <rect className="fondo-graf" width={W} height={H} fill={fondo} />
         {tit && <text x={(L + W - R) / 2} y={10 + e.tamTitulo} textAnchor="middle" fontSize={e.tamTitulo} fontWeight="600" fill={T.texto}>{tit}</text>}
@@ -94,16 +139,20 @@ export function GraficoDispersion(props) {
             <text x={L - 8} y={py(t)} textAnchor="end" dominantBaseline="central" fontSize={e.tamNumeros} fill={T.sec}>{fmtTick(t, ty.paso)}</text>
           </g>
         ))}
-        {e.grilla && grupos.map((g, gi) => <line key={'s' + gi} x1={px(g.t)} x2={px(g.t)} y1={TOP} y2={H - B} stroke={T.grilla} strokeDasharray="2 4" />)}
-        {curvas.map((c) => <polyline key={c.id} points={c.puntos.filter((q) => fin(q.y)).map((q) => `${px(q.x).toFixed(1)},${py(Math.min(y1, Math.max(y0, q.y))).toFixed(1)}`).join(' ')} fill="none" stroke={c.color} strokeWidth={1.6 * e.grosor} opacity="0.75" />)}
+        <defs><clipPath id={idClip}><rect x={L} y={TOP - 4} width={W - L - R} height={H - TOP - B + 8} /></clipPath></defs>
+        {e.grilla && vis.map((g, gi) => <line key={'s' + gi} x1={px(g.t)} x2={px(g.t)} y1={TOP} y2={H - B} stroke={T.grilla} strokeDasharray="2 4" />)}
+        <g clipPath={`url(#${idClip})`}>
+          {curvas.map((c) => <polyline key={c.id} points={c.puntos.filter((q) => fin(q.y)).map((q) => `${px(q.x).toFixed(1)},${py(q.y).toFixed(1)}`).join(' ')} fill="none" stroke={c.color} strokeWidth={1.6 * e.grosor} opacity="0.75" />)}
+        </g>
         <text x={(L + W - R) / 2} y={H - B + 14 + e.tamNumeros + e.tamEjes} textAnchor="middle" fontSize={e.tamEjes} fill={T.texto}>{xT}</text>
         <line x1={L} x2={W - R} y1={H - B} y2={H - B} stroke={T.eje} />
         <line x1={L} x2={L} y1={TOP} y2={H - B} stroke={T.eje} />
         <text transform={`translate(${6 + e.tamEjes * 0.6} ${(TOP + H - B) / 2}) rotate(-90)`} textAnchor="middle" fontSize={e.tamEjes} fill={T.texto}>{yT}</text>
 
-        {grupos.map((g, gi) => (
+        {vis.map((g, gi) => (
           <g key={'g' + gi}>
             <text x={px(g.t)} y={H - B + 6 + e.tamNumeros} textAnchor="middle" fontSize={e.tamNumeros} fill={T.sec}>{g.etiqueta}</text>
+            <g clipPath={zoom ? `url(#${idClip})` : undefined}>
             {g.cols.map((c, ci) => {
               const cx = cxCol(gi, ci, g.cols.length)
               const n = c.pts.length
@@ -127,7 +176,7 @@ export function GraficoDispersion(props) {
                   {o.puntos && c.pts.map((p, k) => {
                     if (!fin(p.y)) return null
                     const x = cx + (n > 1 ? (k - (n - 1) / 2) * sep : 0), y = py(p.y)
-                    const clic = interactivo && onPuntoClick && p.key ? () => onPuntoClick(p.key) : undefined
+                    const clic = interactivo && onPuntoClick && p.key ? () => { if (!movido.current) onPuntoClick(p.key) } : undefined
                     return (
                       <g key={p.key || k} data-tip={p.tip} onClick={clic} style={clic ? { cursor: 'pointer' } : undefined}>
                         <circle cx={x} cy={y} r={r + 6} fill="transparent" />
@@ -147,9 +196,11 @@ export function GraficoDispersion(props) {
                 </g>
               )
             })}
+            </g>
           </g>
         ))}
 
+        {caja && <rect x={Math.min(caja.a.mx, caja.b.mx)} y={Math.min(caja.a.my, caja.b.my)} width={Math.abs(caja.b.mx - caja.a.mx)} height={Math.abs(caja.b.my - caja.a.my)} fill={T.acento} opacity="0.12" stroke={T.acento} strokeDasharray="4 3" pointerEvents="none" />}
         {leyenda.length > 0 && (() => {
           const y = H - e.tamLeyenda * 1.1
           let x = L
@@ -173,11 +224,15 @@ export function GraficoDispersion(props) {
         <div className="menu-contextual" style={{ left: Math.max(0, Math.min(menu.cx, (cont.current?.clientWidth || 400) - 230)), top: menu.cy, position: 'absolute', zIndex: 30 }} onMouseDown={(ev) => ev.stopPropagation()}>
           {ctx.abrirPersonalizar && idEstilo && <button onClick={() => { setMenu(null); ctx.abrirPersonalizar(idEstilo) }}><Icono n="editar" size={15} />Personalizar gráfico…</button>}
           <button onClick={() => { setMenu(null); setGuardar(true) }}><Icono n="bajar" size={15} />Guardar imagen…</button>
+          <button onClick={() => { const ct = (t0 + t1) / 2, cy = (y0 + y1) / 2, dt = (t1 - t0) / 4, dy = (y1 - y0) / 4; setMenu(null); setZoom({ t0: ct - dt, t1: ct + dt, y0: cy - dy, y1: cy + dy }) }}><Icono n="mas" size={15} />Acercar</button>
+          {zoom && <button onClick={() => { const ct = (t0 + t1) / 2, cy = (y0 + y1) / 2, dt = t1 - t0, dy = y1 - y0; setMenu(null); setZoom({ t0: ct - dt, t1: ct + dt, y0: cy - dy, y1: cy + dy }) }}><Icono n="menos" size={15} />Alejar</button>}
+          {zoom && <button onClick={() => { setMenu(null); setZoom(null) }}><Icono n="refrescar" size={15} />Vista completa</button>}
+          <div className="ayuda solo-compu" style={{ padding: '6px 10px', fontSize: 11.5, maxWidth: 240 }}>Arrastrá para acercar; con zoom, arrastrá para moverte (Shift + arrastrar acerca más). Doble clic: vista completa.</div>
         </div>
       )}
       {guardar && (
         <ModalGuardarImagen nombre={nombre} anchoPantalla={W} altoPantalla={H} onClose={() => setGuardar(false)}
-          renderizar={(w, h, ref, blanco) => <GraficoDispersion {...props} anchoFijo={w} altoTotal={h} refSvg={ref} interactivo={false} exportar={false} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />
+          renderizar={(w, h, ref, blanco) => <GraficoDispersion {...props} anchoFijo={w} altoTotal={h} refSvg={ref} interactivo={false} exportar={false} zoomInicial={zoom} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />
       )}
     </div>
   )
