@@ -1,4 +1,4 @@
-import { curvaSuaveUfc } from '../motor/ufc.js'
+import { curvaSuaveUfc, errorUfc, textoErrorUfc } from '../motor/ufc.js'
 import { useOpcion } from '../ui/opciones.js'
 import { useMemo, useState } from 'react'
 import { MODELOS_CALIB, ajustarCalibracion, odDesdeUfc } from '../motor/calibracion.js'
@@ -39,6 +39,11 @@ export function Combinado({ s }) {
   const [odIn, setOdIn] = useState(0.5)
   const [ufcIn, setUfcIn] = useState(1e8)
   const [pers, setPers] = useState(null)
+  const [conErr, setConErr] = useOpcion('combinado.errores', true)
+  const [tipoErr, setTipoErr] = useOpcion('combinado.error', 'sd')
+  const [verValor, setVerValor] = useOpcion('combinado.valor', false)
+  const [valorErr, setValorErr] = useOpcion('combinado.conError', false)
+  const nomErr = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }[tipoErr] || 'DE'
   const pares = useMemo(() => paresOdUfc(s), [pre, ufcRes]) // eslint-disable-line react-hooks/exhaustive-deps
   const cal = useMemo(() => ajustarCalibracion(pares.filter((p) => !cepasOcultas(exp).includes(p.Muestra)).map((p) => ({ od: p.OD, ufc: p.UFC_mL })), modelo), [pares, modelo, exp.aj.cepas_ocultas])
   if (!pre || pre.error || !ufcRes?.hay) return <div className="pagina"><Encabezado titulo="OD + UFC" /><Vacio titulo="Faltan datos">Hacen falta curvas de OD procesadas y conteos de UFC.</Vacio></div>
@@ -49,11 +54,12 @@ export function Combinado({ s }) {
   const series = []
   vis.forEach((m) => {
     const g = ws.filter((w) => w.Muestra === m)
-    if (g.length) series.push({ id: 'od' + m, nombre: `${m} · OD`, color: s.colores[m], ancho: 2, banda: true,
-      data: mediaPorTiempo(g, (v) => v, 'sd').map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${m}\nt = ${fx(q.t / 3600, 2)} h\nOD media = ${fx(q.m, 3)}` })) })
+    if (g.length) series.push({ id: 'od' + m, nombre: `${m} · OD`, color: s.colores[m], ancho: 2, banda: conErr,
+      data: mediaPorTiempo(g, (v) => v, tipoErr).map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${m}\nt = ${fx(q.t / 3600, 2)} h\nOD media = ${fx(q.m, 3)}${finito(q.hi) ? ` ± ${fx(q.hi - q.m, 3)} (${nomErr})` : ''}` })) })
     const u = ufcRes.res.filter((r) => r.Muestra === m && finito(r.log10)).sort((a, b) => a.T_h - b.T_h)
-    if (u.length) series.push({ id: 'u' + m, nombre: `${m} · UFC`, color: s.colores[m], der: true, linea: false, puntos: true, forma: 'cuadrado', radio: 4, ancho: 1.2, errores: true,
-      data: u.map((r) => ({ x: r.T_h, y: r.log10, lo: r.log10 - (r.DE_log10 || 0), hi: r.log10 + (r.DE_log10 || 0), tip: `${m}\nT = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)}\nlog₁₀ = ${fx(r.log10, 2)}` })) })
+    if (u.length) series.push({ id: 'u' + m, nombre: `${m} · UFC`, color: s.colores[m], der: true, linea: false, puntos: true, forma: 'cuadrado', radio: 4, ancho: 1.2, errores: conErr,
+      etiqueta: verValor ? (d) => d.valor : undefined,
+      data: u.map((r) => { const e = errorUfc(r, 'log10', tipoErr); return { x: r.T_h, y: r.log10, lo: e.lo, hi: e.hi, valor: (valorErr ? textoErrorUfc(e, false, tipoErr) : fx(r.log10, 2)).replace('\n', ' '), tip: `${m}\nT = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)}\nlog₁₀ = ${fx(r.log10, 2)}${finito(e.err) ? ` ± ${fx(e.err, 2)} (${nomErr})` : ''}` } }) })
     if (u.length && exp.aj.ufc_suave !== false) { const cs = curvaSuaveUfc(u, (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)); if (cs.ok) series.push({ id: 'sv' + m, nombre: '', color: s.colores[m], der: true, ancho: 1.4, dash: '6 3', data: cs.puntos }) }
   })
   // calibración
@@ -68,6 +74,14 @@ export function Combinado({ s }) {
   return (
     <div className="pagina">
       <Cinta>
+        <Grupo titulo="Mostrar">
+          <BotonCinta simbolo="±" texto="Barras de error" activo={conErr} onClick={() => setConErr(!conErr)} tip={'Banda de error de la OD y barras de las UFC\nDel tipo elegido en «Tipo de error»'} />
+        </Grupo>
+        <Grupo titulo="Valores sobre los puntos">
+          <BotonCinta simbolo="12" texto="Valor" activo={verValor} onClick={() => setVerValor(!verValor)} tip="Escribir log₁₀ UFC/mL sobre cada recuento" />
+          <BotonCinta simbolo="±" texto="Con error" activo={valorErr} onClick={() => { setValorErr(!valorErr); if (!verValor) setVerValor(true) }} tip="Agregar el error al valor" />
+        </Grupo>
+        <Grupo titulo="Tipo de error"><OpcionesCinta valor={tipoErr} onChange={setTipoErr} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan las réplicas entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} /></Grupo>
         <Grupo titulo="Calibración"><CampoCinta etiqueta="Modelo"><Sel value={modelo} onChange={setModelo} opciones={Object.entries(MODELOS_CALIB)} /></CampoCinta></Grupo>
         <Grupo titulo="Gráfico">
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
@@ -80,8 +94,8 @@ export function Combinado({ s }) {
       <Encabezado titulo="OD + UFC" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
       <SelectorCepas s={s} muestras={muestras} />
       <div className="tarjeta">
-        <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
-        <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, promedio de las réplicas (suma de colonias / suma de volúmenes) ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
+        <Grafico series={series} yTxt={`OD (media${conErr ? ` ± ${nomErr}` : ''})`} yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
+        <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, promedio de las réplicas (suma de colonias / suma de volúmenes) ± {nomErr} (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>
       </div>
       <div>
         <div className="tarjeta" style={{ minWidth: 0 }}>

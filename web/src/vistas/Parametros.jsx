@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useOpcion } from '../ui/opciones.js'
 import { AYUDA, MODELOS_ETQ, PARAMS, explicarResultado } from '../ayuda.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { ajustarModelo } from '../motor/modelos.js'
@@ -95,6 +96,8 @@ export function Parametros({ s }) {
   const { res, exp, setAj } = s
   const aj = exp.aj
   const [sel, setSel] = useState(null)
+  const [errCepa, setErrCepa] = useOpcion('parametros.error', 'sd')
+  const [bandaCepa, setBandaCepa] = useOpcion('parametros.errores', true)
   const [cepaSel, setCepaSel] = useState(null)   // cepa elegida en «Resumen por cepa»: su curva media va debajo
   const [pers, setPers] = useState(null)
   const resumen = useMemo(() => (res?.length ? resumenPorCepa(res) : []), [res])
@@ -119,10 +122,14 @@ export function Parametros({ s }) {
           <OpcionesCinta valor={aj.an_lag_metodo} onChange={(v) => setAj('an_lag_metodo', v)} opciones={[['tangente', 'Tangente', '⟋'], ['umbral', 'Umbral', '⊢']]} />
           {aj.an_lag_metodo === 'umbral' && <CampoCinta etiqueta="Factor × OD₀"><Num value={aj.an_lag_factor} onChange={(v) => setAj('an_lag_factor', v)} ancho={52} /></CampoCinta>}
         </Grupo>
-        <Grupo titulo="Más">
+        <Grupo titulo="Cálculo">
           <BotonCinta simbolo="∿" texto="Spline" activo={aj.an_spline} onClick={() => setAj('an_spline', !aj.an_spline)} tip="Calcular también μmax por spline de suavizado" />
           <BotonCinta icono="editar" texto="Umbrales y fases" activo={pers === 'fases'} onClick={() => setPers(pers === 'fases' ? null : 'fases')} tip="OD umbral (tiempo hasta OD) y criterios de las fases exponencial, estacionaria y de muerte" />
         </Grupo>
+        <Grupo titulo="Mostrar">
+          <BotonCinta simbolo="±" texto="Barras de error" activo={bandaCepa} onClick={() => setBandaCepa(!bandaCepa)} tip={'Banda de error de la curva media de la cepa\n(se abre con clic en una fila de «Resumen por cepa»)'} />
+        </Grupo>
+        <Grupo titulo="Tipo de error"><OpcionesCinta valor={errCepa} onChange={setErrCepa} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan las réplicas entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} /></Grupo>
         <Grupo titulo="Gráfico">
           <BotonCinta icono="editar" texto="Personalizar" activo={pers === 'parametros'} onClick={() => setPers(pers === 'parametros' ? null : 'parametros')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
@@ -153,16 +160,17 @@ export function Parametros({ s }) {
       {cepaSel && (() => {
         // curva media de la cepa con las lecturas que quedaron válidas después del control de calidad
         const ws = (s.pre?.proc || []).filter((w) => !w.EsBlanco && w.Muestra === cepaSel)
-        const mt = mediaPorTiempo(ws, (v) => v, 'sd')
+        const mt = mediaPorTiempo(ws, (v) => v, errCepa)
+        const nomE = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }[errCepa]
         const col = s.colores[cepaSel]
         const series = [
           ...(s.porCepa ? [] : ws.map((w) => ({ id: 'r' + w.Pocillo, nombre: '', color: col, ancho: 1, opacidad: 0.3, data: w.t.map((t, i) => ({ x: t / 3600, y: w.y[i] })) }))),
-          { id: 'm', nombre: `${cepaSel} · media ± DE (n = ${ws.length})`, color: col, ancho: 2.4, banda: true, puntos: s.porCepa, radio: 3,
+          { id: 'm', nombre: `${cepaSel} · media${bandaCepa ? ` ± ${nomE}` : ''} (n = ${ws.length})`, color: col, ancho: 2.4, banda: bandaCepa, puntos: s.porCepa, radio: 3,
             data: mt.map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${cepaSel}\nt = ${fx(q.t / 3600, 2)} h\nOD media = ${fx(q.m, 4)}${finito(q.sd) ? `\nDE = ${fx(q.sd, 4)}` : ''}\nn = ${q.n}` })) },
         ]
         return (
           <Mosaico titulo={`Curva de ${cepaSel} · media de las lecturas válidas`} accion="Cerrar" onAccion={() => setCepaSel(null)}>
-            <Grafico series={series} yTxt="OD (media ± DE)" alto={340} nombre={`curva_${cepaSel}`} estilo={s.estiloGrafico('cepaResumen')} idEstilo="cepaResumen" />
+            <Grafico series={series} yTxt={`OD (media${bandaCepa ? ` ± ${nomE}` : ''})`} alto={340} nombre={`curva_${cepaSel}`} estilo={s.estiloGrafico('cepaResumen')} idEstilo="cepaResumen" />
             <p className="ayuda" style={{ marginTop: 6 }}>Media de las réplicas aceptadas en cada tiempo (sin los puntos ni pocillos excluidos en el control de calidad); la banda es la desviación estándar{s.porCepa ? '' : ' y las líneas finas son cada réplica'}.</p>
           </Mosaico>
         )
