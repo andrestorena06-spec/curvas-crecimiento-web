@@ -9,6 +9,7 @@ import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { Grafico } from '../ui/grafico.jsx'
 import { fs, fx, sciCorto } from '../utils.js'
 import { mediaPorTiempo } from './Curva.jsx'
+import { SelectorCepas, cepasOcultas } from '../ui/cepas.jsx'
 import { crecimientoPorCepa } from './CurvaUfc.jsx'
 
 // Pares OD–UFC de la misma cepa y tiempo (la OD media se interpola si no hay lectura exacta en ese tiempo)
@@ -33,18 +34,17 @@ export function paresOdUfc(s) {
 export function Combinado({ s }) {
   const T = useTema()
   const { pre, ufcRes, exp, res } = s
-  const [cepa, setCepa] = useState('todas')
   const [modelo, setModelo] = useState('clasico')
   const [odIn, setOdIn] = useState(0.5)
   const [ufcIn, setUfcIn] = useState(1e8)
   const [pers, setPers] = useState(null)
   const pares = useMemo(() => paresOdUfc(s), [pre, ufcRes]) // eslint-disable-line react-hooks/exhaustive-deps
-  const cal = useMemo(() => ajustarCalibracion(pares.filter((p) => cepa === 'todas' || p.Muestra === cepa).map((p) => ({ od: p.OD, ufc: p.UFC_mL })), modelo), [pares, modelo, cepa])
+  const cal = useMemo(() => ajustarCalibracion(pares.filter((p) => !cepasOcultas(exp).includes(p.Muestra)).map((p) => ({ od: p.OD, ufc: p.UFC_mL })), modelo), [pares, modelo, exp.aj.cepas_ocultas])
   if (!pre || pre.error || !ufcRes?.hay) return <div className="pagina"><Encabezado titulo="OD + UFC" /><Vacio titulo="Faltan datos">Hacen falta curvas de OD procesadas y conteos de UFC.</Vacio></div>
 
   const ws = pre.proc.filter((w) => !w.EsBlanco)
   const muestras = [...new Set([...ws.map((w) => w.Muestra), ...ufcRes.res.map((r) => r.Muestra)])]
-  const vis = cepa === 'todas' ? muestras : [cepa]
+  const vis = muestras.filter((m) => !cepasOcultas(exp).includes(m))
   const series = []
   vis.forEach((m) => {
     const g = ws.filter((w) => w.Muestra === m)
@@ -56,7 +56,7 @@ export function Combinado({ s }) {
     if (u.length && exp.aj.ufc_suave !== false) { const cs = curvaSuaveUfc(u, (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)); if (cs.ok) series.push({ id: 'sv' + m, nombre: '', color: s.colores[m], der: true, ancho: 1.4, dash: '6 3', data: cs.puntos }) }
   })
   // calibración
-  const pv = pares.filter((p) => cepa === 'todas' || p.Muestra === cepa)
+  const pv = pares.filter((p) => vis.includes(p.Muestra))
   const calSeries = [...new Set(pv.map((p) => p.Muestra))].map((m) => ({ id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, radio: 4,
     data: pv.filter((p) => p.Muestra === m).map((p) => ({ x: p.OD, y: p.log10_UFC, tip: `${m} · T = ${p.T_h} h\nOD = ${fx(p.OD, 3)}${p.OD_interpolada ? ' (interpolada)' : ''}\nUFC/mL = ${sciCorto(p.UFC_mL)}` })) }))
   if (cal.ok) {
@@ -67,17 +67,17 @@ export function Combinado({ s }) {
   return (
     <div className="pagina">
       <Cinta>
-        <Grupo titulo="Cepas"><CampoCinta etiqueta="Mostrar"><Sel value={cepa} onChange={setCepa} opciones={[['todas', 'Todas'], ...muestras.map((m) => [m, m])]} /></CampoCinta></Grupo>
         <Grupo titulo="Calibración"><CampoCinta etiqueta="Modelo"><Sel value={modelo} onChange={setModelo} opciones={Object.entries(MODELOS_CALIB)} /></CampoCinta></Grupo>
         <Grupo titulo="Gráfico">
           <OpcionesCinta valor={exp.aj.ufc_suave === false ? 'no' : (exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave)} onChange={(v) => s.setAj('ufc_suave', v === 'no' ? false : v)} opciones={[['no', 'Sin curva', '·', null, 'Solo los puntos, sin líneas'], ['baranyi', 'Baranyi', '∿', null, 'Curva del modelo de Baranyi-Roberts ajustado a ln(UFC/mL) (4 o más tiempos)'], ['spline', 'Spline', '⌇', null, 'Spline cúbica monótona que pasa por cada media sin oscilar']]} />
-          <BotonCinta icono="editar" texto="OD + UFC" activo={pers === 'combinado'} onClick={() => setPers(pers === 'combinado' ? null : 'combinado')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
-          <BotonCinta icono="editar" texto="Calibración" activo={pers === 'calibracion'} onClick={() => setPers(pers === 'calibracion' ? null : 'calibracion')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
+          <BotonCinta icono="editar" texto="Personalizar OD + UFC" activo={pers === 'combinado'} onClick={() => setPers(pers === 'combinado' ? null : 'combinado')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
+          <BotonCinta icono="editar" texto="Personalizar calibración" activo={pers === 'calibracion'} onClick={() => setPers(pers === 'calibracion' ? null : 'calibracion')} tip="Títulos, tamaños de letra, grosores, ejes, leyenda, fondo y colores de las cepas" />
         </Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'combinado'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="combinado" ejeDerecho /></Cajon>
       <Cajon titulo="Personalizar gráfico" abierto={pers === 'calibracion'} onClose={() => setPers(null)}><PanelPersonalizar s={s} id="calibracion" /></Cajon>
       <Encabezado titulo="OD + UFC" sub="Las dos mediciones de las mismas cepas juntas: cómo sigue la turbidez a las células viables y la calibración para pasar de una a otra." />
+      <SelectorCepas s={s} muestras={muestras} />
       <div className="tarjeta">
         <Grafico series={series} yTxt="OD (media ± DE)" yTxtDer="log₁₀ UFC/mL (■)" alto={420} nombre={`od_ufc_${exp.nombre}`} titulo={exp.nombre} estilo={s.estiloGrafico('combinado')} idEstilo="combinado" />
         <p className="ayuda" style={{ marginTop: 6 }}>Líneas y bandas: OD (eje izquierdo). Cuadrados con barras: log₁₀ UFC/mL, promedio de las réplicas (suma de colonias / suma de volúmenes) ± DE (eje derecho){exp.aj.ufc_suave !== false ? '; línea a trazos: curva suavizada de las UFC' : ''}.</p>

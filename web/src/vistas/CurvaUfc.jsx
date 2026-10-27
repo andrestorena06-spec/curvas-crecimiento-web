@@ -7,6 +7,7 @@ import { useTema } from '../tema.js'
 import { Campo, Encabezado, Icono, Seg, Vacio } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
+import { SelectorCepas, cepasOcultas } from '../ui/cepas.jsx'
 import { Grafico } from '../ui/grafico.jsx'
 import { fs, fx, sciCorto } from '../utils.js'
 
@@ -21,13 +22,14 @@ export function CurvaUfc({ s }) {
   const { exp, ufcRes } = s
   const [escala, setEscala] = useState('log10')
   const tipoErr = verUfc(exp.aj).error
-  const v = { replicas: false, valores: false, errores: true, ...(exp.aj.ufc_ver_curva || {}) }
+  const v = { replicas: false, valores: false, conError: false, errores: true, ...(exp.aj.ufc_ver_curva || {}) }
   const setV = (k, x) => s.upd((e) => ({ aj: { ...e.aj, ufc_ver_curva: { ...(e.aj.ufc_ver_curva || {}), [k]: x } } }))
   const [pers, setPers] = useState(null)
   const crec = useMemo(() => (ufcRes?.hay ? crecimientoPorCepa(ufcRes.res) : []), [ufcRes])
   if (!ufcRes?.hay) return <div className="pagina"><Encabezado titulo="Curva UFC vs t" /><Vacio titulo="Todavía no hay conteos">Cargá las colonias en «Conteo».</Vacio></div>
   const res = ufcRes.res.filter((r) => finito(r.log10))
-  const muestras = [...new Set(res.map((r) => r.Muestra))]
+  const todas = [...new Set(res.map((r) => r.Muestra))]
+  const muestras = todas.filter((m) => !cepasOcultas(exp).includes(m))
   const lin = escala === 'lineal'
   const pot = lin ? Math.floor(Math.log10(Math.max(...res.map((r) => r.UFC_mL)))) : 0
   const series = muestras.map((m) => ({
@@ -36,7 +38,7 @@ export function CurvaUfc({ s }) {
     data: res.filter((r) => r.Muestra === m).sort((a, b) => a.T_h - b.T_h).map((r) => {
       const e = errorUfc(r, lin ? 'lineal' : 'log10', tipoErr)
       const k = lin ? 10 ** pot : 1
-      const valor = (v.errores ? textoErrorUfc(e, lin, tipoErr) : lin ? sciCorto(e.m) : fx(e.m, 2)).replace('\n', ' ')
+      const valor = (v.conError ? textoErrorUfc(e, lin, tipoErr) : lin ? sciCorto(e.m) : fx(e.m, 2)).replace('\n', ' ')
       return { x: r.T_h, y: e.m / k, lo: e.lo / k, hi: e.hi / k, valor, tip: `${m} · T = ${r.T_h} h\nUFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)\n${r.Colonias_suma} colonias en ${r.N} réplica${r.N === 1 ? '' : 's'}\nlog₁₀ = ${fx(r.log10, 2)}${finito(r.DE_log10) ? ` (DE entre réplicas ${fx(r.DE_log10, 2)})` : ''}` }
     }),
   }))
@@ -63,13 +65,18 @@ export function CurvaUfc({ s }) {
     <div className="pagina">
       <Encabezado titulo="Curva UFC vs t" sub={`Cuadrados: promedio de las réplicas de cada tiempo (suma de colonias / suma de volúmenes sembrados).${exp.aj.ufc_suave !== false ? ((exp.aj.ufc_suave === true || exp.aj.ufc_suave === undefined ? 'baranyi' : exp.aj.ufc_suave) === 'spline' ? ' Línea continua: curva suavizada (spline monótona por las medias).' : ' Línea continua: curva del modelo de Baranyi-Roberts ajustado a ln UFC/mL.') : ''}${exp.aj.ufc_recta ? ' Línea punteada: recta de μ.' : ''}`}>
       </Encabezado>
+      <SelectorCepas s={s} muestras={todas} />
       <Cinta>
-        <Grupo titulo="Escala"><OpcionesCinta valor={escala} onChange={setEscala} opciones={[['log10', 'log₁₀', 'lg'], ['lineal', 'Lineal', 'N']]} /></Grupo>
+
         <Grupo titulo="Mostrar">
           <BotonCinta simbolo="•" texto="Réplicas" activo={v.replicas} onClick={() => setV('replicas', !v.replicas)} tip={'Cada conteo como un punto\nPara ver cuánto se aparta cada réplica de la media'} />
-          <BotonCinta simbolo="12" texto="Valores" activo={v.valores} onClick={() => setV('valores', !v.valores)} tip={'Valor de cada media\nCon su error si «Error» está activo'} />
-          <BotonCinta simbolo="±" texto="Error" activo={v.errores} onClick={() => setV('errores', !v.errores)} tip={'Barras de error\nDel tipo elegido en «Tipo de error»'} />
+          <BotonCinta simbolo="±" texto="Barras de error" activo={v.errores} onClick={() => setV('errores', !v.errores)} tip={'Barras de error\nDel tipo elegido en «Tipo de error»'} />
         </Grupo>
+        <Grupo titulo="Valores sobre los puntos">
+          <BotonCinta simbolo="12" texto="Valor" activo={v.valores} onClick={() => setV('valores', !v.valores)} tip="Escribir el valor medio sobre cada punto" />
+          <BotonCinta simbolo="±" texto="Con error" activo={v.conError} onClick={() => { setV('conError', !v.conError); if (!v.valores) setV('valores', true) }} tip="Agregar el error (DE, DE %, EEM o IC 95 %) al valor" />
+        </Grupo>
+        <Grupo titulo="Escala del eje Y"><OpcionesCinta valor={escala} onChange={setEscala} opciones={[['lineal', 'Lineal', 'N', null, 'UFC/mL tal cual'], ['log10', 'log₁₀', 'lg', null, 'Logaritmo decimal: la fase exponencial se ve como una recta']]} /></Grupo>
         <Grupo titulo="Tipo de error"><OpcionesCinta valor={tipoErr} onChange={(x) => s.setAj('ufc_err', x)} opciones={OPCIONES_ERROR_UFC} /></Grupo>
         <Grupo titulo="Gráfico">
           <OpcionesCinta valor={curvaUfcDe(exp.aj)} onChange={(x) => s.setAj('ufc_suave', x === 'no' ? false : x)} opciones={OPCIONES_CURVA_UFC} />

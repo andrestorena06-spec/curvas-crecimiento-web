@@ -7,6 +7,7 @@ import { Encabezado, Vacio, Num } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, OpcionesCinta } from '../ui/cinta.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { GraficoDispersion } from '../ui/dispersion.jsx'
+import { SelectorCepas, cepasOcultas } from '../ui/cepas.jsx'
 import { fx, sciCorto } from '../utils.js'
 
 const CHIP = { ok: 'ok', bajo: 'aviso', alto: 'aviso', cero: '', incontable: 'peligro', sin_datos: '' }
@@ -59,8 +60,9 @@ export function CalidadUfc({ s }) {
 
   // gráfico: en cada tiempo, una columna por cepa con cada conteo (log₁₀ UFC/mL), la media
   // (Σ colonias / Σ volúmenes) y su error
-  const muestras = [...new Set(grupos.map((g) => g.Muestra))]
-  const tiempos = [...new Set(grupos.map((g) => g.T_h))].sort((a, b) => a - b)
+  const todas = [...new Set(grupos.map((g) => g.Muestra))]
+  const muestras = todas.filter((m) => !cepasOcultas(exp).includes(m))
+  const tiempos = [...new Set(grupos.filter((g) => muestras.includes(g.Muestra)).map((g) => g.T_h))].sort((a, b) => a - b)
   const estadoPunto = (r) => (ufcRes.fuera.has(clave(r)) ? 'fuera' : ufcRes.dixon[clave(r)] ? 'marcada' : ['bajo', 'alto', 'cero'].includes(r._estado) ? 'estimada' : 'ok')
   const TXT = { ok: 'Incluida', estimada: 'Estimada (fuera del rango contable)', fuera: 'Excluida', marcada: `Marcada por ${nombreTest}, sigue en el promedio` }
   const columnas = tiempos.map((t) => ({
@@ -120,6 +122,7 @@ export function CalidadUfc({ s }) {
         </Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="calidadUfc" /></Cajon>
+      <SelectorCepas s={s} muestras={todas} />
       <div className="tarjeta">
         <GraficoDispersion grupos={columnas} o={{ puntos: o.puntos, media: o.medias, errores: o.errores }} curvas={curvas} leyenda={leyenda}
           yTxt="log₁₀ UFC/mL" estilo={s.estiloGrafico('calidadUfc')} idEstilo="calidadUfc" nombre="calidad_ufc" alto={380}

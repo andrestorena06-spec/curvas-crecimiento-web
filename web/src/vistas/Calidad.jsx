@@ -1,3 +1,4 @@
+import { METODOS_ATIPICOS } from '../motor/atipicos.js'
 import { useMemo, useState } from 'react'
 import { finito } from '../motor/analisis.js'
 import { clavePunto, nombreReplica, r3 } from '../motor/pipeline.js'
@@ -329,12 +330,13 @@ export function Calidad({ s }) {
             <BotonCinta simbolo="H" texto="Hampel" activo={aj.hampel_on} onClick={() => setAj('hampel_on', !aj.hampel_on)} tip={'Filtro de Hampel\nDetecta picos dentro de cada curva (burbujas, condensación)'} />
             <BotonCinta simbolo="≤" texto="OD máxima" activo={aj.odmax_on} onClick={() => setAj('odmax_on', !aj.odmax_on)} tip={`Excluir OD mayores que ${aj.odmax}`} />
           </Grupo>
-          <Grupo titulo="Entre réplicas (cada tiempo)">
+          <Grupo titulo="Método (entre réplicas)">
             <OpcionesCinta valor={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }}
-              opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, 'Test Q de Dixon (Grubbs con más de 10 réplicas)'], ['cv', 'RSD', '%', null, 'Desviación estándar relativa (CV %): si las réplicas de un tiempo la superan, sale la más alejada de la media']]} />
-            {aj.dixon_on && (aj.od_atip_metodo || 'q') === 'q' && <CampoCinta etiqueta="Confianza"><Sel value={String(aj.dixon_conf || 95)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></CampoCinta>}
-            {aj.dixon_on && aj.od_atip_metodo === 'cv' && <CampoCinta etiqueta="RSD máx. (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} ancho={56} /></CampoCinta>}
+              opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, METODOS_ATIPICOS.q + '\nEntre las réplicas de cada tiempo'], ['grubbs', 'Grubbs', 'G', null, METODOS_ATIPICOS.grubbs + '\nEntre las réplicas de cada tiempo'], ['cv', 'CV %', 'CV', null, METODOS_ATIPICOS.cv + '\nSi las réplicas de un tiempo lo superan, sale la más alejada de la media']]} />
           </Grupo>
+          {aj.dixon_on && (aj.od_atip_metodo === 'cv'
+            ? <Grupo titulo="Límite"><CampoCinta etiqueta="CV máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} ancho={70} /></CampoCinta></Grupo>
+            : <Grupo titulo="Confianza"><OpcionesCinta valor={String(aj.dixon_conf || 95)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %', '90', null, 'Confianza 90 %: marca más atípicos'], ['95', '95 %', '95', null, 'Confianza 95 % (la habitual)'], ['99', '99 %', '99', null, 'Confianza 99 %: solo marca valores muy extremos']]} /></Grupo>)}
           <Grupo titulo="Réplicas sospechosas">
             <BotonCinta icono="escudo" texto="Excluir solas" activo={aj.pocillo_auto} onClick={() => setAj('pocillo_auto', !aj.pocillo_auto)} />
           </Grupo>
@@ -346,7 +348,7 @@ export function Calidad({ s }) {
           </Grupo>
         </Cinta>
       )}
-      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon o RSD entre réplicas) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
+      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon, Grubbs o CV % entre réplicas) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
       {s.serie.avisos.map((a, i) => <div key={i} className="aviso-caja">{a}</div>)}
       {sinDatos ? <Vacio titulo="Todavía no hay curvas" accion={<button className="primario" onClick={() => s.irA(irDatos)}>Ir a cargar los datos</button>}>Cargá los datos y definí las cepas para ver el control de calidad.</Vacio> : s.porCepa ? <VistaCalidadPlacas s={s} /> : (
         pre?.error ? <div className="aviso-caja error">{pre.error}</div> : pre && (<>
