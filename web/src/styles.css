@@ -262,3 +262,38 @@ table.tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-si
   .principal { overflow: visible; background: #fff; }
   .tarjeta, .mosaico { box-shadow: none; break-inside: avoid; }
 }
+
+/* ---------- fichas «Cómo se calculó» (ventana con el paso a paso de cada número) ---------- */
+:root, [data-tema='claro'] { --v1: #2F6FB3; --v2: #3B6D11; --v3: #B5470E; --v4: #7A4FA3; }
+[data-tema='oscuro'] { --v1: #8CB8EC; --v2: #97C459; --v3: #F6B26B; --v4: #C3A3E6; }
+.calc { cursor: pointer; border-bottom: 1px dotted var(--tenue); }
+.calc:hover, .calc:focus-visible { color: var(--acento); border-bottom-color: var(--acento); outline: none; }
+.ficha-etq { font-weight: 500; color: var(--sec); font-size: 13px; margin-right: 6px; }
+.ficha-cab { padding-bottom: 12px; border-bottom: 1px solid var(--borde); margin-bottom: 16px; }
+.ficha-cab small { color: var(--sec); font-size: 12.5px; }
+.ficha-valor { font-size: 26px; font-weight: 700; line-height: 1.25; margin-top: 2px; overflow-wrap: anywhere; }
+.ficha-valor span { font-size: 15px; font-weight: 500; color: var(--sec); }
+.ficha-sub { font-size: 13px; color: var(--sec); margin-top: 2px; }
+.ficha-que { font-size: 13.5px; margin: 8px 0 0; }
+.ficha-pasos { list-style: none; margin: 0; padding: 0; display: grid; gap: 18px; }
+.ficha-pasos > li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; }
+.ficha-n { width: 24px; height: 24px; border-radius: 50%; background: var(--acento-suave); color: var(--acento-fuerte); font-weight: 700; font-size: 12.5px; display: grid; place-items: center; }
+.ficha-paso > b { font-size: 14.5px; }
+.ficha-paso > p { margin: 4px 0 0; font-size: 13.5px; }
+.ficha-formula { font-family: 'Cambria Math', Cambria, Georgia, serif; font-size: 15px; background: var(--panel2); border-left: 3px solid var(--acento); border-radius: 0 8px 8px 0; padding: 8px 12px; margin-top: 8px; line-height: 1.75; overflow-x: auto; }
+.ficha-formula.cuenta { background: transparent; border: 1px dashed var(--borde2); border-radius: 8px; font-size: 14.5px; }
+.ficha-formula .var { font-weight: 700; }
+.v1 { color: var(--v1); } .v2 { color: var(--v2); } .v3 { color: var(--v3); } .v4 { color: var(--v4); }
+.ficha-paso > p.ficha-nota { color: var(--sec); font-size: 12.5px; }
+.ficha-esquema { margin-top: 8px; }
+.ficha-ajustes { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ficha-ajustes small { color: var(--sec); }
+.dil-fila { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.dil-col { border: 1px solid var(--borde); border-radius: 8px; padding: 5px 10px; text-align: center; min-width: 76px; font-size: 12px; color: var(--sec); display: grid; }
+.dil-col b { font-size: 16px; color: var(--texto); }
+.dil-col.rango { border-color: var(--ok); }
+.dil-col.elegida { border: 2px solid var(--acento); background: var(--acento-suave); color: var(--acento-fuerte); }
+.dil-col.incontable { opacity: .6; }
+.rep-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 8px; }
+.rep-tarjeta { background: var(--panel2); border-radius: 8px; padding: 8px; text-align: center; font-size: 12.5px; display: grid; gap: 2px; }
+.rep-tarjeta b { font-size: 15.5px; }

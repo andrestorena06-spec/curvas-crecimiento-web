@@ -7,7 +7,7 @@ import { Cajon, CintaCtx } from './ui/cinta.jsx'
 import { GraficoCtx } from './ui/guardarImagen.jsx'
 import { PanelPersonalizar } from './ui/personalizar.jsx'
 import { Revision } from './ui/revision.jsx'
-import { descargarTexto, fs } from './utils.js'
+import { descargarTexto } from './utils.js'
 import { OpcionesCtx } from './ui/opciones.js'
 import { archivoDe, cancelado, elegirArchivo, elegirDestino, escribir, olvidarArchivo, puedeSobrescribir, recordarArchivo } from './archivoLocal.js'
 import { Asistente } from './vistas/Asistente.jsx'
@@ -25,6 +25,7 @@ import { Parametros } from './vistas/Parametros.jsx'
 import { Combinado } from './vistas/Combinado.jsx'
 import { Datos } from './vistas/Datos.jsx'
 import { Metodos } from './vistas/Metodos.jsx'
+import { FichaCalculo, FichaCtx } from './fichas/FichaCalculo.jsx'
 
 const CLAVE = 'curvas-crecimiento-v2'
 const CLAVE_TEMA = 'curvas-crecimiento-v2-tema-mesada'
@@ -49,12 +50,14 @@ const PASOS = {
   calidadUfc: ['Calidad UFC', CalidadUfc],
   curva: ['Curva OD vs t', Curva],
   curvaUfc: ['Curva UFC vs t', CurvaUfc],
-  combinado: ['OD + UFC', Combinado],
+  combinado: ['OD ↔ UFC', Combinado],
   parametros: ['Parámetros', Parametros],
   datos: ['Datos', Datos],
   metodos: ['Métodos', Metodos],
 }
-// Menús con submenús: OD (lecturas, calidad y curva) y Conteo (colonias, calidad y curva)
+// Menús con submenús: OD (lecturas, calidad y curva) y Conteo (colonias, calidad y curva). El orden sigue el cálculo:
+// datos → calidad → curva de cada medición; después los parámetros (OD y recuento), la calibración OD ↔ UFC (usa los
+// ajustes de los recuentos), Métodos y las tablas.
 const GRUPOS = {
   od: { titulo: 'OD', icono: 'placa', hijos: ['archivo', 'placa', 'placas', 'lecturas', 'calidad', 'curva'] },
   conteo: { titulo: 'Conteo', icono: 'colonia', hijos: ['conteo', 'calidadUfc', 'curvaUfc'] },
@@ -64,9 +67,9 @@ export const TITULO_PASO = Object.fromEntries(Object.entries(PASOS).map(([k, v])
 export function pasosDe(e) {
   if (!e) return []
   const od = { tecan: ['archivo', 'placa'], placas: ['placas'], cubeta: ['lecturas'] }[e.origenOd] || []
-  if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'parametros', 'datos', 'metodos']
-  if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'datos', 'metodos']
-  return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', ...od, 'calidad', 'curva', 'combinado', 'parametros', 'datos', 'metodos']
+  if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'parametros', 'metodos', 'datos']
+  if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'parametros', 'metodos', 'datos']
+  return ['resumen', ...od, 'calidad', 'curva', 'conteo', 'calidadUfc', 'curvaUfc', 'parametros', 'combinado', 'metodos', 'datos']
 }
 
 const Logo = () => (
@@ -111,6 +114,7 @@ export default function App() {
   const [nodoCinta, setNodoCinta] = useState(null)
   const [menuCorto, setMenuCorto] = useState(() => leer(CLAVE_MENU) || false)
   const [persGraf, setPersGraf] = useState(null)               // gráfico abierto con clic derecho › Personalizar
+  const [ficha, setFicha] = useState(null)                     // ficha «Cómo se calculó» abierta
   const [menuMovil, setMenuMovil] = useState(false)            // celular: el menú lateral se abre como cajón
   const archivoRef = useRef(null)          // el File del Tecan (para cambiar de hoja)
   const [archivoExp, setArchivoExp] = useState(null)   // { handle, nombre }: el .curvas.json de este experimento (Guardar lo sobrescribe)
@@ -189,7 +193,11 @@ export default function App() {
   // Abrir: con Chrome / Edge se recuerda el archivo elegido para poder sobrescribirlo al guardar
   const abrirArchivo = async () => {
     if (!puedeSobrescribir()) return inputCargar.current.click()
-    try { const { handle, file } = await elegirArchivo(); cargarArchivo(file, handle) } catch (e) { if (!cancelado(e)) avisar(`No se pudo abrir: ${e.message}`, 'error') }
+    try { const { handle, file } = await elegirArchivo(); cargarArchivo(file, handle) } catch (e) {
+      if (cancelado(e)) return
+      if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') return inputCargar.current.click()   // navegador integrado u otro contexto sin permiso: selector clásico
+      avisar(`No se pudo abrir: ${e.message}`, 'error')
+    }
   }
   // Abre un .curvas.json o una sesión de una versión anterior del programa. Si el archivo trae varios
   // experimentos (versión anterior), se abre el que estaba activo y los demás quedan en «Recientes».
@@ -264,13 +272,14 @@ export default function App() {
   const expD = useDeferredValue(exp)
   const serie = useMemo(() => (expD && tieneOd(expD) ? seriesOd(expD) : { datos: null, config: [], aj: expD?.aj || {}, avisos: [] }), [expD])
   const pre = useMemo(() => (serie.datos && serie.config.length ? preprocesar({ datos: serie.datos, config: serie.config, E: expD.E, aj: serie.aj, blancosSel: expD.blancosSel }) : null), [serie, expD])
-  // placas por tiempo: la curva es por cepa (cada placa es un instante); en los demás orígenes, una curva por réplica
+  // placas por tiempo: la curva es por cepa (cada placa es un instante); en los demás orígenes, una curva por réplica.
+  // Los parámetros salen de pre.analisis (OD corregida, sin suavizar ni normalizar); pre.proc es solo para los gráficos.
   const porCepa = expD?.origenOd === 'placas'
   const modoCurva = expD?.aj?.placas_curva || 'media'
   const res = useMemo(() => (pre && !pre.error
-    ? (porCepa ? analizarPorCepa(pre.proc, serie.aj, expD.E.ventanas, modoCurva) : analizarTodos(pre.proc, serie.aj, expD.E.ventanas))
+    ? (porCepa ? analizarPorCepa(pre.analisis, serie.aj, expD.E.ventanas, modoCurva) : analizarTodos(pre.analisis, serie.aj, expD.E.ventanas))
     : null), [pre, serie.aj, expD, porCepa, modoCurva])
-  const seriesAn = useMemo(() => (pre && !pre.error ? (porCepa ? seriesPorCepa(pre.proc) : pre.proc.filter((w) => !w.EsBlanco)) : []), [pre, porCepa])
+  const seriesAn = useMemo(() => (pre && !pre.error ? (porCepa ? seriesPorCepa(pre.analisis) : pre.analisis.filter((w) => !w.EsBlanco)) : []), [pre, porCepa])
   const ufcRes = useMemo(() => (expD && tieneUfc(expD) ? resultadosUfc(expD) : null), [expD])
   const muestras = useMemo(() => (exp ? muestrasDe(exp) : []), [exp])
   const colores = useMemo(() => ({ ...coloresCepas(muestras), ...(exp?.coloresCepa || {}) }), [muestras, exp?.coloresCepa])
@@ -284,7 +293,8 @@ export default function App() {
       if (E.forzados.includes(k)) return { ...E, forzados: E.forzados.filter((x) => x !== k) }
       const w = pre?.marcado?.find((x) => x.Pocillo === p)
       const f = w?.filas.find((q) => clavePunto(p, q.t) === k)
-      if (f && f.marca) return { ...E, forzados: [...E.forzados, k] }
+      // excluido por un filtro → se conserva a mano; marcado pero en el análisis («solo marcar») o normal → se excluye a mano
+      if (f && f.motivo) return { ...E, forzados: [...E.forzados, k] }
       return { ...E, puntosExcl: [...E.puntosExcl, k] }
     })
   }
@@ -320,7 +330,8 @@ export default function App() {
       case 'placas': return exp.placas.some((p) => p.valores)
       case 'lecturas': return filasConOd(exp).length > 0
       case 'conteo': return filasConConteo(exp).length > 0
-      case 'calidad': case 'curva': case 'parametros': return !!res?.length
+      case 'calidad': case 'curva': return !!res?.length
+      case 'parametros': return !!res?.length || !!ufcRes?.hay
       case 'calidadUfc': case 'curvaUfc': return !!ufcRes?.hay
       case 'combinado': return !!res?.length && !!ufcRes?.hay
       default: return false
@@ -330,7 +341,7 @@ export default function App() {
   const s = {
     exp, upd, setAj, setE, avisar, irA, archivoRef, agregarCepa, guardar, guardarComo, archivoExp, pasos, listo, estiloGrafico, setEstiloGrafico, setColorCepa, restablecerColores,
     serie, pre, res, seriesAn, porCepa, modoCurva, ufcRes, muestras, colores, estilos, tema: TEMAS[tema],
-    alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, alternarLectura, restablecerLecturas,
+    alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, alternarLectura, restablecerLecturas, abrirFicha: setFicha,
   }
 
   // barra de estado
@@ -339,7 +350,6 @@ export default function App() {
     const usadas = new Set([...serie.config.filter((c) => !c.EsBlanco).map((c) => c.Muestra), ...(ufcRes?.reps || []).map((r) => r.Muestra)])
     const p = [TIPOS[exp.tipo].corto + (exp.origenOd ? ` · ${ORIGENES[exp.origenOd].titulo}` : ''), `${usadas.size} cepa${usadas.size === 1 ? '' : 's'}`]
     if (exp.origenOd === 'placas') { const l = serie.extra?.lecturas || []; p.push(`${exp.placas.length} tiempos`, `${l.filter((x) => x.Usado).length}/${l.length} lecturas aceptadas`) }
-    if (res?.length) { const mu = res.map((r) => r.mu_max).filter(Number.isFinite); if (mu.length) p.push(`μmax medio ${fs(mu.reduce((a, b) => a + b, 0) / mu.length, 3)} h⁻¹`) }
     if (ufcRes?.hay) p.push(`${ufcRes.reps.filter((r) => r.Conteos > 0).length} conteos de UFC`)
     p.push(archivoExp ? `archivo «${archivoExp.nombre}» (Ctrl + S guarda)` : 'sin archivo: Ctrl + S para guardarlo', 'copia automática en «Recientes»')
     return p.join(' · ')
@@ -351,7 +361,7 @@ export default function App() {
 
   return (
     <TemaCtx.Provider value={TEMAS[tema]}>
-      <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}><OpcionesCtx.Provider value={{ opciones: exp?.opciones || {}, set: guardarOpcion }}>
+      <GraficoCtx.Provider value={{ abrirPersonalizar: exp ? setPersGraf : null }}><CintaCtx.Provider value={nodoCinta}><OpcionesCtx.Provider value={{ opciones: exp?.opciones || {}, set: guardarOpcion }}><FichaCtx.Provider value={setFicha}>
         <div className="app">
           <header className="barra-titulo">
             <button className="titulo-boton solo-movil hamburguesa" onClick={() => setMenuMovil(!menuMovil)} aria-label="Menú"><Icono n={menuMovil ? 'x' : 'hamburguesa'} size={18} /></button>
@@ -445,9 +455,11 @@ export default function App() {
           <Revision pestana={pestanaActual} experimento={exp?.nombre} activo={revisar} setActivo={setRevisar} panel={panelRev} setPanel={setPanelRev} avisar={avisar} />
           <Globo />
           {exp && <Cajon titulo="Personalizar gráfico" abierto={!!persGraf} onClose={() => setPersGraf(null)}><PanelPersonalizar s={s} id={persGraf} /></Cajon>}
+          {ficha && <FichaCalculo ficha={ficha} onClose={() => setFicha(null)}
+            onMetodos={exp ? (ancla) => { setFicha(null); irA('metodos'); setTimeout(() => document.getElementById(ancla)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 450) } : null} />}
           <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>
         </div>
-      </OpcionesCtx.Provider></CintaCtx.Provider></GraficoCtx.Provider>
+      </FichaCtx.Provider></OpcionesCtx.Provider></CintaCtx.Provider></GraficoCtx.Provider>
     </TemaCtx.Provider>
   )
 }

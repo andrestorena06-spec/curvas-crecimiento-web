@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePlanilla } from '../ui/planilla.js'
 import { ajusteDiluciones, estimarUfc, textoEstado } from '../motor/ufc.js'
-import { dAjuste, dUfc } from '../calculos.js'
+import { Valor } from '../fichas/FichaCalculo.jsx'
+import { fichaUfcReplica } from '../fichas/definiciones.js'
 import { claveGrupoUfc, claveUfc, dilucionesUfc, serieUfc } from '../modelo.js'
 import { dixonQ } from '../motor/pipeline.js'
 import { detectarCV } from '../motor/atipicos.js'
@@ -165,8 +166,10 @@ export function Conteo({ s }) {
                     const aj = ajusteDiluciones(x.c, p)
                     const malas = new Set(aj.malos.map((m) => m.k2))
                     const conDatos = ks.filter((k) => u.filas.some((f) => claveGrupoUfc(f) === claveGrupoUfc(x) && fin(f.c[k])))
-                    const tip = dUfc({ _cont: x.c, _par: p, _usados: e.usados, _S: e.S, _estado: e.estado, _manual: e.manual, UFC_mL: e.ufc, IC95_inf: e.lo, IC95_sup: e.hi, Limite: e.lim })
                     const fuera = s.ufcRes?.fuera?.has(claveUfc(x))
+                    // ficha de la réplica (la misma fila de resultados que usa el resto del programa)
+                    const rep = s.ufcRes?.reps?.find((r) => r.Muestra === x.muestra && r.T_h === Number(x.t) && r.Replica === (Number(x.replica) || 1))
+                    const fRep = rep ? () => fichaUfcReplica(rep, { dixon: s.ufcRes.dixon?.[claveUfc(x)], fuera }) : null
                     return (
                       <tr key={x.id} className={fuera ? 'fuera' : ''}>
                         <td>{x.muestra}</td>
@@ -178,9 +181,9 @@ export function Conteo({ s }) {
                         {(() => { const g = claveGrupoUfc(x), c = candDe(g)[dilG[g]?.k]; if (!c) return <td />; const sale = c.dixon && c.dixon.replica === x.replica
                           return <td data-tip={resumenCand(c) + (c.dixon ? `\n${c.dixon.texto}` : '')}>{sale ? <span className="aviso-texto">⚠ {nomTest}</span> : <small className="ayuda">DE {dec(c.sd)} log</small>}</td> })()}
                         {ks.map((k) => <td key={k} className={`num celda-conteo ${e.usados[0] === k ? 'usada' : fin(x.c[k]) ? 'no-usada' : ''}`}
-                          onContextMenu={(ev) => { if (!fin(x.c[k])) return; ev.preventDefault(); const g = claveGrupoUfc(x); setDilGrupo(g, dilG[g]?.manual && dilG[g].k === k ? undefined : k) }} style={{ background: color(x.c[k]) }} data-tip={malas.has(k) ? dAjuste(aj) : e.usados[0] === k ? `Dilución usada para las UFC/mL de esta cepa en este tiempo${e.manual ? ' (elegida a mano)' : ' (sugerida)'}` : fin(x.c[k]) ? 'No entra en el cálculo (solo se usa para revisar la coherencia entre diluciones).\nClic derecho para usar esta dilución.' : undefined}><Num value={x.c[k] ?? ''} onChange={(v) => setC(x.id, k, v)} ancho={60} />{malas.has(k) && <span className="marca-aviso">⚠</span>}</td>)}
-                        <td className="num" data-tip={dAjuste(aj) || undefined}>{aj.malos.length ? <span className="aviso-texto">⚠ {aj.malos.length}</span> : aj.evaluados ? <span style={{ color: 'var(--ok)' }}>✓</span> : <span className="ayuda">—</span>}</td>
-                        <td className="num" data-tip={tip || undefined}><b>{fin(e.ufc) ? sciCorto(e.ufc) : e.estado === 'cero' ? `< ${sciCorto(e.lim)}` : ''}</b></td>
+                          onContextMenu={(ev) => { if (!fin(x.c[k])) return; ev.preventDefault(); const g = claveGrupoUfc(x); setDilGrupo(g, dilG[g]?.manual && dilG[g].k === k ? undefined : k) }} style={{ background: color(x.c[k]) }} data-tip={malas.has(k) ? 'Esta dilución no coincide con lo esperado según la anterior (prueba binomial, p < 0,05).\nClic en ⚠ de la columna «Ajuste» para ver la prueba.' : e.usados[0] === k ? `Dilución usada para las UFC/mL de esta cepa en este tiempo${e.manual ? ' (elegida a mano)' : ' (sugerida)'}` : fin(x.c[k]) ? 'No entra en el cálculo (solo se usa para revisar la coherencia entre diluciones).\nClic derecho para usar esta dilución.' : undefined}><Num value={x.c[k] ?? ''} onChange={(v) => setC(x.id, k, v)} ancho={60} />{malas.has(k) && <span className="marca-aviso">⚠</span>}</td>)}
+                        <td className="num"><Valor f={aj.evaluados ? fRep : null} tip="Clic: ver la prueba de coherencia entre diluciones">{aj.malos.length ? <span className="aviso-texto">⚠ {aj.malos.length}</span> : aj.evaluados ? <span style={{ color: 'var(--ok)' }}>✓</span> : <span className="ayuda">—</span>}</Valor></td>
+                        <td className="num"><Valor f={fRep}><b>{fin(e.ufc) ? sciCorto(e.ufc) : e.estado === 'cero' ? `< ${sciCorto(e.lim)}` : ''}</b></Valor></td>
                         <td className="num">{fin(e.ufc) && e.ufc > 0 ? Math.log10(e.ufc).toFixed(2) : ''}</td>
                         <td><small>{Object.keys(x.c).length ? (fuera ? 'Excluida' : textoEstado(e.estado)) : ''}</small></td>
                         <td><button className="fantasma icono" aria-label="Quitar" onClick={() => setU((uu) => ({ filas: uu.filas.filter((y) => y.id !== x.id) }))}><Icono n="borrar" size={15} /></button></td>

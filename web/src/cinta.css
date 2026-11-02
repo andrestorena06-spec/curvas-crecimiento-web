@@ -159,6 +159,7 @@
 .panel-cinta header { display: flex; align-items: center; justify-content: space-between; padding: 8px 18px; border-bottom: 1px solid var(--borde); background: var(--panel2); }
 .panel-cinta header b { font-size: 14px; }
 .cajon-cuerpo { padding: 12px 18px 18px; overflow-y: auto; }
+.cajon-grupos { display: flex; flex-wrap: wrap; row-gap: 10px; }
 .cajon-cuerpo h3:first-child { margin-top: 0; }
 .cajon-cuerpo .tarjeta.ajustes { border: 0; padding: 0; position: static; max-height: none; background: transparent; box-shadow: none; }
 .panel-cinta .cajon-cuerpo > .personalizar, .panel-cinta .cajon-cuerpo > .tarjeta.ajustes { columns: 250px; column-gap: 30px; margin: 0; }

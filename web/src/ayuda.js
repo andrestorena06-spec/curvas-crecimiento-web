@@ -165,18 +165,6 @@ export function explicarResultado(r, p, op) {
 
 export const MODELOS_ETQ = { gompertz: 'Gompertz modificado', logistico: 'Logístico', richards: 'Richards', baranyi: 'Baranyi-Roberts' }
 
-// Ajustes iniciales (mismos valores por defecto que la app en R)
-export const ajustesDef = () => ({
-  corregir_blanco: false, blanco_metodo: 'tiempo', normalizar: 'ninguna', n_od0: 3, od0_metodo: 'auto',
-  suavizado: 'ninguno', suav_k: 3, suav_span: 0.3,
-  dixon_conf: 95, hampel_on: false, hampel_k: 3, hampel_sigma: 3, hampel_min: 0.002, hampel_accion: 'excluir',
-  odmax_on: false, odmax: 1,
-  pocillo_auto: false, pocillo_factor: 3, pocillo_min: 0.03, pocillo_div: 25,
-  unidad_tiempo: 'h', modo_grafico: 'individual', escala_y: 'lineal', tipo_error: 'sd', mostrar_excluidos: true,
-  an_ancho: 2, an_minpts: 4, an_lnmin: 0.01, an_r2: 0.98, an_lag_metodo: 'tangente', an_lag_factor: 2,
-  an_umbral_od: 0.3, an_frac_exp: 0.5, an_frac_est: 0.1, an_muerte_pct: 10, an_spline: true,
-})
-
 export const ETIQUETAS_AJUSTE = {
   corregir_blanco: 'Corregir al blanco', blanco_metodo: 'Método de blanco', normalizar: 'Normalización',
   n_od0: 'Puntos iniciales (respaldo y normalización)', od0_metodo: 'Método de OD0', suavizado: 'Suavizado',

@@ -2,17 +2,19 @@
 // (con un enlace a cada lugar) y los resultados principales. Cada mosaico lleva a su pestaña.
 import { useMemo, useState } from 'react'
 import { finito } from '../motor/analisis.js'
-import { curvaSuaveUfc } from '../motor/ufc.js'
+import { centroLog10, curvaUfc } from '../motor/ufc.js'
 import { TIPOS, ORIGENES, filasConConteo, filasConOd } from '../modelo.js'
 import { Icono } from '../ui/base.jsx'
 import { BotonCinta, Cinta, Grupo, Mosaico } from '../ui/cinta.jsx'
 import { Grafico } from '../ui/grafico.jsx'
 import { fs, fx, sciCorto } from '../utils.js'
 import { mediaPorTiempo } from './Curva.jsx'
+import { celdaResumen, fichaCeldaResumen, resumenPorCepa } from './Parametros.jsx'
+import { Valor } from '../fichas/FichaCalculo.jsx'
 import { descargarExcel } from './Datos.jsx'
 import { EditarExperimento } from './EditarExperimento.jsx'
 
-const NOMBRE_PASO = { archivo: 'Lecturas de OD', placa: 'Pocillos', placas: 'Lecturas de OD', lecturas: 'Lecturas de OD', conteo: 'Colonias', calidad: 'Calidad OD', calidadUfc: 'Calidad UFC', curva: 'Curva OD vs t', curvaUfc: 'Curva UFC vs t', combinado: 'OD + UFC', parametros: 'Parámetros' }
+const NOMBRE_PASO = { archivo: 'Lecturas de OD', placa: 'Pocillos', placas: 'Lecturas de OD', lecturas: 'Lecturas de OD', conteo: 'Colonias', calidad: 'Calidad OD', calidadUfc: 'Calidad UFC', curva: 'Curva OD vs t', curvaUfc: 'Curva UFC vs t', combinado: 'OD ↔ UFC', parametros: 'Parámetros' }
 
 // Lo que conviene revisar antes de dar el análisis por terminado: [{ nivel: 'aviso' | 'info', texto, ir }]
 function pendientes(s) {
@@ -62,28 +64,29 @@ export function Resumen({ s }) {
 
   const seriesOd = useMemo(() => {
     if (!pre || pre.error) return []
-    const ws = pre.proc.filter((w) => !w.EsBlanco)
+    const ws = pre.analisis.filter((w) => !w.EsBlanco)   // OD del análisis (sin suavizar ni normalizar)
     return [...new Set(ws.map((w) => w.Muestra))].map((m) => ({
-      id: m, nombre: m, color: s.colores[m], ancho: 2.2, banda: exp.origenOd === 'tecan', puntos: exp.origenOd !== 'tecan', radio: 2.6,
-      data: mediaPorTiempo(ws.filter((w) => w.Muestra === m), (v) => v, 'sd').map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${m}\nt = ${fx(q.t / 3600, 2)} h\nOD = ${fx(q.m, 3)}` })),
+      id: m, nombre: m, color: s.colores[m], ancho: 2.2, banda: exp.origenOd === 'tecan', errores: exp.origenOd !== 'tecan', puntos: exp.origenOd !== 'tecan', radio: 2.6,
+      data: mediaPorTiempo(ws.filter((w) => w.Muestra === m), (v) => v, 'sd').map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, tip: `${m}\nt = ${fx(q.t / 3600, 2)} h\nOD media = ${fx(q.m, 3)}${finito(q.sd) ? `\nDE = ± ${fx(q.sd, 3)}` : ''}\nn = ${q.n} ${exp.origenOd === 'placas' ? 'pocillos' : 'réplicas técnicas'}${q.n < 3 ? ' (n < 3: DE poco confiable)' : ''}` })),
     }))
   }, [pre, s.colores, exp.origenOd])
   const seriesUfc = useMemo(() => {
     if (!ufcRes?.hay) return []
     return [...new Set(ufcRes.res.map((r) => r.Muestra))].flatMap((m) => {
       const filas = ufcRes.res.filter((r) => r.Muestra === m && finito(r.log10)).sort((a, b) => a.T_h - b.T_h)
-      const puntos = { id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, forma: 'cuadrado', radio: 3.5, data: filas.map((r) => ({ x: r.T_h, y: r.log10, tip: `${m} · T = ${r.T_h} h\n${sciCorto(r.UFC_mL)} UFC/mL` })) }
-      const cs = metodoSuave ? curvaSuaveUfc(filas, metodoSuave) : null
+      const puntos = { id: m, nombre: m, color: s.colores[m], linea: false, puntos: true, forma: 'cuadrado', radio: 3.5, data: filas.map((r) => ({ x: r.T_h, y: centroLog10(r, exp.aj.ufc_centro), tip: `${m} · T = ${r.T_h} h\n${sciCorto(r.UFC_mL)} UFC/mL` })) }
+      const cs = metodoSuave ? curvaUfc(ufcRes, m, exp.aj) : null
       return cs?.ok ? [{ id: 'sv' + m, nombre: '', color: s.colores[m], ancho: 1.6, data: cs.puntos }, puntos] : [puntos]
     })
-  }, [ufcRes, s.colores, metodoSuave])
+  }, [ufcRes, s.colores, metodoSuave, exp.aj.ufc_modelo, exp.aj.ufc_datos, exp.aj.ufc_centro, exp.aj.ufc_mcurv])
 
   const pend = pendientes(s)
   const pasosTrabajo = s.pasos.filter((p) => NOMBRE_PASO[p])
   const hechos = pasosTrabajo.filter((p) => s.listo(p)).length
   const proximo = pasosTrabajo.find((p) => !s.listo(p))
-  const muPorCepa = (res || []).reduce((acc, r) => { if (finito(r.mu_max)) (acc[r.Muestra] ||= []).push(r.mu_max); return acc }, {})
-  const muMax = Math.max(0.01, ...Object.values(muPorCepa).map((v) => v.reduce((a, b) => a + b, 0) / v.length))
+  // μmax por cepa: media entre réplicas técnicas ± DE (o, con una sola curva por cepa, ± EE de la pendiente)
+  const muPorCepa = (res?.length ? resumenPorCepa(res, ['mu_max']) : []).filter((r) => finito(r.mu_max.m))
+  const muMax = Math.max(0.01, ...muPorCepa.map((r) => r.mu_max.m))
   const c = exp.cond
   const ficha = [
     ['Organismo', c.organismo], ['Medio', c.medio], ['Temperatura', c.temperatura !== '' && c.temperatura !== undefined ? `${c.temperatura} °C` : ''],
@@ -152,23 +155,24 @@ export function Resumen({ s }) {
 
         {od && (
           <Mosaico titulo="Curva OD vs t" accion="Abrir" onAccion={() => s.irA('curva')} className="m-grande">
-            {seriesOd.length ? <Grafico series={seriesOd} yTxt="OD (media)" alto={300} exportar={false} nombre="resumen_curva" />
+            {seriesOd.length ? <Grafico series={seriesOd} yTxt={`OD (media ± DE entre ${exp.origenOd === 'placas' ? 'pocillos' : 'réplicas'})`} alto={300} exportar={false} nombre="resumen_curva" />
               : <p className="ayuda">{pre?.error || 'Todavía no hay curvas: cargá las lecturas y definí las cepas.'}</p>}
+            {seriesOd.length > 0 && <p className="ayuda" style={{ marginTop: 6 }}>{exp.origenOd === 'tecan' ? 'Banda' : 'Barra'} = desviación estándar (DE) entre las réplicas técnicas (pocillos o series) de cada tiempo; el n está en el globo de cada punto.</p>}
           </Mosaico>
         )}
         {od && (
           <Mosaico titulo="μmax por cepa" accion="Parámetros" onAccion={() => s.irA('parametros')}>
-            {Object.keys(muPorCepa).length ? Object.entries(muPorCepa).map(([m, v]) => {
-              const mu = v.reduce((a, b) => a + b, 0) / v.length
+            {muPorCepa.length ? muPorCepa.map((r) => {
+              const m = r.Muestra, c = celdaResumen(r, 'mu_max')
               return (
-                <div key={m} className="barra-cepa">
+                <div key={m} className="barra-cepa" style={{ gridTemplateColumns: '96px 1fr auto' }}>
                   <span>{m}</span>
-                  <div><i style={{ width: `${(100 * mu) / muMax}%`, background: s.colores[m] }} /></div>
-                  <b>{fs(mu, 3)}</b>
+                  <div><i style={{ width: `${(100 * r.mu_max.m) / muMax}%`, background: s.colores[m] }} /></div>
+                  <b style={{ whiteSpace: 'nowrap' }}><Valor f={fichaCeldaResumen(s, r, 'mu_max')}>{fs(r.mu_max.m, 3)}{c.tipo ? <small className="ayuda"> ± {fs(c.err, 2)}{c.tipo === 'EE' ? ' (EE)' : ''}</small> : null}</Valor> <small className="ayuda">(n={r.nTxt})</small>{c.pocoN ? <small style={{ color: 'var(--aviso)' }}> ⚠</small> : null}</b>
                 </div>
               )
             }) : <p className="ayuda">Sin parámetros todavía.</p>}
-            {Object.keys(muPorCepa).length > 0 && <p className="ayuda" style={{ marginTop: 6 }}>μmax en h⁻¹; tiempo de duplicación = ln 2 / μmax.</p>}
+            {muPorCepa.length > 0 && <p className="ayuda" style={{ marginTop: 6 }}>μmax en h⁻¹; tiempo de duplicación = ln 2 / μ̄. {muPorCepa.some((r) => r.unico) ? 'n = pocillos de la curva de la cepa; ± (EE) = error estándar de la pendiente (no es variación entre réplicas).' : 'Media ± DE entre n réplicas técnicas (pocillos o series) de un experimento.'}{muPorCepa.some((r) => !r.unico && r.n_curvas < 3) ? ' ⚠ n < 3: la DE tiene muy poca base.' : ''}</p>}
           </Mosaico>
         )}
         {ufc && (

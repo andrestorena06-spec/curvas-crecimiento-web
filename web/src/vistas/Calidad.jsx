@@ -49,9 +49,10 @@ export function AjustesCalidad({ s }) {
         <Campo label="Puntos marcados"><Sel value={aj.hampel_accion} onChange={(v) => setAj('hampel_accion', v)} opciones={[['excluir', 'Excluirlos'], ['interpolar', 'Reemplazarlos por interpolación']]} /></Campo>
       </>)}
       <Campo label="Entre réplicas de cada tiempo" ayuda="Dixon: 3 a 10 réplicas (Grubbs con más). RSD: si la desviación estándar relativa supera el límite, sale la réplica más alejada de la media.">
-        <Seg value={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }} opciones={[['no', 'Ninguno'], ['q', 'Dixon'], ['cv', 'RSD']]} />
+        <Seg value={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }} opciones={[['no', 'Ninguno'], ['q', 'Dixon'], ['grubbs', 'Grubbs'], ['cv', 'RSD']]} />
       </Campo>
-      {aj.dixon_on && (aj.od_atip_metodo || 'q') === 'q' && <Campo label="Confianza"><Seg value={String(aj.dixon_conf)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></Campo>}
+      {aj.dixon_on && <Check label="Excluir solos los puntos sospechosos entre réplicas (si no, solo se marcan)" checked={aj.od_atip_auto === true} onChange={(v) => setAj('od_atip_auto', v)} />}
+      {aj.dixon_on && (aj.od_atip_metodo || 'q') !== 'cv' && <Campo label="Confianza"><Seg value={String(aj.dixon_conf)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></Campo>}
       {aj.dixon_on && aj.od_atip_metodo === 'cv' && <Campo label="RSD máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} /></Campo>}
       <Check label="Excluir OD por encima de un máximo confiable" checked={aj.odmax_on} onChange={(v) => setAj('odmax_on', v)} />
       {aj.odmax_on && <Campo label="OD máxima confiable"><Num value={aj.odmax} onChange={(v) => setAj('odmax', v)} /></Campo>}
@@ -102,6 +103,7 @@ function puntosDe(s, p) {
     let estado = 'En el análisis', detalle = ''
     if (f && f.motivo) { estado = f.motivo; detalle = f.detalle }
     if (f && f.marca && forz.has(k)) { estado = 'Reincorporado a mano'; detalle = `El filtro lo había marcado: ${f.detalle}` }
+    else if (f && f.marca && !f.motivo) { estado = 'Marcado (sigue en el análisis)'; detalle = `${f.detalle} Solo se marca: sigue en el análisis (un clic lo excluye).` }
     if (man.has(k)) { estado = 'Excluido a mano'; detalle = 'Excluido con un clic. Otro clic lo reincorpora.' }
     out.push({ t, v, k, estado, detalle })
   })
@@ -110,7 +112,8 @@ function puntosDe(s, p) {
 const ESTILO_EST = (T) => ({
   'Reincorporado a mano': { color: T.aviso, forma: 'anillo' }, 'Aberrante (interpolado)': { color: T.aviso, forma: 'o' },
   'Aberrante (Hampel)': { color: T.peligro, forma: 'x' }, 'Aberrante (Dixon)': { color: T.peligro, forma: 'x' }, 'Aberrante (RSD)': { color: T.peligro, forma: 'x' },
-  'OD sobre el máximo': { color: T.peligro, forma: 'x' }, 'Excluido a mano': { color: T.sec, forma: 'x' },
+  'OD sobre el máximo': { color: T.peligro, forma: 'x' }, 'Excluido a mano': { color: T.sec, forma: 'x' }, 'Aberrante (Grubbs)': { color: T.peligro, forma: 'x' },
+  'Marcado (sigue en el análisis)': { color: T.aviso, forma: 'anillo' },
 })
 
 // ---------- ventana emergente de un pocillo ----------
@@ -123,7 +126,7 @@ export function ModalPocillo({ s, p, onClose }) {
   const tr = (v) => (ln ? Math.log(v) : v)
   const ok = (v) => finito(v) && (!ln || v > 0)
   const est = s.estilos[p] || { color: T.acento }
-  const usados = pts.filter((q) => ['En el análisis', 'Reincorporado a mano', 'Aberrante (interpolado)'].includes(q.estado))
+  const usados = pts.filter((q) => ['En el análisis', 'Reincorporado a mano', 'Aberrante (interpolado)', 'Marcado (sigue en el análisis)'].includes(q.estado))
   const series = []
   if (otras && c) s.serie.config.filter((x) => x.Muestra === c.Muestra && !x.EsBlanco && x.Pocillo !== p).forEach((x) => {
     const w = s.pre.pre.find((y) => y.Pocillo === x.Pocillo)
@@ -136,7 +139,7 @@ export function ModalPocillo({ s, p, onClose }) {
   const E = ESTILO_EST(T)
   const extras = pts.filter((q) => !['En el análisis'].includes(q.estado) && ok(q.v) && q.estado !== 'Reincorporado a mano').map((q) => ({
     x: q.t / 3600, y: tr(q.v), key: q.k, ...(E[q.estado] || { color: T.peligro, forma: 'x' }),
-    tip: `${q.estado}\nt = ${fx(q.t / 3600, 2)} h · ${ln ? 'ln(OD)' : 'OD'} = ${fx(tr(q.v), 4)}${q.detalle ? '\n' + q.detalle : ''}\nClic para reincorporar`,
+    tip: `${q.estado}\nt = ${fx(q.t / 3600, 2)} h · ${ln ? 'ln(OD)' : 'OD'} = ${fx(tr(q.v), 4)}${q.detalle ? '\n' + q.detalle : ''}\nClic para ${q.estado === 'Marcado (sigue en el análisis)' ? 'excluirlo' : 'reincorporarlo'}`,
   }))
   pts.filter((q) => q.estado === 'Reincorporado a mano' && ok(q.v)).forEach((q) => extras.push({ x: q.t / 3600, y: tr(q.v), key: q.k, ...E['Reincorporado a mano'], tip: `${q.estado}\n${q.detalle}\nClic para volver a excluirlo` }))
   const fuera = s.pre.fuera.has(p)
@@ -159,13 +162,13 @@ export function ModalPocillo({ s, p, onClose }) {
       </div>
       <Grafico series={series} extras={extras} yTxt={ln ? 'ln(OD)' : 'OD (blanco restado)'} alto={340} estilo={s.estiloGrafico('pocillo')} idEstilo="pocillo" onPuntoClick={s.alternarPunto} nombre={s.exp.origenOd === 'tecan' ? `pocillo_${p}` : `serie_${c?.Muestra}_r${c?.Replica}`} />
       {qc && <p className="ayuda" style={{ marginTop: 8 }}><b>Control de calidad:</b> {qc.Estado}</p>}
-      <h4>Puntos fuera del análisis ({noUsados.length})</h4>
+      <h4>Puntos marcados o fuera del análisis ({noUsados.length})</h4>
       {!noUsados.length ? <p className="ayuda">Todos los puntos de este {nombreSerie(s.exp)} están en el análisis.</p> : (
         <div className="tabla-scroll" style={{ maxHeight: 220 }}><table className="tabla">
           <thead><tr><th className="num">Tiempo (h)</th><th className="num">OD</th><th>Estado</th><th>Motivo</th><th /></tr></thead>
           <tbody>{noUsados.map((q) => (
             <tr key={q.k}><td className="num">{fx(q.t / 3600, 2)}</td><td className="num">{fx(q.v, 4)}</td><td>{q.estado}</td><td style={{ whiteSpace: 'normal', minWidth: 300 }}>{q.detalle}</td>
-              <td><button className="chico" onClick={() => s.alternarPunto(q.k)}>{q.estado === 'Reincorporado a mano' ? 'Excluir' : 'Reincorporar'}</button></td></tr>
+              <td><button className="chico" onClick={() => s.alternarPunto(q.k)}>{q.estado === 'Reincorporado a mano' || q.estado === 'Marcado (sigue en el análisis)' ? 'Excluir' : 'Reincorporar'}</button></td></tr>
           ))}</tbody>
         </table></div>
       )}
@@ -254,7 +257,7 @@ function VistaCepas({ s, onAbrir }) {
           const pts = puntosDe(s, c.Pocillo)
           const color = s.estilos[c.Pocillo]?.color || s.colores[m]
           series.push({ id: c.Pocillo, nombre: `Réplica ${c.Replica}`, color, dash: fuera ? '4 4' : undefined, opacidad: fuera ? 0.35 : 1, ancho: 1.6, puntos: true, radio: 3,
-            data: pts.filter((q) => !est[q.estado]).map((q) => ({ x: q.t / 3600, y: q.v, key: q.k, tip: `${m} · réplica ${c.Replica}\nt = ${fx(q.t / 3600, 2)} h · OD ${fx(q.v, 3)}\nClic para excluir el punto` })) })
+            data: pts.filter((q) => !est[q.estado] || q.estado === 'Marcado (sigue en el análisis)').map((q) => ({ x: q.t / 3600, y: q.v, key: q.k, tip: `${m} · réplica ${c.Replica}\nt = ${fx(q.t / 3600, 2)} h · OD ${fx(q.v, 3)}\nClic para excluir el punto` })) })
           pts.filter((q) => est[q.estado]).forEach((q) => extras.push({ x: q.t / 3600, y: q.v, key: q.k, ...est[q.estado], tip: `${m} · réplica ${c.Replica}\n${q.estado}${q.detalle ? '\n' + q.detalle : ''}\nClic para cambiar` }))
         })
         return (
@@ -338,6 +341,11 @@ export function Calidad({ s }) {
           {aj.dixon_on && (aj.od_atip_metodo === 'cv'
             ? <Grupo titulo="Límite"><CampoCinta etiqueta="CV máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} ancho={70} /></CampoCinta></Grupo>
             : <Grupo titulo="Confianza"><OpcionesCinta valor={String(aj.dixon_conf || 95)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %', '90', null, 'Confianza 90 %: marca más atípicos'], ['95', '95 %', '95', null, 'Confianza 95 % (la habitual)'], ['99', '99 %', '99', null, 'Confianza 99 %: solo marca valores muy extremos']]} /></Grupo>)}
+          {aj.dixon_on && (
+            <Grupo titulo="Sospechosos">
+              <OpcionesCinta valor={aj.od_atip_auto === true ? 'si' : 'no'} onChange={(v) => setAj('od_atip_auto', v === 'si')} opciones={[['no', 'Solo marcar', '◯', null, 'Marcar el punto sospechoso con un anillo y dejarlo en el análisis (por defecto)\nDecidí vos con un clic si lo excluís'], ['si', 'Excluir', '⛔', null, 'Excluir automáticamente los puntos sospechosos entre réplicas']]} />
+            </Grupo>
+          )}
           <Grupo titulo="Réplicas sospechosas">
             <BotonCinta icono="escudo" texto="Excluir solas" activo={aj.pocillo_auto} onClick={() => setAj('pocillo_auto', !aj.pocillo_auto)} />
           </Grupo>
@@ -349,7 +357,7 @@ export function Calidad({ s }) {
           </Grupo>
         </Cinta>
       )}
-      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon, Grubbs o CV % entre réplicas) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
+      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon, Grubbs o CV % entre réplicas, que por defecto solo marcan) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
       {s.serie.avisos.map((a, i) => <div key={i} className="aviso-caja">{a}</div>)}
       {sinDatos ? <Vacio titulo="Todavía no hay curvas" accion={<button className="primario" onClick={() => s.irA(irDatos)}>Ir a cargar los datos</button>}>Cargá los datos y definí las cepas para ver el control de calidad.</Vacio> : s.porCepa ? <VistaCalidadPlacas s={s} /> : (
         pre?.error ? <div className="aviso-caja error">{pre.error}</div> : pre && (<>

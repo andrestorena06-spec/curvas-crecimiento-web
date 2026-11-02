@@ -2,17 +2,18 @@
 // Recuento de UFC (colonias por placa o por gota) a partir de diluciones seriadas.
 //   Dilución «−k»: la suspensión está factor^k veces más diluida que la original (k = 0: sin diluir).
 //   Cada placa (o gota) con C colonias y volumen V (mL) aporta C / V × factor^k UFC/mL.
-//   Con varias diluciones dentro del rango contable se usa la media ponderada (ISO 7218 / FDA BAM):
-//        UFC/mL = Σ C / ( V × Σ factor^(−k) )
+//   Cada réplica usa UNA sola dilución (la elegida a mano o la sugerida; ver sugerirDilucion): no se promedian
+//   diluciones dentro de una réplica (no se usa la media ponderada de ISO 7218).
 //   IC 95 % del conteo: Poisson exacto (Garwood).
 //   Réplicas de una cepa en un tiempo (misma dilución): se suman las colonias y se dividen por la suma de los
-//   volúmenes de suspensión original sembrados: UFC/mL = Σ Cᵢ / Σ (Vᵢ / dᵢ), con su IC 95 % de Poisson sobre Σ C.
+//   volúmenes de suspensión original sembrados: UFC/mL = Σ Cᵢ / Σ (Vᵢ / dᵢ), con su IC 95 % de Poisson sobre Σ C
+//   (solo error de conteo). La dispersión entre réplicas se evalúa con el χ² de sobredispersión (ver calcularUfc).
 // Los recuentos pueden venir de la grilla de gotas sobre una placa de 96 (cada FILA es una réplica y cada
 // COLUMNA j es la dilución −j) o de una tabla (una fila por muestra, tiempo y réplica, una columna por dilución).
 // ============================================================
 import { LETRAS, convertirNumero } from './lectura.js'
 import { desvio, finito, interpolar, media } from './analisis.js'
-import { ajustarBaranyiLn } from './modelos.js'
+import { baranyiF, levenbergMarquardt } from './modelos.js'
 import { tCuantil } from '../utils.js'
 
 // ---------- parámetros ----------
@@ -96,7 +97,8 @@ function lgamma(z) {
   const t = z + 7.5
   return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
 }
-function gammaP(a, x) {
+// gamma incompleta regularizada inferior P(a, x). P(χ² ≤ x | k g.l.) = gammaP(k/2, x/2)
+export function gammaP(a, x) {
   if (x <= 0) return 0
   if (x < a + 1) {
     let sum = 1 / a, term = sum, n = a
@@ -127,7 +129,7 @@ export const icPoisson = (S) => [S > 0 ? qgamma(0.025, S) : 0, qgamma(0.975, S +
 // cont: { k: colonias } (k = columna de la dilución); par: { vol (mL), factor, min, max, D: [dilución total por columna], usar: k elegido a mano }
 // Se usa UNA sola dilución por réplica: la elegida a mano o, si no, la sugerida (ver sugerirDilucion).
 // estado: ok | bajo (estimado bajo el rango) | alto (estimado sobre el rango) | cero (< límite de detección) | incontable (> límite) | sin_datos
-const dilDe = (par, k) => (par.D && finito(par.D[k]) ? par.D[k] : (par.mult || 1) * par.factor ** k)
+export const dilDe = (par, k) => (par.D && finito(par.D[k]) ? par.D[k] : (par.mult || 1) * par.factor ** k)
 const entradas = (cont) => Object.entries(cont || {}).map(([k, c]) => [Number(k), Number(c)]).filter(([k, c]) => finito(k) && finito(c) && c >= 0)
 
 // Dilución sugerida: la única con conteo; si hay varias, la que cae dentro del rango contable (si hay más de una,
@@ -238,7 +240,6 @@ export function registrosConteo(u) {
     return out
   }
   const tb = u.tabla
-  if (u.metodo !== 'extendida') return out
   // sectores de placas de Petri: cada línea es una dilución de una réplica
   const grupos = new Map()
   lineasPetri(u).forEach((l) => {
@@ -297,6 +298,20 @@ export function calcularUfc(u) {
     const arit = vals.length ? media(vals.map((r) => r.UFC_mL)) : NaN
     const sd = vals.length > 1 ? desvio(vals.map((r) => r.UFC_mL)) : NaN
     const estados = [...new Set(g.map((r) => r._estado))]
+    // sobredispersión entre réplicas: si solo hubiera error de conteo (Poisson), Cᵢ ~ Poisson(Vᵢ λ̂) con λ̂ = Σ C / Σ V.
+    //   χ² = Σ (Cᵢ − Vᵢλ̂)² / (Vᵢλ̂), con n − 1 g.l.; φ = χ² / (n − 1) (≈ 1 si la dispersión es la de Poisson).
+    //   Si φ > 1, IC de Poisson ensanchado por √φ en escala log (cuasi-Poisson): λ̂ · (límite / λ̂)^√φ.
+    let disp = { Chi2_disp: NaN, gl_disp: NaN, p_disp: NaN, phi: NaN, IC95_inf_disp: NaN, IC95_sup_disp: NaN, Sobredisperso: false }
+    if (pool.length > 1 && S > 0) {
+      const lam = S / V
+      const chi2 = pool.reduce((a, r) => { const E = r._D * lam; return a + (r._S - E) ** 2 / E }, 0)
+      const gl = pool.length - 1
+      const p = Math.max(0, 1 - gammaP(gl / 2, chi2 / 2))
+      const phi = chi2 / gl
+      const k = Math.sqrt(phi), V0 = V
+      const ancho = phi > 1 && finito(lo) && lo > 0 && finito(hi)
+      disp = { Chi2_disp: chi2, gl_disp: gl, p_disp: p, phi, IC95_inf_disp: ancho ? lam * (lo / V0 / lam) ** k : NaN, IC95_sup_disp: ancho ? lam * (hi / V0 / lam) ** k : NaN, Sobredisperso: p < 0.05 }
+    }
     res.push({
       Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: pool.length,
       _vals: vals.map((r) => r.UFC_mL), _pool: pool.map((r) => ({ Replica: r.Replica, C: r._S, D: r._D, k: r._usados[0] })),
@@ -306,6 +321,7 @@ export function calcularUfc(u) {
       Media_geometrica: lg.length ? 10 ** media(lg) : NaN, CV_pct: vals.length > 1 && arit ? (100 * sd) / arit : NaN,
       Estado: estados.includes('ok') && estados.length === 1 ? 'En rango' : estados.map(textoEstado).join(' · '),
       Limite: pool.length && S === 0 ? 3 / V : NaN,
+      ...disp,
     })
   })
   res.sort((a, b) => (a.Muestra < b.Muestra ? -1 : a.Muestra > b.Muestra ? 1 : a.T_h - b.T_h))
@@ -314,68 +330,308 @@ export function calcularUfc(u) {
   return { reps, res, muestras, ts, hay: reps.some((r) => r.Conteos > 0) }
 }
 
-// ---------- error de un promedio de UFC para mostrar ----------
-// r: fila de resultados (cepa y tiempo). escala: 'log10' | 'lineal'. tipo: 'sd' (DE), 'cv' (DE % = CV de las UFC/mL;
-// las barras son la DE), 'sem' (EEM = DE / √n) o 'ic95' (IC 95 % = media ± t(0,975; n − 1) · DE / √n), como en Calidad OD.
-// En log₁₀ la DE es la de log₁₀ de cada réplica; en lineal, la de las UFC/mL. Devuelve { m, lo, hi, err, cv, n }.
-export const ERRORES_UFC = { sd: 'DE', cv: 'DE %', sem: 'EEM', ic95: 'IC 95 %' }
-export function errorUfc(r, escala = 'log10', tipo = 'sd') {
+// ---------- error del valor de un tiempo, para mostrar ----------
+// El error tiene que ser el del MISMO valor que se grafica:
+//   centro 'pool' (Σ C / Σ V, por defecto): el punto es la concentración estimada con todas las colonias, y su error es
+//     el IC 95 % de esa concentración: el de Poisson (solo error de conteo) o, si las réplicas varían más que el conteo
+//     (χ² de sobredispersión con p < 0,05), el ensanchado por √φ (cuasi-Poisson). Ver icUfc. La dispersión de las
+//     réplicas se ve en sus puntos; no se usa como barra porque es la de otro estimador (la media de los log₁₀).
+//   centro 'geo' (media de log₁₀ de las réplicas = media geométrica): media ± DE, EEM (DE/√n) o IC 95 %
+//     (t(0,975; n − 1) · DE/√n) de los log₁₀. Con menos de 3 réplicas el EEM y el IC no se calculan (nBajo).
+// escala: 'log10' | 'lineal' (en lineal con 'geo' la barra es asimétrica: 10^(media ± error), ×/÷ un factor).
+// Devuelve { m, lo, hi, err, fac, cv, n, ic (true si la barra es un IC del conteo), tipoIc, nBajo }.
+export const ERRORES_UFC = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }
+export const centroUfc = (aj) => (aj?.ufc_centro === 'geo' ? 'geo' : 'pool')
+// log₁₀ del valor central de una fila de resultados (cepa y tiempo) según el centro elegido
+export const centroLog10 = (r, centro = 'pool') => (centro === 'geo' && finito(r.Media_geometrica) && r.Media_geometrica > 0 ? Math.log10(r.Media_geometrica) : r.log10)
+// IC 95 % que se informa para Σ C / Σ V: Poisson, o Poisson ensanchado por √φ si hay sobredispersión significativa
+export function icUfc(r) {
+  if (r?.Sobredisperso && finito(r.IC95_inf_disp) && finito(r.IC95_sup_disp)) return { lo: r.IC95_inf_disp, hi: r.IC95_sup_disp, tipo: 'disp' }
+  return { lo: r?.IC95_inf, hi: r?.IC95_sup, tipo: finito(r?.IC95_inf) ? 'poisson' : '' }
+}
+export const TEXTO_IC_UFC = { poisson: 'IC 95 % de Poisson', disp: 'IC 95 % de Poisson ensanchado por √φ (sobredispersión)' }
+// nombre corto del error que se dibuja, para leyendas y ejes
+export const etiquetaErrorUfc = (centro, tipo) => (centro === 'geo' ? ERRORES_UFC[tipo] || 'DE' : 'IC 95 %')
+export function errorUfc(r, escala = 'log10', tipo = 'sd', centro = 'pool') {
   const lin = escala === 'lineal'
   const vals = (r._vals || []).filter((v) => finito(v) && v > 0)
-  const xs = lin ? vals : vals.map(Math.log10)
-  const m = lin ? r.UFC_mL : r.log10
+  const cv = vals.length > 1 ? (100 * desvio(vals)) / media(vals) : NaN
+  if (centro !== 'geo') {
+    const ic = icUfc(r)
+    const m = lin ? r.UFC_mL : r.log10
+    const de = (v) => (finito(v) && v > 0 ? (lin ? v : Math.log10(v)) : NaN)
+    return { m, lo: de(ic.lo), hi: de(ic.hi), err: NaN, fac: NaN, cv, n: r.N, ic: true, tipoIc: ic.tipo, nBajo: false }
+  }
+  const xs = vals.map(Math.log10)
+  const mLog = centroLog10(r, 'geo')
   const n = xs.length
   const sd = n > 1 ? desvio(xs) : NaN
-  const cv = vals.length > 1 ? (100 * desvio(vals)) / media(vals) : NaN
-  const err = tipo === 'sem' ? sd / Math.sqrt(n) : tipo === 'ic95' ? (n > 1 ? (tCuantil(0.975, n - 1) * sd) / Math.sqrt(n) : NaN) : sd
-  return { m, lo: m - err, hi: m + err, err, cv, n }
+  // con n = 2, t(0,975; 1) = 12,7: el EEM y el IC no tienen base
+  const nBajo = (tipo === 'sem' || tipo === 'ic95') && n < 3
+  const err = nBajo ? NaN : tipo === 'sem' ? sd / Math.sqrt(n) : tipo === 'ic95' ? (tCuantil(0.975, n - 1) * sd) / Math.sqrt(n) : sd
+  if (lin) {
+    const m = 10 ** mLog
+    return { m, lo: finito(err) ? 10 ** (mLog - err) : NaN, hi: finito(err) ? 10 ** (mLog + err) : NaN, err: NaN, fac: finito(err) ? 10 ** err : NaN, cv, n, ic: false, nBajo }
+  }
+  return { m: mLog, lo: finito(err) ? mLog - err : NaN, hi: finito(err) ? mLog + err : NaN, err, fac: NaN, cv, n, ic: false, nBajo }
 }
-// texto «media ± error» para poner sobre la media
-export function textoErrorUfc(e, lin, tipo) {
+// texto «valor ± error» (o «valor [IC]») para poner sobre el punto
+export function textoErrorUfc(e, lin) {
   const f = (v) => (lin ? sciUfc(v) : v.toFixed(2).replace('.', ','))
   if (!finito(e.m)) return ''
-  if (tipo === 'cv') return finito(e.cv) ? `${f(e.m)}\n± ${e.cv.toFixed(0)} %` : f(e.m)
+  if (e.ic) return finito(e.lo) && finito(e.hi) ? `${f(e.m)}\n[${f(e.lo)} – ${f(e.hi)}]` : f(e.m)
+  if (finito(e.fac)) return `${f(e.m)}\n×/÷ ${e.fac.toFixed(2).replace('.', ',')}`
   return finito(e.err) ? `${f(e.m)}\n± ${f(e.err)}` : f(e.m)
 }
 const sciUfc = (v) => (finito(v) ? v.toExponential(2).replace('.', ',').replace('e+', 'E+').replace('e-', 'E-') : '–')
 
-// ---------- crecimiento a partir de los recuentos ----------
-// μ: pendiente máxima de ln(UFC/mL) contra el tiempo en 3 o más tiempos consecutivos; lag: tangente contra el nivel inicial
-export function crecimientoUfc(filas) {
-  const p = filas.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
-  if (p.length < 3) return null
-  const reg = (w) => {
-    const x = w.map((r) => r.T_h), y = w.map((r) => Math.log(r.UFC_mL))
-    const mx = media(x), my = media(y)
-    let sxx = 0, sxy = 0
-    x.forEach((v, i) => { sxx += (v - mx) ** 2; sxy += (v - mx) * (y[i] - my) })
-    if (!(sxx > 0)) return null
-    const b = sxy / sxx, a = my - b * mx
-    let sst = 0, sse = 0
-    y.forEach((v, i) => { sst += (v - my) ** 2; sse += (v - (a + b * x[i])) ** 2 })
-    return { a, b, r2: sst > 0 ? 1 - sse / sst : 1, n: w.length, t0: w[0].T_h, t1: w[w.length - 1].T_h }
+// ---------- crecimiento a partir de los recuentos: modelos de DMFit (ComBase) ----------
+// Se ajustan a TODOS los puntos (ninguno se descarta para mejorar el R²), por mínimos cuadrados sobre ln(UFC/mL):
+//   lineal:   y = y₀ + μ t
+//   baranyi:  Baranyi y Roberts (1994): y = y₀ + μ A(t) − (1/m)·ln[1 + (e^{mμA(t)} − 1) / e^{m(y_máx − y₀)}]
+//             (m = curvatura hacia la meseta, aj.ufc_mcurv; m = 1 es la forma habitual)
+//   bifasico: Baranyi y Roberts sin asíntota (lag + fase exponencial): y = y₀ + μ A(t)
+//   A(t) = t + ln(e^{−μt} + e^{−h₀} − e^{−μt−h₀}) / μ ;  λ = h₀ / μ
+// Como en DMFit, se informan la velocidad en log₁₀ UFC/mL por hora («Rate»), y₀ e y_final en log₁₀, R² y el
+// error estándar del ajuste (en log₁₀), con los grados de libertad n − p.
+export const MODELOS_UFC = { lineal: 'Lineal', baranyi: 'Baranyi y Roberts', bifasico: 'Bifásico (sin asíntota)' }
+export const modeloUfc = (aj) => (MODELOS_UFC[aj?.ufc_modelo] ? aj.ufc_modelo : 'baranyi')
+// curvatura m del Baranyi y Roberts (aj.ufc_mcurv, por defecto 1)
+export const mcurvUfc = (aj) => { const v = Number(aj?.ufc_mcurv); return finito(v) && v > 0 ? v : 1 }
+const NPAR = { lineal: 2, baranyi: 4, bifasico: 3 }
+const MIN_T = { lineal: 2, baranyi: 4, bifasico: 3 }
+
+const aFun = (x, mu, h0) => x + Math.log(Math.exp(-mu * x) + Math.exp(-h0) - Math.exp(-mu * x - h0)) / mu
+const bifasicoF = (x, y0, mu, h0) => y0 + mu * aFun(x, mu, h0)
+const f2 = (x) => (finito(x) ? x.toFixed(2).replace('.', ',') : '–')
+
+// t (h) y ly = ln(UFC/mL) de cada punto. ymaxFijo10: N máx en log₁₀ fijado por el usuario (solo Baranyi y Roberts).
+// mcurv: curvatura m del Baranyi y Roberts (1 por defecto).
+export function ajusteDmfit(t, ly, modelo = 'baranyi', ymaxFijo10 = NaN, mcurv = 1) {
+  const fijo = modelo === 'baranyi' && finito(ymaxFijo10) ? ymaxFijo10 * Math.LN10 : NaN
+  const mc = modelo === 'baranyi' && finito(mcurv) && mcurv > 0 ? mcurv : 1
+  const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(ly[i])).sort((a, b) => t[a] - t[b])
+  const tt = idx.map((i) => t[i]), yy = idx.map((i) => ly[i])
+  const n = tt.length, nT = new Set(tt).size
+  const vacio = { ok: false, modelo, n, nT, mu: NaN, avisos: [] }
+  if (nT < MIN_T[modelo]) return { ...vacio, motivo: `El modelo ${MODELOS_UFC[modelo].toLowerCase()} necesita al menos ${MIN_T[modelo]} tiempos con recuento (hay ${nT}).` }
+  // N máx fijado: tiene que estar por encima de todo lo medido (si no, la curva no puede pasar por los datos)
+  if (finito(fijo) && fijo <= Math.max(...yy)) {
+    return { ...vacio, motivo: `El N máx fijado (${f2(ymaxFijo10)} log₁₀) no es mayor que el máximo observado (${f2(Math.max(...yy) / Math.LN10)} log₁₀): no se puede usar. Poné un N máx mayor o dejalo vacío.` }
   }
-  let mejor = null
-  for (let i = 0; i + 2 < p.length; i++) {
-    for (let n = 3; i + n <= p.length && n <= 6; n++) {
-      const r = reg(p.slice(i, i + n))
-      if (r && r.r2 >= 0.9 && (!mejor || r.b > mejor.b + 1e-9 || (Math.abs(r.b - mejor.b) < 1e-9 && n > mejor.n))) mejor = r
+  // recta de todos los puntos: es el modelo lineal y el punto de partida de los otros
+  const mx = media(tt), my = media(yy)
+  let sxx = 0, sxy = 0
+  tt.forEach((v, i) => { sxx += (v - mx) ** 2; sxy += (v - mx) * (yy[i] - my) })
+  const b = sxx > 0 ? sxy / sxx : NaN, a = my - b * mx
+  let pred, par
+  let convergio = true
+  const limites = []
+  if (modelo === 'lineal') {
+    if (!finito(b)) return { ...vacio, motivo: 'Los tiempos no varían.' }
+    pred = (x) => a + b * x
+    par = { y0: a, mu: b, h0: NaN, ymax: NaN }
+  } else {
+    const ymin = Math.min(...yy), ymaxObs = Math.max(...yy)
+    if (!(ymaxObs - ymin > 0.05)) return { ...vacio, motivo: 'Los recuentos casi no cambian: no hay crecimiento para ajustar.' }
+    const span = tt[n - 1] - tt[0] || 1
+    // pendiente máxima entre tiempos consecutivos (medias) como valor inicial de μ
+    const tu = [...new Set(tt)]
+    const mu_t = tu.map((x) => media(yy.filter((_, i) => tt[i] === x)))
+    let mu0 = finito(b) && b > 0 ? b : (ymaxObs - ymin) / span
+    for (let i = 0; i + 1 < tu.length; i++) mu0 = Math.max(mu0, (mu_t[i + 1] - mu_t[i]) / (tu[i + 1] - tu[i]))
+    // y₀ no puede pasar el máximo medido ni el N máx fijado
+    const y0Hi = finito(fijo) ? Math.min(ymaxObs, fijo) : ymaxObs
+    const nombres = finito(fijo) ? ['y₀', 'μ', 'h₀'] : modelo === 'baranyi' ? ['y₀', 'y máx', 'μ', 'h₀'] : ['y₀', 'μ', 'h₀']
+    let mejor = null, mejorConv = null
+    // varios puntos de partida para el lag: el ajuste no lineal puede quedar en un mínimo local
+    for (const fr of [0, 0.15, 0.3, 0.5, 0.7]) for (const fm of [0.6, 1]) {
+      const m0 = Math.max(mu0 * fm, 1e-3), h = m0 * fr * span
+      const r = finito(fijo)
+        ? levenbergMarquardt((p, x) => x.map((v) => baranyiF(v, p[0], fijo, p[1], p[2], mc)), [mu_t[0], m0, h], [ymin - 3, 1e-4, 0], [y0Hi, 20, 80], tt, yy)
+        : modelo === 'baranyi'
+        ? levenbergMarquardt((p, x) => x.map((v) => baranyiF(v, p[0], p[1], p[2], p[3], mc)), [mu_t[0], ymaxObs, m0, h], [ymin - 3, ymin, 1e-4, 0], [y0Hi, ymaxObs + 5, 20, 80], tt, yy)
+        : levenbergMarquardt((p, x) => x.map((v) => bifasicoF(v, p[0], p[1], p[2])), [mu_t[0], m0, h], [ymin - 3, 1e-4, 0], [y0Hi, 20, 80], tt, yy)
+      if (!finito(r.rss) || !r.p.every(finito)) continue
+      if (!mejor || r.rss < mejor.rss) mejor = r
+      // se prefieren los arranques que cumplieron el criterio de convergencia
+      if (r.conv && !r.estancado && (!mejorConv || r.rss < mejorConv.rss)) mejorConv = r
     }
+    if (!mejor) return { ...vacio, motivo: 'El modelo no convergió.' }
+    if (mejorConv) mejor = mejorConv
+    else convergio = false
+    const p = mejor.p
+    // parámetros pegados a un límite (la asíntota en el límite superior se informa aparte como «sin meseta»;
+    // h₀ = 0 es lag nulo, un valor posible)
+    ;(mejor.enLimite || []).forEach(({ i, lado }) => {
+      const nom = nombres[i]
+      if (nom === 'y máx' && lado === 'superior') return
+      if (nom === 'h₀' && lado === 'inferior') return
+      limites.push(`${nom} en el límite ${lado}`)
+    })
+    // si la asíntota queda en el límite superior, los datos no llegan a la fase estacionaria y no se puede estimar
+    if (finito(fijo)) { pred = (x) => baranyiF(x, p[0], fijo, p[1], p[2], mc); par = { y0: p[0], ymax: fijo, mu: p[1], h0: p[2] } }
+    else if (modelo === 'baranyi') { pred = (x) => baranyiF(x, p[0], p[1], p[2], p[3], mc); par = { y0: p[0], ymax: p[1], mu: p[2], h0: p[3], sinAsintota: p[1] >= ymaxObs + 5 - 1e-3 } }
+    else { pred = (x) => bifasicoF(x, p[0], p[1], p[2]); par = { y0: p[0], ymax: NaN, mu: p[1], h0: p[2] } }
   }
-  if (!mejor || !(mejor.b > 0)) return { mu: NaN, aviso: 'Sin crecimiento exponencial detectable' }
-  const N0 = Math.log(p[0].UFC_mL), Nmax = Math.log(Math.max(...p.map((r) => r.UFC_mL)))
-  const lag = Math.max(0, (N0 - mejor.a) / mejor.b)
+  // bondad del ajuste en log₁₀ (como DMFit)
+  const L = Math.LN10
+  const res = yy.map((v, i) => (v - pred(tt[i])) / L)
+  const sse = res.reduce((s, r) => s + r * r, 0)
+  const m10 = my / L
+  const sst = yy.reduce((s, v) => s + (v / L - m10) ** 2, 0)
+  const k = NPAR[modelo] - (finito(fijo) ? 1 : 0)
+  const gl = n - k
+  const lag = modelo === 'lineal' ? NaN : par.h0 / par.mu
+  const avisos = []
+  if (!convergio) avisos.push('El ajuste no cumplió el criterio de convergencia en ningún punto de partida: se muestra el mejor intento; tomá los parámetros con cautela.')
+  if (limites.length) avisos.push(`Parámetros en el límite permitido (${limites.join(', ')}): ese valor no es un óptimo libre del ajuste.`)
+  if (gl <= 1 || nT <= k) avisos.push(`Pocos grados de libertad (n − p = ${n} − ${k} = ${gl}${nT < n ? `; ${nT} tiempos distintos` : ''}): con tan pocos puntos por parámetro el modelo pasa casi por todos los datos y sus parámetros son poco identificables. Tomá μ y λ con cautela (más tiempos de muestreo, sobre todo en la fase exponencial, lo resuelven).`)
   return {
-    mu: mejor.b, td_min: (Math.log(2) / mejor.b) * 60, lag_h: lag, r2: mejor.r2, ventana: `${mejor.t0} a ${mejor.t1} h`, n_ventana: mejor.n,
-    log10_N0: Math.log10(p[0].UFC_mL), crecimiento_log10: (Nmax - N0) / Math.LN10, generaciones: (Nmax - N0) / Math.LN2, intercepto: mejor.a,
+    ok: finito(par.mu), modelo, n, nT, k, gl, pred10: (x) => pred(x) / L, mcurv: mc, convergio, avisos,
+    mu: par.mu, rate: par.mu / L, td_min: par.mu > 0 ? (Math.LN2 / par.mu) * 60 : NaN, lag_h: lag, h0: par.h0,
+    y0: par.y0 / L, yEnd: par.sinAsintota ? NaN : par.ymax / L, sinAsintota: !!par.sinAsintota, r2: sst > 0 ? 1 - sse / sst : NaN, se: n > k ? Math.sqrt(sse / (n - k)) : NaN,
+    t0: tt[0], t1: tt[n - 1], ymaxFijo: finito(fijo),
+    // la asíntota queda bastante por encima del máximo medido: los datos no llegan a la meseta y N máx es extrapolado
+    mesetaExtrapolada: modelo === 'baranyi' && !finito(fijo) && !par.sinAsintota && par.ymax - Math.max(...yy) > 0.3,
   }
 }
 
-// ---------- curva suavizada del crecimiento por recuento ----------
-// Baranyi-Roberts ajustado a ln(UFC/mL) de las medias de cada tiempo (con 4 o más tiempos).
-// Devuelve { ok, puntos: [{ x, y (log10) }], mu, lambda } para dibujar una curva continua en lugar de unir los puntos.
-// metodo: 'baranyi' (modelo de crecimiento; 4 o más tiempos) o 'spline' (spline cúbica monótona de Fritsch-Carlson:
-// pasa por cada media sin oscilar; 2 o más tiempos).
+// ---------- N máx fijado ----------
+// Si el usuario cargó un N máx (log₁₀) en «Predicción», se usa en TODAS las pantallas (tabla, curva, predicción y fases),
+// esté o no encendido «Predecir».
+export const predDe = (aj) => ({ on: false, hasta: 24, nmax: '', objetivo: '', ...(aj?.ufc_pred || {}) })
+export const nmaxFijado = (aj) => { const v = predDe(aj).nmax; return v === '' || v === null || v === undefined || !finito(Number(v)) ? NaN : Number(v) }
+
+// ---------- un solo ajuste por cepa ----------
+// El mismo ajuste (modelo elegido, N máx fijado, curvatura m y centro de cada tiempo) se usa en la tabla de
+// parámetros, la curva, la predicción y las fases de la calibración: μ y λ son los mismos en todas las pantallas.
+const cacheAjuste = new WeakMap()
+export function ajusteCepaUfc(ufcRes, m, aj) {
+  const modelo = modeloUfc(aj)
+  const nmax = modelo === 'baranyi' ? nmaxFijado(aj) : NaN
+  const mc = mcurvUfc(aj)
+  const clave = [m, modelo, nmax, mc, aj?.ufc_datos === 'replicas' ? 'r' : 'm', centroUfc(aj)].join('|')
+  let porRes = cacheAjuste.get(ufcRes)
+  if (!porRes) { porRes = new Map(); cacheAjuste.set(ufcRes, porRes) }
+  if (porRes.has(clave)) return porRes.get(clave)
+  const { t, ly } = puntosUfc(ufcRes, m, aj)
+  const c = ajusteDmfit(t, ly, modelo, nmax, mc)
+  c.avisosPuntos = puntosExcluidosUfc(ufcRes, m, aj)
+  porRes.set(clave, c)
+  return c
+}
+
+// Tiempos (o réplicas) de una cepa que no entran al ajuste de crecimiento porque no tienen un valor > 0:
+// 0 colonias (por debajo del límite de detección) o conteos incontables. No se descartan en silencio.
+export function puntosExcluidosUfc(ufcRes, m, aj) {
+  const out = []
+  ufcRes.res.filter((r) => r.Muestra === m && !(finito(r.UFC_mL) && r.UFC_mL > 0)).sort((a, b) => a.T_h - b.T_h).forEach((r) => {
+    if (r.N > 0 && r.Colonias_suma === 0) out.push(`T = ${r.T_h} h: 0 colonias en ${r.N} réplica${r.N === 1 ? '' : 's'} (menos que el límite de detección, ≈ ${sciUfc(r.Limite)} UFC/mL)`)
+    else out.push(`T = ${r.T_h} h: ${String(r.Estado || 'sin réplicas utilizables').toLowerCase()}${r.N === 0 ? ' (ninguna réplica utilizable)' : ''}`)
+  })
+  if (aj?.ufc_datos === 'replicas') {
+    const reps = (ufcRes.reps || []).filter((x) => x.Muestra === m && x.Conteos > 0 && !ufcRes.fuera?.has(`${x.Muestra}|${x.T_h}|${x.Replica}`) && !(finito(x.UFC_mL) && x.UFC_mL > 0))
+    const conMedia = new Set(ufcRes.res.filter((r) => r.Muestra === m && finito(r.UFC_mL) && r.UFC_mL > 0).map((r) => r.T_h))
+    const sueltas = reps.filter((x) => conMedia.has(x.T_h))
+    if (sueltas.length) out.push(`${sueltas.length} réplica${sueltas.length === 1 ? '' : 's'} con 0 colonias o incontable${sueltas.length === 1 ? '' : 's'} (${sueltas.map((x) => `T = ${x.T_h} h, réplica ${x.Replica}`).join('; ')})`)
+  }
+  return out
+}
+
+// ---------- predicción con Baranyi y Roberts ----------
+// Usa el ajuste de la cepa (Baranyi y Roberts) y extiende la curva hasta aj.ufc_pred.hasta horas. Si los datos no llegan
+// a la fase estacionaria, la asíntota no se puede estimar: hay que indicar N máx (log₁₀), por ejemplo el de otros ensayos.
+const T_MAX_PRED = 1e5   // h: límite de la búsqueda del tiempo en que se llega a un nivel
+export function prediccionUfc(ufcRes, m, aj) {
+  const o = predDe(aj)
+  const c = ajusteCepaUfc(ufcRes, m, aj)
+  if (!c.ok) return { ok: false, c, motivo: c.motivo }
+  if (c.modelo !== 'baranyi') return { ok: false, c, motivo: 'la predicción usa Baranyi y Roberts: elegí ese modelo en «Modelo de ajuste (DMFit)» (así la tabla, la predicción y la calibración usan el mismo ajuste)' }
+  if (c.sinAsintota) return { ok: false, c, motivo: 'los recuentos no llegan a la fase estacionaria; indicá N máx (log₁₀) para predecir' }
+  const hasta = Math.min(Math.max(finito(Number(o.hasta)) ? Number(o.hasta) : 24, c.t1), T_MAX_PRED)
+  const f = c.pred10
+  // tiempo en que la curva llega a un nivel (es creciente: bisección, con el intervalo acotado)
+  const tiempoA = (y) => {
+    if (!finito(y)) return NaN
+    if (f(c.t0) >= y) return c.t0
+    let lo = c.t0, hi = Math.max(hasta, c.t1, 1)
+    for (let i = 0; i < 60 && hi < T_MAX_PRED && !(f(hi) >= y); i++) hi = Math.min(hi * 2, T_MAX_PRED)
+    if (!(f(hi) >= y)) return NaN
+    for (let i = 0; i < 80; i++) { const mm = (lo + hi) / 2; if (f(mm) < y) lo = mm; else hi = mm }
+    return (lo + hi) / 2
+  }
+  const N = 160
+  const puntos = Array.from({ length: N + 1 }, (_, i) => c.t0 + ((hasta - c.t0) * i) / N).map((x) => ({ x, y: f(x) }))
+  return {
+    ok: true, c, hasta, puntos, yHasta: f(hasta), tMeseta: tiempoA(c.yEnd - 0.1),
+    objetivo: o.objetivo === '' ? NaN : Number(o.objetivo), tObjetivo: o.objetivo === '' ? NaN : tiempoA(Number(o.objetivo)),
+  }
+}
+
+// Puntos del ajuste de una cepa: el valor central de cada tiempo (Σ C / Σ V o media geométrica, aj.ufc_centro)
+// o cada réplica incluida (aj.ufc_datos)
+export function puntosUfc(ufcRes, m, aj) {
+  if (aj?.ufc_datos === 'replicas') {
+    const r = (ufcRes.reps || []).filter((x) => x.Muestra === m && x.Conteos > 0 && finito(x.UFC_mL) && x.UFC_mL > 0 && !ufcRes.fuera?.has(`${x.Muestra}|${x.T_h}|${x.Replica}`))
+    if (r.length) return { t: r.map((x) => x.T_h), ly: r.map((x) => Math.log(x.UFC_mL)) }
+  }
+  const geo = centroUfc(aj) === 'geo'
+  const r = ufcRes.res.filter((x) => x.Muestra === m && finito(x.UFC_mL) && x.UFC_mL > 0)
+  return { t: r.map((x) => x.T_h), ly: r.map((x) => (geo ? centroLog10(x, 'geo') * Math.LN10 : Math.log(x.UFC_mL))) }
+}
+
+// Parámetros de crecimiento por recuento de cada cepa con el modelo elegido.
+// Aumento y generaciones salen del MISMO modelo que y₀ y μ: lo que sube la curva ajustada entre el primer y el último
+// tiempo medido (log₁₀ N(t_fin) − log₁₀ N(t_ini)); generaciones = aumento / log₁₀ 2. Si no hay ajuste, de los valores
+// centrales observados (primer tiempo y máximo), y se indica (aumentoDe).
+export function crecimientoUfc(ufcRes, m, aj) {
+  const f = { ...ajusteCepaUfc(ufcRes, m, aj) }
+  if (f.ok && f.pred10) {
+    const ini = f.pred10(f.t0), fin = f.pred10(f.t1)
+    Object.assign(f, { log10_N0: ini, log10_fin: fin, crecimiento_log10: fin - ini, generaciones: (fin - ini) / Math.log10(2), aumentoDe: 'modelo' })
+    return f
+  }
+  const cen = centroUfc(aj)
+  const med = ufcRes.res.filter((x) => x.Muestra === m && finito(x.UFC_mL) && x.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
+  if (med.length) {
+    const lg = med.map((x) => centroLog10(x, cen))
+    const N0 = lg[0], Nmax = Math.max(...lg)
+    Object.assign(f, { log10_N0: N0, log10_fin: Nmax, crecimiento_log10: Nmax - N0, generaciones: (Nmax - N0) / Math.log10(2), aumentoDe: 'observado' })
+  }
+  return f
+}
+
+// ---------- fases del crecimiento según el ajuste de la cepa ----------
+// Se usa el MISMO ajuste de la tabla (Baranyi y Roberts o bifásico, con el N máx fijado si lo hay). Un tiempo está en
+// fase exponencial cuando la velocidad instantánea del modelo es al menos una fracción de μ máx (aj.ufc_frac_exp,
+// por defecto 0,5); antes es lag y después, estacionaria. El modelo lineal no distingue fases.
+export const FRACCION_EXP = 0.5
+export const fraccionExp = (aj) => { const v = Number(aj?.ufc_frac_exp); return finito(v) && v > 0 && v < 1 ? v : FRACCION_EXP }
+export function fasesUfc(ufcRes, m, aj) {
+  const c = ajusteCepaUfc(ufcRes, m, aj)
+  if (!c.ok || !(c.mu > 0)) return { ok: false, c, motivo: c.motivo || 'Sin crecimiento' }
+  if (c.modelo === 'lineal') return { ok: false, c, motivo: 'el modelo lineal no distingue fases; elegí Baranyi y Roberts o bifásico' }
+  const frac = fraccionExp(aj)
+  const h = 1e-3
+  const rel = (x) => ((c.pred10(x + h) - c.pred10(x - h)) / (2 * h)) * Math.LN10 / c.mu
+  // tiempo de máxima velocidad: separa el lag (antes) de la estacionaria (después)
+  const N = 400, t0 = c.t0, t1 = c.t1
+  const grilla = Array.from({ length: N + 1 }, (_, i) => t0 + ((t1 - t0) * i) / N)
+  const tPico = grilla.reduce((a, x) => (rel(x) > rel(a) ? x : a), t0)
+  const fase = (x) => (rel(x) >= frac ? 'exponencial' : x < tPico ? 'lag' : 'estacionaria')
+  const enExp = grilla.filter((x) => fase(x) === 'exponencial')
+  return {
+    ok: true, c, fase, frac,
+    tIni: enExp.length ? enExp[0] : NaN, tFin: enExp.length ? enExp[enExp.length - 1] : NaN,
+    sigue: enExp.length > 0 && enExp[enExp.length - 1] >= t1 - 1e-9,   // la fase exponencial sigue al final de los datos
+  }
+}
+
+
+// ---------- curva del crecimiento por recuento ----------
+// metodo: 'baranyi' (= la curva del modelo elegido en aj.ufc_modelo) o 'spline' (spline cúbica monótona de
+// Fritsch-Carlson: pasa por cada valor central sin oscilar; 2 o más tiempos).
 function pchip(xs, ys) {
   const n = xs.length, h = [], d = []
   for (let i = 0; i < n - 1; i++) { h.push(xs[i + 1] - xs[i]); d.push((ys[i + 1] - ys[i]) / h[i]) }
@@ -389,21 +645,22 @@ function pchip(xs, ys) {
     return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h[i] * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h[i] * m[i + 1]
   }
 }
-export function curvaSuaveUfc(filas, metodo = 'baranyi') {
-  const p = filas.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
+export const metodoCurvaUfc = (aj) => (aj.ufc_suave === false ? 'no' : aj.ufc_suave === true || aj.ufc_suave === undefined ? 'baranyi' : aj.ufc_suave)
+// Devuelve { ok, puntos: [{ x, y (log10) }], motivo } o null si no se pide curva
+export function curvaUfc(ufcRes, m, aj) {
+  const metodo = metodoCurvaUfc(aj)
+  if (metodo === 'no') return null
+  const p = ufcRes.res.filter((r) => r.Muestra === m && finito(r.UFC_mL) && r.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
   if (metodo === 'spline') {
     if (p.length < 2) return { ok: false, motivo: 'Hacen falta al menos 2 tiempos' }
-    const f = pchip(p.map((r) => r.T_h), p.map((r) => r.log10))
+    const cen = centroUfc(aj)
+    const f = pchip(p.map((r) => r.T_h), p.map((r) => centroLog10(r, cen)))
     const t0 = p[0].T_h, t1 = p[p.length - 1].T_h
     return { ok: true, puntos: Array.from({ length: 121 }, (_, i) => t0 + ((t1 - t0) * i) / 120).map((x) => ({ x, y: f(x) })) }
   }
-  if (p.length < 4) return { ok: false, motivo: 'Hacen falta al menos 4 tiempos' }
-  const c = crecimientoUfc(p)
-  const aj = ajustarBaranyiLn(p.map((r) => r.T_h), p.map((r) => Math.log(r.UFC_mL)), c?.mu, c?.lag_h)
-  if (!aj.ok) return { ok: false, motivo: 'El modelo no convergió' }
-  const t0 = p[0].T_h, t1 = p[p.length - 1].T_h
-  const puntos = Array.from({ length: 81 }, (_, i) => t0 + ((t1 - t0) * i) / 80).map((x) => ({ x, y: aj.pred(x) / Math.LN10 }))
-  return { ok: true, puntos, mu: aj.mu, lambda: aj.lambda }
+  const c = ajusteCepaUfc(ufcRes, m, aj)
+  if (!c.ok) return { ok: false, motivo: c.motivo }
+  return { ok: true, puntos: Array.from({ length: 121 }, (_, i) => c.t0 + ((c.t1 - c.t0) * i) / 120).map((x) => ({ x, y: c.pred10(x) })) }
 }
 
 // ---------- concentración esperada (guía de la grilla de gotas) ----------

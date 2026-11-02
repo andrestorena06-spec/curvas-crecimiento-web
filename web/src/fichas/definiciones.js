@@ -1,0 +1,559 @@
+// ============================================================
+// Fichas «Cómo se calculó»: para cada número del programa, la explicación paso a paso con los valores reales.
+// Son funciones puras que toman los resultados que ya calculó el motor; cuando hace falta mostrar un paso intermedio
+// llaman a las MISMAS funciones del motor, así que la ficha no puede dar otro número que la tabla.
+// Una ficha: { titulo, sujeto, valor, unidad, sub, que, pasos: [{ titulo, texto, formula, cuenta, esquema, nota }],
+//              avisos, ajustes, metodos (ancla de la sección de Métodos) }
+// formula / cuenta: lista de partes; una parte es texto o { v: texto, c: 1..4 } (mismo color = misma variable).
+// esquema: { tipo: 'grafico' | 'diluciones' | 'replicas' | 'intervalo' | 'tira' | 'barras', ... } (ver esquemas.jsx).
+// ============================================================
+import { desvio, finito, media, od0TresFases, runmed3, trapz, ventanasLn } from '../motor/analisis.js'
+import { Q_TABLA, criticoGrubbs, detectar } from '../motor/atipicos.js'
+import { MODELOS_UFC, TEXTO_IC_UFC, dilDe, icPoisson, icUfc } from '../motor/ufc.js'
+import { MODELOS_CALIB } from '../motor/calibracion.js'
+import { AYUDA, PARAMS, explicarResultado } from '../ayuda.js'
+import { fs, fx, tCuantil } from '../utils.js'
+
+// ---------- formato ----------
+const SUP = '⁰¹²³⁴⁵⁶⁷⁸⁹'
+const sup = (k) => String(k).replace('-', '⁻').replace(/\d/g, (d) => SUP[Number(d)])
+// notación científica legible (5,83 × 10⁶); de 0,001 a 9999 se escribe el número tal cual
+export function sci(x, d = 2) {
+  if (!finito(x)) return '–'
+  if (x === 0) return '0'
+  let e = Math.floor(Math.log10(Math.abs(x)))
+  if (e >= -3 && e <= 3) return fs(x, d + 1)
+  let m = x / 10 ** e
+  if (Math.abs(Number(m.toFixed(d))) >= 10) { m /= 10; e += 1 }
+  return `${m.toFixed(d).replace('.', ',')} × 10${sup(e)}`
+}
+const g = (x, d = 4) => fs(x, d)         // cifras significativas
+const f2 = (x, d = 2) => fx(x, d)        // decimales fijos
+const v = (t, c) => ({ v: String(t), c }) // variable coloreada
+const hs = (t) => `${fx(t, 2)} h`
+// dilución: entera (1/125, 1/15.625) mientras se pueda leer; si no, en potencia de 10
+const dil = (D) => (Math.abs(D - 1) < 1e-9 ? 'sin diluir' : Math.abs(D - Math.round(D)) < 1e-6 && D < 1e7 ? `1/${Math.round(D).toLocaleString('es-AR')}` : `1/${sci(D, 2)}`)
+const avisosDe = (r) => String(r?.aviso || '').split('; ').filter(Boolean)
+const lista = (xs, d = 4) => xs.map((x) => g(x, d)).join(' ; ')
+
+// ============================================================
+// OD: parámetros de una curva (réplica, o curva de la cepa en placas por tiempo)
+// ============================================================
+// puntos de la curva analizada en horas (en placas «sin promediar», todos los pocillos)
+function puntosSerie(w, todos) {
+  const t0 = (todos && w.tPts ? w.tPts : w.t).map((s) => s / 3600), y0 = todos && w.yPts ? w.yPts : w.y
+  const idx = t0.map((_, i) => i).filter((i) => finito(t0[i]) && finito(y0[i])).sort((a, b) => t0[a] - t0[b])
+  return { t: idx.map((i) => t0[i]), y: idx.map((i) => y0[i]) }
+}
+const puntosLn = (p, op) => p.t.map((t, i) => ({ x: t, y: p.y[i] > 0 && p.y[i] >= op.lnmin ? Math.log(p.y[i]) : NaN })).filter((d) => finito(d.y))
+// regresión de la ventana con los mismos puntos que usa el motor (los válidos para ln entre el inicio y el fin)
+function regVentana(p, r, op) {
+  const idx = p.t.map((_, i) => i).filter((i) => p.t[i] >= r.t_ini_ventana - 1e-9 && p.t[i] <= r.t_fin_ventana + 1e-9 && p.y[i] > 0 && p.y[i] >= op.lnmin)
+  const xs = idx.map((i) => p.t[i]), ys = idx.map((i) => Math.log(p.y[i]))
+  const n = xs.length, tm = media(xs), ym = media(ys)
+  const sxx = xs.reduce((s, x) => s + (x - tm) ** 2, 0), sxy = xs.reduce((s, x, i) => s + (x - tm) * (ys[i] - ym), 0)
+  const mu = sxy / sxx, a = ym - mu * tm
+  const sse = xs.reduce((s, x, i) => s + (ys[i] - a - mu * x) ** 2, 0), sst = ys.reduce((s, y) => s + (y - ym) ** 2, 0)
+  return { n, tm, ym, sxx, sxy, mu, a, sse, sst }
+}
+
+export function fichaMu(r, w, op, o = {}) {
+  const p = puntosSerie(w, o.todos)
+  const base = { titulo: 'μmax: velocidad específica máxima', sujeto: o.nombre, unidad: 'h⁻¹', metodos: 'param', que: AYUDA.mu_max.sig,
+    ajustes: [`ventana ${g(op.ancho, 3)} h`, `≥ ${op.minpts} puntos`, `R² ≥ ${g(op.r2min, 3)}`, `OD ≥ ${g(op.lnmin, 3)} para ln`, ...(r.ventana_manual ? ['ventana elegida a mano'] : []), ...(o.todos ? ['todos los pocillos'] : [])] }
+  if (!finito(r.mu_max)) return { ...base, valor: '–', pasos: [{ titulo: 'No se pudo calcular', texto: r.aviso || 'No hay ventanas válidas.' }] }
+  const R = regVentana(p, r, op)
+  const ln = puntosLn(p, op)
+  const vent = r.ventana_manual ? [] : ventanasLn(p.t, p.y, op.ancho, op.minpts, op.lnmin) || []
+  const gl = R.n - 2, tc = gl > 0 ? tCuantil(0.975, gl) : NaN, ic = finito(r.mu_se) ? tc * r.mu_se : NaN
+  const pasos = [
+    { titulo: 'La OD pasa a logaritmo natural', texto: `En fase exponencial N = N₀·e^(μt), así que ln(OD) crece en línea recta y su pendiente es μ. Entran las ${ln.length} lecturas con OD ≥ ${g(op.lnmin, 3)}${ln.length < p.t.length ? ` (quedan afuera ${p.t.length - ln.length}: cerca del blanco el logaritmo amplifica el ruido)` : ''}.`,
+      formula: [v('y', 1), ' = ln(OD) = ln(OD₀) + ', v('μ', 3), ' · ', v('t', 2)] },
+    r.ventana_manual
+      ? { titulo: 'Ventana elegida a mano', texto: `Se usó la ventana de ${hs(r.t_ini_ventana)} a ${hs(r.t_fin_ventana)} (${R.n} puntos), elegida arrastrando sobre el gráfico de la réplica.` }
+      : { titulo: `Se prueban todas las ventanas de ${g(op.ancho, 3)} h`, texto: `Hay ${vent.length} ventanas con ${op.minpts} puntos o más; en cada una se ajusta una recta. Gana la de mayor pendiente entre las de R² ≥ ${g(op.r2min, 3)}: de ${hs(r.t_ini_ventana)} a ${hs(r.t_fin_ventana)}.`,
+        esquema: { tipo: 'grafico', alto: 170, xTxt: 'Centro de la ventana (h)', yTxt: 'Pendiente (h⁻¹)', series: [
+          { id: 'ok', nombre: `R² ≥ ${g(op.r2min, 3)}`, color: 'acento', linea: false, puntos: true, radio: 3, data: vent.filter((x) => x.r2 >= op.r2min).map((x) => ({ x: x.t_mid, y: x.pendiente, tip: `${hs(x.t_ini)} a ${hs(x.t_fin)}\npendiente ${g(x.pendiente)} · R² ${g(x.r2, 3)}` })) },
+          { id: 'no', nombre: `R² < ${g(op.r2min, 3)}`, color: 'tenue', linea: false, puntos: true, radio: 2.4, data: vent.filter((x) => !(x.r2 >= op.r2min)).map((x) => ({ x: x.t_mid, y: x.pendiente, tip: `${hs(x.t_ini)} a ${hs(x.t_fin)}\npendiente ${g(x.pendiente)} · R² ${g(x.r2, 3)}` })) },
+        ], extras: [{ x: (r.t_ini_ventana + r.t_fin_ventana) / 2, y: r.mu_max, color: 'aviso', forma: 'anillo', tip: 'Ventana elegida' }] } },
+    { titulo: 'Recta de mínimos cuadrados en la ventana', texto: `Con los ${R.n} puntos de la ventana: t̄ = ${g(R.tm)} h, ȳ = ${g(R.ym)}.`,
+      formula: [v('μ', 3), ' = Σ(', v('t', 2), ' − t̄)(', v('y', 1), ' − ȳ) / Σ(', v('t', 2), ' − t̄)²   ;   a = ȳ − ', v('μ', 3), ' · t̄'],
+      cuenta: [v('μ', 3), ` = ${g(R.sxy, 5)} / ${g(R.sxx, 5)} = `, v(`${g(r.mu_max)} h⁻¹`, 3), `   ;   a = ${g(R.ym)} − ${g(r.mu_max)} × ${g(R.tm)} = ${g(R.a)}`],
+      esquema: { tipo: 'grafico', alto: 220, yTxt: 'ln(OD)', ventana: [r.t_ini_ventana, r.t_fin_ventana], series: [
+        { id: 'ln', nombre: 'ln(OD)', color: o.color || 'acento', linea: false, puntos: true, radio: 2.6, data: ln },
+        { id: 'r', nombre: 'recta de la ventana', color: 'acento2', ancho: 1.8, dash: '6 4', data: [Math.max(p.t[0], r.t_ini_ventana - 1.5), Math.min(p.t[p.t.length - 1], r.t_fin_ventana + 1.5)].map((x) => ({ x, y: R.a + r.mu_max * x })) },
+      ] } },
+    { titulo: 'Qué tan recta es la ventana y error de μ', texto: 'R² mide cuánto de la variación de ln(OD) en la ventana explica la recta. El error estándar de la pendiente mide el ruido dentro de la ventana: no mide la variación entre réplicas.',
+      formula: ['R² = 1 − SSE / SST   ;   EE(', v('μ', 3), ') = |', v('μ', 3), '| · √[ (1 − R²) / (R² · (n − 2)) ]'],
+      cuenta: [`R² = 1 − ${g(R.sse, 4)} / ${g(R.sst, 4)} = ${g(r.r2, 4)}   ;   EE = ${finito(r.mu_se) ? g(r.mu_se, 3) : '–'} h⁻¹`, ...(finito(ic) ? [`\nIC 95 % = μ ± t(0,975; ${gl}) · EE = ${g(r.mu_max)} ± ${g(tc, 4)} × ${g(r.mu_se, 3)} = ${g(r.mu_max - ic, 4)} a ${g(r.mu_max + ic, 4)} h⁻¹`] : [])] },
+  ]
+  if (finito(r.mu_spline)) pasos.push({ titulo: 'Para comparar (no reemplaza a μmax)', texto: `μ por spline de suavizado (máximo de la derivada de una curva suave de ln(OD), sin elegir ventana) = ${g(r.mu_spline)} h⁻¹. Si difiere mucho de μmax, revisá la ventana o el ruido. Los modelos de toda la curva (Gompertz, logístico, Richards, Baranyi) se ajustan con «Ajustar modelos» en el detalle de la curva.` })
+  return { ...base, valor: g(r.mu_max), sub: `EE ${finito(r.mu_se) ? g(r.mu_se, 3) : '–'} · R² ${g(r.r2, 4)} · ${R.n} puntos · ${hs(r.t_ini_ventana)} a ${hs(r.t_fin_ventana)}`, pasos, avisos: avisosDe(r) }
+}
+
+export function fichaTd(r, o = {}) {
+  const base = { titulo: 'Tiempo de duplicación', sujeto: o.nombre, unidad: 'min', metodos: 'param', que: AYUDA.td_min.sig }
+  if (!(r.mu_max > 0)) return { ...base, valor: '–', pasos: [{ titulo: 'No se puede calcular', texto: 'Hace falta una μmax positiva.' }] }
+  const tdh = Math.LN2 / r.mu_max
+  return { ...base, valor: g(r.td_min), sub: finito(r.td_se_min) ? `EE ${g(r.td_se_min, 3)} min (propagado desde μ)` : '',
+    pasos: [
+      { titulo: 'De μ a tiempo de duplicación', texto: 'Si la población se duplica en un tiempo td: 2·N₀ = N₀·e^(μ·td), y despejando td = ln 2 / μ.',
+        formula: ['td = ln 2 / ', v('μ', 3)], cuenta: ['td = 0,6931 / ', v(`${g(r.mu_max)} h⁻¹`, 3), ` = ${g(tdh)} h = ${g(tdh, 4)} × 60 = ${g(r.td_min)} min`] },
+      ...(finito(r.td_se_min) ? [{ titulo: 'Error propagado desde μ', texto: 'Aproximación de primer orden: el error relativo de td es el mismo que el de μ.',
+        formula: ['EE(td) = td · EE(', v('μ', 3), ') / ', v('μ', 3)], cuenta: [`EE(td) = ${g(r.td_min)} × ${g(r.mu_se, 3)} / ${g(r.mu_max)} = ${g(r.td_se_min, 3)} min`] }] : []),
+    ], avisos: avisosDe(r) }
+}
+
+export function fichaLag(r, w, op, o = {}) {
+  const p = puntosSerie(w, o.todos)
+  const base = { titulo: 'Lag (λ)', sujeto: o.nombre, unidad: 'h', metodos: 'param', que: AYUDA.lag_h.sig, ajustes: [op.lag_metodo === 'umbral' ? `umbral: ${g(op.lag_factor, 3)} × OD₀` : 'tangente en μmax'] }
+  if (op.lag_metodo === 'umbral') {
+    const ys = runmed3(p.y), u = op.lag_factor * r.od0
+    const i = ys.findIndex((y) => y >= u)
+    const pasos = [
+      { titulo: 'Nivel a alcanzar', texto: `OD₀ = ${g(r.od0)}; el lag es el primer tiempo en que la curva (suavizada con una mediana móvil de 3 puntos) llega a ${g(op.lag_factor, 3)} × OD₀.`,
+        cuenta: [`umbral = ${g(op.lag_factor, 3)} × ${g(r.od0)} = ${g(u)}`] },
+      i > 0
+        ? { titulo: 'Interpolación entre las dos lecturas que lo rodean', formula: ['λ = t₁ + (umbral − y₁) · (t₂ − t₁) / (y₂ − y₁)'],
+          cuenta: [`λ = ${g(p.t[i - 1])} + (${g(u)} − ${g(ys[i - 1])}) × (${g(p.t[i])} − ${g(p.t[i - 1])}) / (${g(ys[i])} − ${g(ys[i - 1])}) = ${g(r.lag_h)} h`] }
+        : { titulo: i === 0 ? 'Ya estaba sobre el umbral en la primera lectura' : 'Nunca llega al umbral', texto: i === 0 ? `λ = ${hs(p.t[0])}` : 'El lag queda vacío.' },
+    ]
+    return { ...base, valor: g(r.lag_h), pasos, avisos: avisosDe(r) }
+  }
+  if (!finito(r.mu_max) || !(r.mu_max > 0)) return { ...base, valor: g(r.lag_h), pasos: [{ titulo: 'Sin recta de μmax', texto: 'Sin μmax no hay tangente: se informó el lag por umbral.' }], avisos: avisosDe(r) }
+  const lnod0 = Math.log(r.od0), lagT = (lnod0 - r.intercepto) / r.mu_max
+  const ln = puntosLn(p, op)
+  const x1 = Math.min(p.t[p.t.length - 1], r.t_fin_ventana + 1)
+  return { ...base, valor: g(r.lag_h), pasos: [
+    { titulo: 'La recta de μmax', texto: `Es la recta de la ventana de mayor pendiente (${hs(r.t_ini_ventana)} a ${hs(r.t_fin_ventana)}).`, formula: ['ln OD = ', v('a', 1), ' + ', v('μ', 3), ' · t'], cuenta: ['ln OD = ', v(g(r.intercepto), 1), ' + ', v(g(r.mu_max), 3), ' · t'] },
+    { titulo: 'El nivel inicial', texto: `OD₀ = ${g(r.od0)} (${r.od0_metodo || 'ver su ficha'}), así que ln OD₀ = ${g(lnod0)}.` },
+    { titulo: 'Donde la recta cruza el nivel inicial', texto: 'Es la definición clásica del lag: el tiempo que el cultivo «pierde» antes de crecer a velocidad máxima.',
+      formula: ['λ = (ln OD₀ − ', v('a', 1), ') / ', v('μ', 3)],
+      cuenta: [`λ = (${g(lnod0)} − (`, v(g(r.intercepto), 1), ')) / ', v(g(r.mu_max), 3), ` = ${g(lagT)} h${lagT < 0 ? '  → negativo (ya crecía al empezar): se informa 0' : ''}`],
+      esquema: { tipo: 'grafico', alto: 220, yTxt: 'ln(OD)', ventana: [r.t_ini_ventana, r.t_fin_ventana], series: [
+        { id: 'ln', nombre: 'ln(OD)', color: o.color || 'acento', linea: false, puntos: true, radio: 2.6, data: ln },
+        { id: 'tg', nombre: 'recta de μmax', color: 'acento2', ancho: 1.6, dash: '6 4', data: [Math.max(lagT, p.t[0]), x1].map((x) => ({ x, y: r.intercepto + r.mu_max * x })) },
+        { id: 'od0', nombre: 'ln OD₀', color: 'sec', ancho: 1.2, dash: '2 3', data: [p.t[0], Math.max(lagT, p.t[0]) + 0.5].map((x) => ({ x, y: lnod0 })) },
+      ], extras: [{ x: Math.max(lagT, p.t[0]), y: lnod0, color: 'aviso', forma: 'anillo', tip: `λ = ${g(r.lag_h)} h` }] } },
+  ], avisos: avisosDe(r) }
+}
+
+export function fichaOd0(r, w, op, o = {}) {
+  const p = puntosSerie(w, o.todos)
+  const base = { titulo: 'OD₀: OD inicial', sujeto: o.nombre, unidad: '', metodos: 'param', que: AYUDA.od0.sig, ajustes: [/^autom/.test(r.od0_metodo || '') ? 'automática (tres fases)' : `media de los primeros ${op.n_od0} puntos`] }
+  if (/^autom/.test(r.od0_metodo || '')) {
+    const tf = od0TresFases(p.t, p.y, op.lnmin, r.t_fin_ventana)
+    if (tf) {
+      const ln = puntosLn(p, op).filter((d) => d.x <= r.t_fin_ventana + 1e-9)
+      const x1 = r.t_fin_ventana
+      return { ...base, valor: g(r.od0), pasos: [
+        { titulo: 'Puntos desde el inicio hasta el final de la ventana de μmax', texto: `${ln.length} lecturas con OD ≥ ${g(op.lnmin, 3)} hasta ${hs(x1)}. Tomar solo la primera lectura es ruidoso: se usa toda la meseta inicial.` },
+        { titulo: 'Modelo de tres fases (Buchanan et al., 1997), sin la estacionaria', formula: ['ln OD = ', v('y₀', 1), '  si t ≤ ', v('λ', 2), '   ;   ', v('y₀', 1), ' + μ·(t − ', v('λ', 2), ')  si t > ', v('λ', 2)],
+          texto: 'Se prueban 300 valores de λ; para cada uno, y₀ y μ salen de una regresión lineal sobre x = máx(0, t − λ), y se elige el λ con la menor suma de cuadrados.',
+          cuenta: [v(`λ = ${g(tf.lam)} h`, 2), '   ;   ', v(`y₀ = ${g(tf.y0)}`, 1), `   ;   μ = ${g(tf.mu)} h⁻¹   ;   ${tf.n_base} puntos en la meseta`],
+          esquema: { tipo: 'grafico', alto: 200, yTxt: 'ln(OD)', series: [
+            { id: 'ln', nombre: 'ln(OD)', color: o.color || 'acento', linea: false, puntos: true, radio: 2.6, data: ln },
+            { id: 'tf', nombre: 'tres fases', color: 'acento2', ancho: 1.8, data: [p.t[0], tf.lam, x1].map((x) => ({ x, y: tf.y0 + tf.mu * Math.max(0, x - tf.lam) })) },
+          ] } },
+        { titulo: 'OD₀ es la meseta', formula: ['OD₀ = e^', v('y₀', 1)], cuenta: ['OD₀ = e^', v(g(tf.y0), 1), ` = ${g(r.od0)}`] },
+      ], avisos: avisosDe(r) }
+    }
+  }
+  const n0 = Math.min(Math.max(1, Math.round(op.n_od0)), p.y.length), ys = p.y.slice(0, n0)
+  return { ...base, valor: g(r.od0), pasos: [
+    { titulo: `Media de los primeros ${n0} puntos`, formula: ['OD₀ = (y₁ + … + yₙ) / n'], cuenta: [`OD₀ = (${ys.map((y) => g(y)).join(' + ')}) / ${n0} = ${g(media(ys))}`],
+      nota: media(ys) < op.lnmin ? `Es menor que la OD mínima para ln (${g(op.lnmin, 3)}): se usó ${g(op.lnmin, 3)}.` : '' },
+  ], avisos: avisosDe(r) }
+}
+
+export function fichaK(r, w, o = {}) {
+  const p = puntosSerie(w, false)
+  const ys = runmed3(p.y)
+  let iK = 0
+  ys.forEach((y, i) => { if (y > ys[iK]) iK = i })
+  const vec = p.y.slice(Math.max(0, iK - 1), iK + 2)
+  return { titulo: 'K: OD máxima', sujeto: o.nombre, valor: g(r.K), unidad: 'OD', metodos: 'param', que: AYUDA.K.sig, sub: `a las ${hs(r.t_K_h)}`,
+    pasos: [
+      { titulo: 'Se suaviza con una mediana móvil de 3 puntos', texto: 'Cada lectura se reemplaza por la mediana de ella y sus dos vecinas (en los extremos, la regla de Tukey). Así un pico aislado (una burbuja) no cuenta como máximo.',
+        cuenta: [`en el máximo: mediana(${vec.map((y) => g(y)).join(' ; ')}) = ${g(ys[iK])}`] },
+      { titulo: 'K es el valor más alto de la curva suavizada', cuenta: [`K = ${g(r.K)} a las ${hs(r.t_K_h)}`],
+        esquema: { tipo: 'grafico', alto: 200, yTxt: 'OD', series: [
+          { id: 'od', nombre: 'OD', color: o.color || 'acento', linea: false, puntos: true, radio: 2.4, data: p.t.map((x, i) => ({ x, y: p.y[i] })) },
+          { id: 'sv', nombre: 'mediana móvil de 3', color: 'acento2', ancho: 1.6, data: p.t.map((x, i) => ({ x, y: ys[i] })) },
+        ], extras: [{ x: r.t_K_h, y: r.K, color: 'aviso', forma: 'anillo', tip: `K = ${g(r.K)}` }] } },
+    ], avisos: r.t_K_h >= p.t[p.t.length - 1] - 1e-9 ? ['K está en la última lectura: el cultivo puede no haber llegado a la meseta.'] : [] }
+}
+
+export function fichaGeneraciones(r, o = {}) {
+  return { titulo: 'Generaciones', sujeto: o.nombre, valor: g(r.generaciones), unidad: '', metodos: 'param', que: AYUDA.generaciones.sig,
+    pasos: [{ titulo: 'Cuántas veces se duplicó la OD de OD₀ a K', texto: 'Cada generación duplica la población: K = OD₀ · 2ⁿ, así que n = log₂(K / OD₀).',
+      formula: ['n = log₂(', v('K', 1), ' / ', v('OD₀', 2), ') = ln(K / OD₀) / ln 2'],
+      cuenta: ['n = log₂(', v(g(r.K), 1), ' / ', v(g(r.od0), 2), `) = log₂(${g(r.K / r.od0)}) = ${g(r.generaciones)}`] }] }
+}
+export function fichaDeltaOd(r, o = {}) {
+  return { titulo: 'ΔOD', sujeto: o.nombre, valor: g(r.delta_od), unidad: 'OD', metodos: 'param', que: AYUDA.delta_od.sig,
+    pasos: [{ titulo: 'K menos OD₀', formula: ['ΔOD = ', v('K', 1), ' − ', v('OD₀', 2)], cuenta: ['ΔOD = ', v(g(r.K), 1), ' − ', v(g(r.od0), 2), ` = ${g(r.delta_od)}`] }] }
+}
+export function fichaAuc(r, w, o = {}) {
+  const p = puntosSerie(w, false)
+  const tr = p.y.slice(1).map((y, i) => ((p.y[i] + y) / 2) * (p.t[i + 1] - p.t[i]))
+  return { titulo: 'AUC de OD', sujeto: o.nombre, valor: g(r.auc_od), unidad: 'OD·h', metodos: 'param', que: AYUDA.auc_od.sig,
+    pasos: [{ titulo: 'Regla del trapecio', texto: `Entre cada par de lecturas la curva se aproxima por una recta y se suma el área de los ${tr.length} trapecios, de ${hs(p.t[0])} a ${hs(p.t[p.t.length - 1])}.`,
+      formula: ['AUC = Σ ½ (yᵢ + yᵢ₊₁) · (tᵢ₊₁ − tᵢ)'],
+      cuenta: [`AUC = ${tr.slice(0, 3).map((x) => g(x, 3)).join(' + ')}${tr.length > 3 ? ` + … (${tr.length} términos)` : ''} = ${g(trapz(p.t, p.y))} OD·h`],
+      esquema: { tipo: 'grafico', alto: 190, yTxt: 'OD', series: [{ id: 'a', nombre: 'OD', color: o.color || 'acento', banda: true, puntos: true, radio: 2.2, data: p.t.map((x, i) => ({ x, y: p.y[i], lo: 0, hi: p.y[i] })) }] } }] }
+}
+// el resto de los parámetros de OD: el texto del cálculo con los valores
+function fichaGenerica(r, k, op, o = {}) {
+  const ex = explicarResultado(r, k, op)
+  return { titulo: PARAMS[k] || k, sujeto: o.nombre, valor: g(r[k]), unidad: '', metodos: 'param', que: AYUDA[k]?.sig,
+    pasos: [{ titulo: 'Cómo se calculó', texto: ex.calculo }, ...(ex.error && !/^Este parámetro no tiene/.test(ex.error) ? [{ titulo: 'Error', texto: ex.error }] : [])], avisos: avisosDe(r) }
+}
+// ficha de un parámetro de OD de una curva. w: la serie analizada; o: { nombre, color, todos (placas sin promediar) }
+export function fichaParamOd(k, r, w, op, o = {}) {
+  if (!r || !w) return null
+  const conPuntos = { ...o, todos: o.todos && !['K', 't_K_h', 'auc_od', 'auc_ln', 't_umbral_od_h', 't_max_dod_h', 'dod_max', 'caida_pct', 't_muerte', 'od_final'].includes(k) }
+  if (k === 'mu_max' || k === 'r2') return fichaMu(r, w, op, conPuntos)
+  if (k === 'td_min') return fichaTd(r, o)
+  if (k === 'lag_h') return fichaLag(r, w, op, conPuntos)
+  if (k === 'od0') return fichaOd0(r, w, op, conPuntos)
+  if (k === 'K' || k === 't_K_h') return fichaK(r, w, o)
+  if (k === 'generaciones') return fichaGeneraciones(r, o)
+  if (k === 'delta_od') return fichaDeltaOd(r, o)
+  if (k === 'auc_od') return fichaAuc(r, w, o)
+  return fichaGenerica(r, k, op, o)
+}
+
+// ---------- media ± error de varios valores (réplicas) ----------
+// valores: [{ etiqueta, x }]; tipo: 'sd' | 'sem' | 'ic95'
+function pasosMedia(valores, unidad, tipo = 'sd') {
+  const xs = valores.map((q) => q.x), n = xs.length, m = media(xs), sd = n > 1 ? desvio(xs) : NaN
+  const tc = n > 1 ? tCuantil(0.975, n - 1) : NaN
+  const pasos = [
+    { titulo: `Los ${n} valores`, texto: valores.map((q) => `${q.etiqueta}: ${g(q.x)}`).join(' · '),
+      esquema: { tipo: 'tira', valores: valores.map((q) => ({ x: q.x, etiqueta: q.etiqueta })), media: m, de: sd, unidad } },
+    { titulo: 'Media', formula: ['x̄ = Σxᵢ / n'], cuenta: [`x̄ = (${xs.map((x) => g(x)).join(' + ')}) / ${n} = ${g(m)}`] },
+  ]
+  if (n > 1) {
+    pasos.push({ titulo: 'Desviación estándar (cuánto se separan entre sí)', texto: 'Se divide por n − 1 porque la media salió de los mismos datos (corrección de Bessel).',
+      formula: ['DE = √[ Σ(xᵢ − x̄)² / (n − 1) ]'], cuenta: [`DE = √[ ${g(xs.reduce((s, x) => s + (x - m) ** 2, 0), 4)} / ${n - 1} ] = ${g(sd)}`] })
+    if (tipo !== 'sd') pasos.push({ titulo: tipo === 'sem' ? 'Error estándar de la media' : 'Intervalo de confianza del 95 % de la media',
+      formula: [tipo === 'sem' ? 'EEM = DE / √n' : 'IC 95 % = x̄ ± t(0,975; n − 1) · DE / √n'],
+      cuenta: [tipo === 'sem' ? `EEM = ${g(sd)} / √${n} = ${g(sd / Math.sqrt(n))}` : `IC 95 % = ${g(m)} ± ${g(tc, 4)} × ${g(sd)} / √${n} = ${g(m - (tc * sd) / Math.sqrt(n))} a ${g(m + (tc * sd) / Math.sqrt(n))}`] })
+  }
+  return { pasos, m, sd, n, tc }
+}
+// resumen por cepa: media ± DE entre réplicas técnicas de un parámetro de OD
+export function fichaResumen(rs, k, filas, o = {}) {
+  const etq = o.etiqueta || ((r) => `réplica ${r.Replica}`)
+  const avisoN = (n) => (n > 0 && n < 3 ? [`Con n = ${n} la DE y el IC 95 % tienen muy poca base${n === 2 ? ' (t(0,975; 1) = 12,7)' : ''}: tomalos como orientación.`] : [])
+  const nota = 'Son réplicas técnicas (pocillos o series) de UN experimento: para generalizar a la cepa hacen falta experimentos independientes.'
+  // ninguna réplica dio el parámetro: se explica por qué (los avisos de cada curva)
+  const kBase = k === 'td_min' ? 'mu_max' : k
+  if (!filas.some((r) => finito(r[kBase]))) {
+    return { titulo: `${PARAMS[k] || k} de la cepa`, sujeto: rs.Muestra, valor: '–', metodos: 'replicas', que: AYUDA[k]?.sig,
+      pasos: [{ titulo: 'Ninguna réplica dio este parámetro', texto: filas.map((r) => `${etq(r)}: ${r.aviso || 'sin valor'}`).join(' · ') }] }
+  }
+  if (k === 'r2') {
+    const vals = filas.map((r) => ({ etiqueta: etq(r), x: r.r2 })).filter((q) => finito(q.x))
+    return { titulo: 'R² de la ventana (el más bajo)', sujeto: rs.Muestra, valor: g(rs.r2.m), metodos: 'replicas', que: 'Calidad del ajuste lineal de ln(OD) en la ventana de μmax de cada réplica.',
+      pasos: [{ titulo: 'No se promedia', texto: `El R² dice qué tan bien ajusta la recta de cada réplica; no es una magnitud de la cepa, así que no lleva media ni DE. Se informa el peor de las ${vals.length} réplicas: ${vals.map((q) => `${q.etiqueta} ${g(q.x)}`).join(' · ')}.`,
+        esquema: { tipo: 'tira', valores: vals, unidad: 'R²' } }] }
+  }
+  if (k === 'td_min') {
+    const vals = filas.map((r) => ({ etiqueta: etq(r), x: r.mu_max })).filter((q) => finito(q.x))
+    const M = pasosMedia(vals, 'h⁻¹', 'sd')
+    const td = (Math.LN2 / M.m) * 60, sdTd = finito(M.sd) ? (td * M.sd) / M.m : NaN
+    return { titulo: 'Tiempo de duplicación de la cepa', sujeto: rs.Muestra, valor: g(rs.td_min.m), unidad: 'min', metodos: 'replicas', que: AYUDA.td_min.sig,
+      sub: finito(sdTd) ? `± ${g(sdTd, 3)} min (propagado desde la DE de μ)` : '',
+      pasos: [...M.pasos.slice(0, 2).map((p, i) => (i === 0 ? { ...p, titulo: `μmax de las ${M.n} réplicas` } : { ...p, titulo: 'μ media' })),
+        { titulo: 'td con la μ media (no el promedio de los td)', texto: 'Promediar los td daría otro número (el promedio de 1/μ no es 1/promedio de μ).',
+          formula: ['td = ln 2 / μ̄'], cuenta: [`td = 0,6931 / ${g(M.m)} = ${g(td / 60)} h = ${g(td)} min`] },
+        ...(finito(sdTd) ? [{ titulo: 'DE propagada desde la de μ', formula: ['DE(td) = td · DE(μ) / μ̄'], cuenta: [`DE(td) = ${g(td)} × ${g(M.sd)} / ${g(M.m)} = ${g(sdTd, 3)} min`] }] : [])],
+      avisos: avisoN(M.n), nota }
+  }
+  const vals = filas.map((r) => ({ etiqueta: etq(r), x: r[k] })).filter((q) => finito(q.x))
+  const M = pasosMedia(vals, '', 'ic95')
+  return { titulo: `${PARAMS[k] || k} de la cepa`, sujeto: rs.Muestra, valor: g(M.m), unidad: '', metodos: 'replicas', que: AYUDA[k]?.sig,
+    sub: finito(M.sd) ? `DE ${g(M.sd)} · n = ${M.n}` : `n = ${M.n}`, pasos: M.pasos, avisos: [...avisoN(M.n), ...(vals.length < filas.length ? [`${filas.length - vals.length} réplica(s) no dieron este parámetro.`] : [])], nota }
+}
+// media ± error de las réplicas en un tiempo (puntos de la curva media)
+export function fichaMediaTiempo({ valores, t, nombre, tipo = 'sd', unidad = 'OD', etiquetaValor = 'OD media' }) {
+  const M = pasosMedia(valores, unidad, tipo)
+  const err = tipo === 'sd' ? M.sd : tipo === 'sem' ? M.sd / Math.sqrt(M.n) : (M.tc * M.sd) / Math.sqrt(M.n)
+  return { titulo: etiquetaValor, sujeto: `${nombre} · t = ${hs(t)}`, valor: g(M.m), unidad, metodos: 'replicas', sub: finito(err) ? `± ${g(err)} (${{ sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }[tipo]}) · n = ${M.n}` : `n = ${M.n}`,
+    pasos: M.pasos, avisos: M.n < 3 && tipo !== 'sd' ? ['Con menos de 3 réplicas el EEM y el IC 95 % tienen muy poca base.'] : [] }
+}
+
+// ---------- OD de cubeta (blanco y diluciones) ----------
+export function fichaOdCubeta(fila, m, c) {
+  const blanco = m.yaCorregido ? 0 : Number(m.blanco) || 0
+  const lect = Object.entries(fila.od || {}).map(([k, x]) => [Number(k), Number(x)]).filter(([, x]) => finito(x)).sort((a, b) => a[0] - b[0])
+  const filas = lect.map(([k, x]) => ({ k, x, neta: x - blanco, corr: (x - blanco) * m.factor ** k, dentro: x - blanco >= m.vmin && x - blanco <= m.vmax }))
+  const us = filas.filter((q) => (c.usados || []).includes(q.k))
+  return { titulo: 'OD corregida', sujeto: `${fila.muestra} · réplica ${fila.replica} · t = ${fila.t} h`, valor: g(c.od), unidad: 'OD', metodos: 'origen',
+    pasos: [
+      { titulo: 'Lectura menos blanco, por el factor de la dilución', formula: ['OD = (', v('L', 1), ' − ', v('B', 2), ') × f^k'],
+        texto: `B = ${g(blanco)}${m.yaCorregido ? ' (el equipo ya restó el blanco)' : ''}; f = ${m.factor}; ventana lineal del equipo: OD neta entre ${m.vmin} y ${m.vmax}.`,
+        cuenta: filas.flatMap((q, i) => [...(i ? ['\n'] : []), `${q.k ? `dilución −${q.k}` : 'sin diluir'}: (`, v(g(q.x), 1), ' − ', v(g(blanco), 2), `) × ${m.factor}^${q.k} = ${g(q.corr)}${q.dentro ? '   ✓ en la ventana' : '   (fuera de la ventana)'}`]) },
+      { titulo: us.length > 1 ? 'Media de las lecturas dentro de la ventana' : 'Lectura usada', cuenta: [us.length > 1 ? `OD = (${us.map((q) => g(q.corr)).join(' + ')}) / ${us.length} = ${g(c.od)}` : `OD = ${g(c.od)}`],
+        nota: c.estado !== 'ok' ? 'Ninguna lectura cayó dentro de la ventana: se usó la más cercana al centro.' : '' },
+    ] }
+}
+// ---------- blanco de una placa (placas por tiempo) ----------
+export function fichaBlancoPlaca(bl, lect, t) {
+  const us = (lect || []).filter((l) => l.EsBlanco && l.Usado), fuera = (lect || []).filter((l) => l.EsBlanco && !l.Usado)
+  const vals = us.map((l) => ({ etiqueta: l.Pocillo, x: l.OD_leida }))
+  const base = { titulo: 'Blanco de la placa', sujeto: `t = ${hs(t)}${bl.origen !== t ? ` (tomado de la placa de ${hs(bl.origen)})` : ''}`, valor: g(bl.valor), unidad: 'OD', metodos: 'origen',
+    que: 'OD del medio sin inocular de esa placa: se resta a cada lectura antes de multiplicar por la dilución.' }
+  if (!vals.length) return { ...base, pasos: [{ titulo: 'Media de los blancos aceptados', texto: `${bl.n} pocillo${bl.n === 1 ? '' : 's'} (${(bl.pocillos || []).join(', ')}): media = ${g(bl.valor)}.` }] }
+  const M = pasosMedia(vals, 'OD', 'sd')
+  return { ...base, pasos: [...M.pasos.slice(0, 2), ...(fuera.length ? [{ titulo: 'Pocillos de blanco que no entran', texto: fuera.map((l) => `${l.Pocillo} (${g(l.OD_leida)}): ${l.Motivo || 'excluido'}`).join(' · ') }] : [])] }
+}
+
+// ============================================================
+// Atípicos entre réplicas (Dixon, Grubbs o CV), para UFC y OD
+// ============================================================
+// valores: [{ etiqueta, x }]; o: { metodo, conf, cvMax, escala, sospechoso (índice marcado), sujeto, auto }
+export function fichaAtipico(valores, o) {
+  const xs = valores.map((q) => q.x)
+  const d = detectar(xs, { metodo: o.metodo, conf: o.conf, cvMax: o.cvMax })
+  const metodo = o.metodo === 'q' && xs.length > 10 ? 'grubbs' : o.metodo
+  const n = xs.length
+  const orden = xs.map((_, i) => i).sort((a, b) => xs[a] - xs[b])
+  const pasos = [{ titulo: `Las ${n} réplicas, ordenadas`, texto: orden.map((i) => `${valores[i].etiqueta}: ${g(xs[i])}`).join(' · '),
+    esquema: { tipo: 'tira', valores: valores.map((q, i) => ({ ...q, sospechoso: i === d.idx })), unidad: o.escala, media: metodo !== 'q' ? media(xs) : NaN } }]
+  if (metodo === 'q') {
+    const s = orden.map((i) => xs[i]), rango = s[n - 1] - s[0]
+    pasos.push({ titulo: 'Test Q de Dixon', texto: 'Compara el salto entre el valor extremo y su vecino con el rango de todas las réplicas.',
+      formula: ['Q = salto / rango = (x₍ₙ₎ − x₍ₙ₋₁₎) / (x₍ₙ₎ − x₍₁₎)   (o el extremo de abajo)'],
+      cuenta: [`Q arriba = (${g(s[n - 1])} − ${g(s[n - 2])}) / ${g(rango)} = ${g((s[n - 1] - s[n - 2]) / rango, 3)}   ;   Q abajo = (${g(s[1])} − ${g(s[0])}) / ${g(rango)} = ${g((s[1] - s[0]) / rango, 3)}`] })
+    pasos.push({ titulo: 'Comparación con el valor crítico', texto: `Valor crítico de Q para n = ${n} al ${o.conf} % (Rorabacher 1991): ${g((Q_TABLA[o.conf] || Q_TABLA[95])[n - 3], 3)}.`,
+      cuenta: [finito(d.stat) ? `Q = ${g(d.stat, 3)} ${d.idx !== null ? '>' : '≤'} ${g(d.crit, 3)} → ${d.idx !== null ? `${valores[d.idx].etiqueta} es sospechosa` : 'ninguna es sospechosa'}` : 'Hacen falta 3 a 10 réplicas para el test.'] })
+  } else if (metodo === 'grubbs') {
+    const m = media(xs), s = desvio(xs)
+    pasos.push({ titulo: 'Test de Grubbs', texto: 'Mide cuántas desviaciones estándar se aparta de la media el valor más alejado.',
+      formula: ['G = máx |xᵢ − x̄| / s   ;   G crítico = (n − 1)/√n · √[ t² / (n − 2 + t²) ],  t = t(1 − α/(2n); n − 2)'],
+      cuenta: [`x̄ = ${g(m)}, s = ${g(s)} → G = ${g(d.stat, 3)} ${d.idx !== null ? '>' : '≤'} G crítico = ${g(criticoGrubbs(n, o.conf), 3)} → ${d.idx !== null ? `sospechosa: ${valores[d.idx].etiqueta}` : 'ninguna es sospechosa'}`] })
+  } else {
+    pasos.push({ titulo: 'Coeficiente de variación del grupo', texto: 'Es un criterio práctico, no un test de hipótesis: si el CV supera el límite, se señala la réplica más alejada de la media.',
+      formula: ['CV = 100 · s / |x̄|'], cuenta: [`CV = ${g(d.stat, 3)} % ${d.idx !== null ? '>' : '≤'} ${o.cvMax} %${d.idx !== null ? ` → sospechosa: ${valores[d.idx].etiqueta} (sin ella, CV = ${g(d.cvSin, 3)} %)` : ''}`] })
+  }
+  return { titulo: `Atípicos entre réplicas (${{ q: 'Dixon', grubbs: 'Grubbs', cv: 'CV %' }[metodo]})`, sujeto: o.sujeto, valor: d.idx !== null ? 'sospechosa' : 'sin atípicos', metodos: o.ancla || 'ufcqc',
+    pasos, avisos: [...(n === 3 && metodo === 'q' ? ['Con 3 réplicas el test tiene muy poca potencia: solo marca valores muy extremos.'] : []),
+      ...(d.idx !== null ? [o.auto ? 'Se excluye automáticamente («Excluir» activado).' : 'Solo se marca: sigue en el promedio. Decidí vos con un clic si la excluís.'] : [])],
+    ajustes: [metodo === 'cv' ? `CV máx. ${o.cvMax} %` : `confianza ${o.conf} %`, o.auto ? 'excluir solos' : 'solo marcar'] }
+}
+
+// ============================================================
+// UFC
+// ============================================================
+const etqCol = (par, k) => dil(dilDe(par, k))
+// UFC/mL de una réplica: una dilución, C · D / V
+export function fichaUfcReplica(r, o = {}) {
+  const p = r._par || {}
+  const ent = Object.entries(r._cont || {}).map(([k, c]) => [Number(k), Number(c)]).filter(([, c]) => finito(c)).sort((a, b) => dilDe(p, a[0]) - dilDe(p, b[0]))
+  const k = (r._usados || [])[0]
+  const D = finito(k) ? dilDe(p, k) : NaN, V = p.vol, C = r._S, Vo = V / D
+  const sujeto = `${r.Muestra} · T = ${r.T_h} h · réplica ${r.Replica}`
+  const pasos = [
+    { titulo: 'Diluciones contadas', texto: `Todas las réplicas de ${r.Muestra} a T = ${r.T_h} h usan la misma dilución, ${r._manual ? 'elegida a mano' : `la que tiene más réplicas dentro del rango contable (${p.min} a ${p.max} colonias)`}.`,
+      esquema: { tipo: 'diluciones', columnas: ent.map(([kk, c]) => ({ etiqueta: etqCol(p, kk), colonias: c, estado: kk === k ? 'elegida' : c > 2 * p.max ? 'incontable' : c >= p.min && c <= p.max ? 'rango' : '' })) } },
+  ]
+  if (r._estado === 'sin_dilucion') return { titulo: 'UFC/mL de la réplica', sujeto, valor: '–', metodos: 'ufc', pasos: [...pasos, { titulo: 'Sin conteo en la dilución de la cepa', texto: 'Esta réplica no tiene conteo en la dilución elegida para su cepa y tiempo: no se calcula con otra.' }] }
+  pasos.push({ titulo: 'Volumen de suspensión original sembrado', texto: `Se sembraron V = ${g(V * 1000, 4)} µL de la dilución ${dil(D)}: es como haber sembrado V/D mL de la suspensión original.`,
+    formula: [v('V', 2), ' / ', v('D', 4), ' = mL de suspensión original'], cuenta: [v(`${g(V)} mL`, 2), ' / ', v(sci(D), 4), ' = ', `${sci(Vo, 3)} mL`] })
+  if (r._estado === 'cero') {
+    pasos.push({ titulo: '0 colonias: límite de detección', texto: 'Con 0 colonias no hay concentración medible. Se informa el límite de detección: la concentración para la que se esperarían 3 colonias (si se esperan 3, la probabilidad de ver 0 es ≈ 5 %).',
+      formula: ['límite ≈ 3 · ', v('D', 4), ' / ', v('V', 2)], cuenta: [`límite ≈ 3 / ${sci(Vo, 3)} mL = ${sci(r.Limite)} UFC/mL`] })
+    return { titulo: 'UFC/mL de la réplica', sujeto, valor: `< ${sci(r.Limite)}`, unidad: 'UFC/mL', metodos: 'ufc', pasos }
+  }
+  if (r._estado === 'incontable') return { titulo: 'UFC/mL de la réplica', sujeto, valor: 'incontable', metodos: 'ufc', pasos: [...pasos, { titulo: 'Incontable', texto: `${C} colonias: más del doble del máximo contable (${p.max}). Las colonias se superponen y se subcuenta.` }] }
+  const [lo, hi] = icPoisson(C)
+  pasos.push({ titulo: 'Concentración', formula: ['UFC/mL = ', v('C', 1), ' · ', v('D', 4), ' / ', v('V', 2)],
+    cuenta: ['UFC/mL = ', v(C, 1), ' × ', v(sci(D), 4), ' / ', v(`${g(V)} mL`, 2), ` = ${sci(r.UFC_mL)}`] })
+  pasos.push({ titulo: 'Incertidumbre del conteo (Poisson exacto, Garwood)', texto: `Contar colonias tiene error aunque se cuente bien: con C = ${C} el número esperado está, con 95 % de confianza, entre los límites de la chi-cuadrado.`,
+    formula: ['λ inf = χ²(0,025; 2C)/2   ;   λ sup = χ²(0,975; 2C + 2)/2   ;   IC = [λ inf ; λ sup] · D / V'],
+    cuenta: [`[${g(lo, 4)} ; ${g(hi, 4)}] colonias × ${sci(D)} / ${g(V)} mL = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
+    esquema: { tipo: 'intervalo', lo: r.IC95_inf, m: r.UFC_mL, hi: r.IC95_sup, log: true } })
+  const ev = (r._aj?.pares || []).filter((q) => q.estado === 'ok' || q.estado === 'desvio')
+  if (ev.length) pasos.push({ titulo: 'Coherencia entre diluciones', texto: 'Si una dilución tiene C₁ colonias, la siguiente (f veces más diluida) debería tener ≈ C₁/f. Prueba binomial exacta: dado el total, la fracción en la segunda debería ser (1/D₂)/(1/D₁ + 1/D₂).',
+    cuenta: ev.flatMap((q, i) => [...(i ? ['\n'] : []), `${etqCol(p, q.k1)} → ${etqCol(p, q.k2)}: ${q.c1} → ${q.c2} colonias (esperadas ≈ ${g(q.esperado, 3)}) · p = ${g(q.p, 2)} → ${q.estado === 'ok' ? 'coherentes' : 'NO coherentes'}`]) })
+  const avisos = []
+  if (r._estado === 'bajo' || r._estado === 'alto') avisos.push(`${C} colonias está ${r._estado === 'bajo' ? 'debajo' : 'arriba'} del rango contable (${p.min} a ${p.max}): es una estimación con error grande.`)
+  if (o.dixon) avisos.push(`Marcada como atípica: ${o.dixon}`)
+  if (o.fuera) avisos.push('Esta réplica está excluida del promedio.')
+  return { titulo: 'UFC/mL de la réplica', sujeto, valor: sci(r.UFC_mL), unidad: 'UFC/mL', sub: `log₁₀ = ${f2(r.log10)} · IC 95 % ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)}`, metodos: 'ufc', pasos, avisos,
+    ajustes: [`rango ${p.min}–${p.max} colonias`, `${g(V * 1000, 4)} µL sembrados`] }
+}
+
+// UFC/mL de una cepa en un tiempo: Σ C / Σ V, su IC y la sobredispersión (o la media geométrica)
+export function fichaUfcTiempo(r, o = {}) {
+  const pool = r._pool || []
+  const sujeto = `${r.Muestra} · T = ${r.T_h} h`
+  if (!pool.length) return { titulo: 'UFC/mL del tiempo', sujeto, valor: '–', metodos: 'ufc', pasos: [{ titulo: 'Sin réplicas utilizables', texto: String(r.Estado || '') }] }
+  const S = r.Colonias_suma, V = r.Volumen_mL, lam = S / V
+  const ic = icUfc(r)
+  const geo = o.centro === 'geo'
+  const pasos = [
+    { titulo: `Réplicas que entran (${pool.length} de ${r.Replicas})`, texto: `Todas contadas en la misma dilución. V = mL de suspensión original en cada siembra (volumen sembrado / dilución).${o.excluidas ? ` Quedan afuera: ${o.excluidas}.` : ''}`,
+      esquema: { tipo: 'replicas', tarjetas: pool.map((q) => ({ titulo: `Réplica ${q.Replica}`, c: q.C, v: q.D })) } },
+    { titulo: 'Suma de colonias / suma de volúmenes', texto: 'Si las réplicas son siembras de la misma suspensión, este es el estimador de máxima verosimilitud de la concentración (Poisson): las réplicas con más volumen pesan más y los ceros también cuentan.',
+      formula: ['UFC/mL = ', v('Σ C', 1), ' / ', v('Σ V', 2)],
+      cuenta: ['UFC/mL = ', v(`(${pool.map((q) => q.C).join(' + ')})`, 1), ' / ', v(`(${pool.map((q) => sci(q.D, 3)).join(' + ')})`, 2), '\n= ', v(S, 1), ' / ', v(`${sci(V, 3)} mL`, 2), ` = ${sci(r.UFC_mL)}`] },
+  ]
+  if (S > 0) {
+    const [lo, hi] = icPoisson(S)
+    pasos.push({ titulo: 'Incertidumbre del conteo (Poisson exacto)', formula: ['IC = [χ²(0,025; 2S)/2 ; χ²(0,975; 2S + 2)/2] / Σ V'],
+      cuenta: [`[${g(lo, 4)} ; ${g(hi, 4)}] colonias / ${sci(V, 3)} mL = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
+      esquema: { tipo: 'intervalo', lo: ic.lo, m: r.UFC_mL, hi: ic.hi, log: true, etiqueta: ic.tipo === 'disp' ? 'IC ensanchado por √φ' : 'IC de Poisson' } })
+  }
+  if (pool.length > 1 && S > 0 && finito(r.Chi2_disp)) {
+    const terms = pool.map((q) => { const E = q.D * lam; return { q, E, t: (q.C - E) ** 2 / E } })
+    pasos.push({ titulo: '¿Las réplicas varían más que el error de contar?', texto: 'Si solo hubiera error de conteo, cada réplica tendría ≈ Vᵢ·λ̂ colonias (λ̂ = Σ C / Σ V). El índice de dispersión compara lo observado con lo esperado.',
+      formula: ['χ² = Σ (Cᵢ − Vᵢ·λ̂)² / (Vᵢ·λ̂)   con n − 1 g.l.   ;   φ = χ² / (n − 1)'],
+      cuenta: [`χ² = ${terms.map((x) => g(x.t, 3)).join(' + ')} = ${g(r.Chi2_disp, 3)} con ${r.gl_disp} g.l. → p = ${g(r.p_disp, 3)} ; φ = ${g(r.phi, 3)}`],
+      esquema: { tipo: 'barras', items: terms.map((x) => ({ etiqueta: `Rép. ${x.q.Replica}`, obs: x.q.C, esp: x.E })) },
+      nota: r.Sobredisperso
+        ? `p < 0,05: varían más de lo que explica el conteo. El IC informado se ensancha por √φ en escala log (cuasi-Poisson): ${sci(r.IC95_inf_disp)} a ${sci(r.IC95_sup_disp)} UFC/mL.`
+        : 'p ≥ 0,05: la dispersión es compatible con el error de conteo; se informa el IC de Poisson.' })
+  }
+  if (geo) {
+    const lg = (r._vals || []).filter((x) => x > 0).map(Math.log10)
+    pasos.push({ titulo: 'Media geométrica (valor elegido para este tiempo)', texto: 'Media de los log₁₀ de las réplicas, apropiada para réplicas biológicas; el error se calcula en la misma escala.',
+      formula: ['log₁₀ x̃ = Σ log₁₀ UFCᵢ / n   ;   DE = √[Σ(log₁₀ UFCᵢ − log₁₀ x̃)²/(n − 1)]'],
+      cuenta: [`log₁₀ x̃ = (${lg.map((x) => f2(x)).join(' + ')}) / ${lg.length} = ${f2(media(lg), 3)} → x̃ = ${sci(r.Media_geometrica)}${lg.length > 1 ? ` ; DE = ${f2(desvio(lg), 3)}` : ''}`] })
+  }
+  const valor = geo ? sci(r.Media_geometrica) : sci(r.UFC_mL)
+  return { titulo: geo ? 'UFC/mL del tiempo (media geométrica)' : 'UFC/mL del tiempo', sujeto, valor, unidad: 'UFC/mL', metodos: 'ufc',
+    sub: `log₁₀ = ${f2(geo ? Math.log10(r.Media_geometrica) : r.log10)}${finito(ic.lo) ? ` · ${TEXTO_IC_UFC[ic.tipo] || 'IC 95 %'}: ${sci(ic.lo)} a ${sci(ic.hi)}` : ''}`,
+    pasos, avisos: [...(r.Sobredisperso ? ['Sobredispersión: las réplicas varían más que el error de conteo.'] : []), ...(o.estimadas ? [`Incluye réplicas estimadas fuera del rango contable: ${o.estimadas}.`] : [])],
+    ajustes: [geo ? 'valor: media geométrica' : 'valor: Σ C / Σ V'] }
+}
+
+// ajuste del modelo de crecimiento por recuento (DMFit). foco: parámetro que se tocó
+const PARAM_UFC = {
+  rate: ['Velocidad', 'log₁₀ UFC/mL por hora', (c) => f2(c.rate, 3)], mu: ['μ', 'h⁻¹', (c) => g(c.mu)], td: ['Tiempo de duplicación', 'min', (c) => g(c.td_min)],
+  lag: ['Lag (λ)', 'h', (c) => g(c.lag_h, 3)], y0: ['y₀', 'log₁₀ UFC/mL', (c) => f2(c.y0)], yEnd: ['y máx (asíntota)', 'log₁₀ UFC/mL', (c) => (finito(c.yEnd) ? f2(c.yEnd) : 'sin meseta')],
+  r2: ['R² del ajuste', '', (c) => f2(c.r2, 3)], se: ['Error estándar del ajuste', 'log₁₀', (c) => f2(c.se, 3)], gl: ['Grados de libertad (n − p)', '', (c) => String(c.gl)],
+}
+export function fichaModeloUfc(c, pts, o = {}) {
+  const [nom, uni, val] = PARAM_UFC[o.foco] || PARAM_UFC.mu
+  const sujeto = o.nombre
+  if (!c?.ok) return { titulo: nom, sujeto, valor: '–', metodos: 'ufccrec', pasos: [{ titulo: 'Sin ajuste', texto: c?.motivo || '' }] }
+  const L = Math.LN10
+  const x = pts.t, y10 = pts.ly.map((y) => y / L)
+  const pred = x.map((t) => c.pred10(t)), m10 = media(y10)
+  const sse = y10.reduce((s, y, i) => s + (y - pred[i]) ** 2, 0), sst = y10.reduce((s, y) => s + (y - m10) ** 2, 0)
+  const curva = Array.from({ length: 81 }, (_, i) => c.t0 + ((c.t1 - c.t0) * i) / 80).map((t) => ({ x: t, y: c.pred10(t) }))
+  const ec = c.modelo === 'lineal' ? ['y = ', v('y₀', 1), ' + ', v('μ', 3), ' · t']
+    : c.modelo === 'bifasico' ? ['y = ', v('y₀', 1), ' + ', v('μ', 3), ' · A(t)   ;   A(t) = t + ln(e^(−μt) + e^(−', v('h₀', 2), ') − e^(−μt − h₀)) / μ']
+      : ['y = ', v('y₀', 1), ' + ', v('μ', 3), '·A(t) − (1/m)·ln[1 + (e^(m·μ·A(t)) − 1) / e^(m·(', v('y máx', 4), ' − y₀))]   ;   A(t) = t + ln(e^(−μt) + e^(−', v('h₀', 2), ') − e^(−μt − h₀)) / μ']
+  const tg = c.modelo !== 'lineal' && finito(c.lag_h) ? [c.lag_h, Math.min(c.t1, c.lag_h + (finito(c.yEnd) ? (c.yEnd - c.y0) / c.rate : c.t1 - c.lag_h))].map((t) => ({ x: t, y: c.y0 + c.rate * (t - c.lag_h) })) : []
+  const pasos = [
+    { titulo: 'Puntos del ajuste', texto: `${c.n} puntos (${c.nT} tiempos, ${o.datos === 'replicas' ? 'cada réplica' : 'el valor de cada tiempo'}), todos: ninguno se descarta para mejorar el R², como en DMFit (ComBase).${(c.avisosPuntos || []).length ? ` No entran: ${c.avisosPuntos.join('; ')}.` : ''}` },
+    { titulo: `Modelo: ${MODELOS_UFC[c.modelo]}`, texto: `y = ln(UFC/mL)${c.modelo === 'baranyi' ? `; curvatura m = ${g(c.mcurv, 3)}` : ''}. Se ajusta por mínimos cuadrados (Levenberg–Marquardt) desde varios puntos de partida.${c.modelo !== 'lineal' ? ' La línea a trazos del gráfico de abajo es la pendiente máxima: corta el nivel inicial y₀ en t = λ.' : ''}`, formula: ec },
+    { titulo: 'Parámetros ajustados y derivados', texto: 'En DMFit la velocidad se informa en log₁₀ por hora; μ (en ln) = velocidad × ln 10.',
+      cuenta: [v(`y₀ = ${f2(c.y0, 3)} log₁₀`, 1), '   ;   ', v(`μ = ${g(c.mu)} h⁻¹`, 3), `   ;   velocidad = μ / ln 10 = ${f2(c.rate, 3)} log₁₀/h`,
+        ...(c.modelo !== 'lineal' ? ['\n', v(`h₀ = ${g(c.h0, 4)}`, 2), `   ;   λ = h₀ / μ = ${g(c.h0, 4)} / ${g(c.mu)} = ${g(c.lag_h, 3)} h`] : []),
+        ...(c.modelo === 'baranyi' ? ['\n', v(`y máx = ${finito(c.yEnd) ? f2(c.yEnd, 3) : 'sin meseta (en el límite)'}`, 4), c.ymaxFijo ? ' (fijado a mano)' : ''] : []),
+        `\ntd = ln 2 / μ = 0,6931 / ${g(c.mu)} = ${g(c.td_min)} min`],
+      esquema: { tipo: 'grafico', alto: 220, yTxt: 'log₁₀ UFC/mL', series: [
+        { id: 'p', nombre: 'datos', color: o.color || 'acento', linea: false, puntos: true, forma: 'cuadrado', radio: 3.5, data: x.map((t, i) => ({ x: t, y: y10[i] })) },
+        { id: 'm', nombre: 'modelo', color: 'acento2', ancho: 1.8, data: curva },
+        ...(tg.length ? [{ id: 'tg', nombre: 'pendiente máxima', color: 'sec', ancho: 1.2, dash: '5 4', data: tg }] : []),
+      ] } },
+    { titulo: 'Qué tan bien ajusta', formula: ['R² = 1 − SSE / SST   ;   EE = √[ SSE / (n − p) ]   (en log₁₀)'],
+      cuenta: [`R² = 1 − ${g(sse, 4)} / ${g(sst, 4)} = ${f2(c.r2, 3)}   ;   EE = √(${g(sse, 4)} / ${c.gl}) = ${f2(c.se, 3)} log₁₀   ;   ${c.n} puntos − ${c.k} parámetros = ${c.gl} g.l.`] },
+  ]
+  return { titulo: nom, sujeto, valor: val(c), unidad: uni, metodos: 'ufccrec', sub: `${MODELOS_UFC[c.modelo]} · R² ${f2(c.r2, 3)} · n − p = ${c.gl}`, pasos, avisos: c.avisos || [],
+    ajustes: [MODELOS_UFC[c.modelo], ...(c.modelo === 'baranyi' ? [`m = ${g(c.mcurv, 3)}`] : []), ...(c.ymaxFijo ? ['N máx fijado'] : []), o.datos === 'replicas' ? 'cada réplica' : 'valor de cada tiempo'] }
+}
+export function fichaAumentoUfc(c, o = {}) {
+  const gen = o.foco === 'gen'
+  if (!c?.ok) return { titulo: gen ? 'Generaciones' : 'Aumento', sujeto: o.nombre, valor: '–', metodos: 'ufccrec', pasos: [{ titulo: 'Sin ajuste', texto: c?.motivo || '' }] }
+  return { titulo: gen ? 'Generaciones' : 'Aumento en el ensayo', sujeto: o.nombre, valor: gen ? f2(c.generaciones) : f2(c.crecimiento_log10), unidad: gen ? '' : 'log₁₀', metodos: 'ufccrec',
+    pasos: [
+      { titulo: c.aumentoDe === 'modelo' ? 'Lo que sube la curva del modelo en el período medido' : 'Con los valores observados', texto: c.aumentoDe === 'modelo' ? `Del primer tiempo (${hs(c.t0)}) al último (${hs(c.t1)}), con el mismo modelo que da y₀ y μ.` : 'Primer valor y máximo observados.',
+        formula: ['aumento = log₁₀ N(t fin) − log₁₀ N(t ini)'], cuenta: [`aumento = ${f2(c.log10_fin, 3)} − ${f2(c.log10_N0, 3)} = ${f2(c.crecimiento_log10, 3)} log₁₀`] },
+      { titulo: 'Generaciones', texto: 'Cada generación duplica la población: log₁₀ 2 = 0,301 por generación.', formula: ['generaciones = aumento / log₁₀ 2'], cuenta: [`generaciones = ${f2(c.crecimiento_log10, 3)} / 0,30103 = ${f2(c.generaciones)}`] },
+    ] }
+}
+export function fichaPrediccionUfc(p, o = {}) {
+  const c = p.c
+  const pasos = [
+    { titulo: 'La misma curva, más allá del último recuento', texto: `Se evalúa el ajuste de Baranyi y Roberts de la cepa (y₀ = ${f2(c.y0, 3)}, μ = ${g(c.mu)} h⁻¹, λ = ${g(c.lag_h, 3)} h, y máx = ${f2(c.yEnd, 3)}${c.ymaxFijo ? ' fijado' : ''}) hasta ${hs(p.hasta)}.`,
+      cuenta: [`log₁₀ N(${hs(p.hasta)}) = ${f2(p.yHasta, 3)} → ${sci(10 ** p.yHasta)} UFC/mL`] },
+    { titulo: 'Tiempo hasta un nivel', texto: 'La curva es creciente: el tiempo en que llega a un nivel se busca por bisección (se parte el intervalo a la mitad hasta encontrarlo).',
+      cuenta: [`meseta (y máx − 0,1 = ${f2(c.yEnd - 0.1, 2)}): ${finito(p.tMeseta) ? hs(p.tMeseta) : 'no llega'}${finito(p.objetivo) ? `   ;   objetivo ${f2(p.objetivo)}: ${finito(p.tObjetivo) ? hs(p.tObjetivo) : 'no llega'}` : ''}`] },
+  ]
+  return { titulo: 'Predicción', sujeto: o.nombre, valor: f2(p.yHasta), unidad: 'log₁₀ UFC/mL', metodos: 'ufccrec', pasos,
+    avisos: p.hasta > c.t1 ? [`Más allá de ${hs(c.t1)} (último recuento) es una extrapolación: depende de que el modelo y la meseta sigan valiendo.`] : [] }
+}
+
+// ============================================================
+// Calibración OD ↔ UFC/mL
+// ============================================================
+// par: fila de pares (Combinado); valoresOd: [{ etiqueta, x }] de la OD en ese tiempo (si hubo lectura); vecinos: { t1, y1, t2, y2 } si se interpoló
+export function fichaPar(par, o = {}) {
+  const pasos = []
+  if (par.OD_interpolada && o.vecinos) {
+    const { t1, y1, t2, y2 } = o.vecinos
+    pasos.push({ titulo: 'OD interpolada', texto: `No hubo lectura de OD a T = ${par.T_h} h: se interpola entre las medias de las lecturas vecinas.`,
+      formula: ['OD(T) = OD₁ + (T − t₁) · (OD₂ − OD₁) / (t₂ − t₁)'], cuenta: [`OD = ${g(y1)} + (${par.T_h} − ${g(t1)}) × (${g(y2)} − ${g(y1)}) / (${g(t2)} − ${g(t1)}) = ${g(par.OD)}`] })
+  } else if (o.valoresOd?.length) {
+    pasos.push(...pasosMedia(o.valoresOd, 'OD', 'sd').pasos.slice(0, 2).map((p, i) => (i === 0 ? { ...p, titulo: 'OD de las réplicas en ese tiempo (corregida, sin suavizar)' } : { ...p, titulo: 'OD media' })))
+  }
+  pasos.push({ titulo: 'UFC/mL del mismo tiempo', texto: `${sci(par.UFC_mL)} UFC/mL (log₁₀ = ${f2(par.log10_UFC)}), el valor de la cepa en ese tiempo de «Curva UFC vs t».` })
+  pasos.push({ titulo: 'Fase', texto: par.fase ? `Según el ajuste de los recuentos de la cepa, a T = ${par.T_h} h está en fase ${par.fase === 'exponencial' ? 'exponencial: la velocidad del modelo es al menos la fracción elegida de μ máx' : par.fase === 'lag' ? 'de latencia' : 'estacionaria'}.` : 'Sin fases (el modelo de los recuentos no las distingue).',
+    nota: par.usado ? `Entra en la recta${par.manual ? ' (elegido a mano)' : ''}.` : `No entra en la recta${par.manual ? ' (excluido a mano)' : ''}.` })
+  return { titulo: 'Par OD–UFC', sujeto: `${par.Muestra} · T = ${par.T_h} h`, valor: `${g(par.OD, 3)} ↔ ${sci(par.UFC_mL)}`, metodos: 'comb', pasos }
+}
+export function fichaCalibracion(cal, pares, o = {}) {
+  const modelo = cal.modelo
+  if (!cal.ok) return { titulo: 'Calibración', sujeto: o.nombre, valor: '–', metodos: 'comb', pasos: [{ titulo: 'Sin ajuste', texto: cal.motivo }] }
+  const p = pares.filter((q) => finito(q.od) && q.ufc > 0 && (modelo !== 'potencia' || q.od > 0))
+  const x = modelo === 'potencia' ? p.map((q) => Math.log10(q.od)) : p.map((q) => q.od)
+  const y = modelo === 'lineal' || modelo === 'proporcional' ? p.map((q) => q.ufc) : p.map((q) => Math.log10(q.ufc))
+  const n = x.length, mx = media(x), my = media(y)
+  const sxx = x.reduce((s, a) => s + (a - mx) ** 2, 0), sxy = x.reduce((s, a, i) => s + (a - mx) * (y[i] - my), 0)
+  const fmt = (z) => (modelo === 'lineal' || modelo === 'proporcional' ? sci(z, 3) : g(z))
+  const reg = modelo === 'proporcional'
+    ? { titulo: 'Recta por el origen', formula: ['b = Σ ODᵢ·UFCᵢ / Σ ODᵢ²'], cuenta: [`b = ${sci(p.reduce((s, q) => s + q.od * q.ufc, 0), 3)} / ${g(p.reduce((s, q) => s + q.od ** 2, 0))} = ${sci(cal.coef.b, 3)}`] }
+    : { titulo: 'Regresión por mínimos cuadrados', texto: `x = ${modelo === 'potencia' ? 'log₁₀ OD' : 'OD'}, y = ${modelo === 'lineal' ? 'UFC/mL' : 'log₁₀ UFC/mL'}; x̄ = ${g(mx)}, ȳ = ${fmt(my)}.`,
+      formula: ['pendiente = Σ(x − x̄)(y − ȳ) / Σ(x − x̄)²   ;   ordenada = ȳ − pendiente · x̄'],
+      cuenta: [`pendiente = ${fmt(sxy)} / ${g(sxx)} = ${fmt(sxy / sxx)}   ;   ordenada = ${fmt(my - (sxy / sxx) * mx)}`] }
+  const xs = Array.from({ length: 50 }, (_, i) => cal.rango[0] + ((cal.rango[1] - cal.rango[0]) * i) / 49)
+  return { titulo: 'Ecuación de calibración', sujeto: o.nombre, valor: cal.ecuacion, metodos: 'comb', sub: `${MODELOS_CALIB[modelo]} · ${cal.n} pares · OD ${g(cal.rango[0], 3)} a ${g(cal.rango[1], 3)}`,
+    pasos: [
+      { titulo: `${n} pares usados`, texto: 'Pares de la misma cepa y tiempo (por defecto, solo los de la fase exponencial).',
+        esquema: { tipo: 'grafico', alto: 210, xTxt: 'OD', yTxt: 'log₁₀ UFC/mL', series: [
+          { id: 'p', nombre: 'pares', color: o.color || 'acento', linea: false, puntos: true, radio: 3.5, data: p.map((q) => ({ x: q.od, y: Math.log10(q.ufc) })) },
+          { id: 'c', nombre: 'ajuste', color: 'acento2', ancho: 1.8, data: xs.map((z) => ({ x: z, y: Math.log10(cal.pred(z)) })).filter((d) => finito(d.y)) },
+        ] } },
+      reg,
+      { titulo: 'Calidad, en log₁₀ para comparar los modelos', formula: ['rᵢ = log₁₀ UFCᵢ − log₁₀ predicho   ;   R² = 1 − Σ rᵢ² / Σ(log₁₀ UFCᵢ − media)²   ;   σ = √[ Σ rᵢ² / (n − p) ]'],
+        cuenta: [`R² = ${f2(cal.R2, 3)}   ;   σ = ${f2(cal.sigma, 3)} log₁₀ (error típico ≈ ×/÷ ${f2(10 ** cal.sigma, 2)}, ${f2(cal.errorRelPct, 0)} %)`] },
+    ], avisos: [cal.aviso, 'La calibración vale dentro del rango de OD medido y para el mismo organismo, medio y equipo.'].filter(Boolean) }
+}
+export function fichaConversion(cal, sentido, entrada, salida, o = {}) {
+  const odUfc = sentido === 'od'
+  const eqs = { clasico: ['log₁₀ UFC = m · OD + b', 'OD = (log₁₀ UFC − b) / m'], lineal: ['UFC = a + b · OD', 'OD = (UFC − a) / b'], proporcional: ['UFC = b · OD', 'OD = UFC / b'], potencia: ['log₁₀ UFC = a + b · log₁₀ OD', 'OD = 10^((log₁₀ UFC − a) / b)'] }[cal.modelo]
+  return { titulo: odUfc ? 'OD → UFC/mL' : 'UFC/mL → OD', sujeto: o.nombre, valor: odUfc ? sci(salida) : g(salida, 4), unidad: odUfc ? 'UFC/mL' : 'OD', metodos: 'comb',
+    pasos: [{ titulo: 'Con la ecuación ajustada', texto: cal.ecuacion, formula: [odUfc ? eqs[0] : eqs[1]], cuenta: [odUfc ? `OD = ${g(entrada, 4)} → ${sci(salida)} UFC/mL` : `UFC/mL = ${sci(entrada)} → OD = ${g(salida, 4)}`] }],
+    avisos: o.fuera ? [`Fuera del rango calibrado (OD ${g(cal.rango[0], 3)} a ${g(cal.rango[1], 3)}): es una extrapolación.`] : [] }
+}
+
+// ============================================================
+// OD vs recuento: μ de las dos mediciones
+// ============================================================
+export function fichaComparacion(m, rs, c) {
+  const muOd = rs?.mu_max?.m, muU = c?.mu, q = muOd / muU
+  return { titulo: 'μ por OD / μ por recuento', sujeto: m, valor: finito(q) ? f2(q) : '–', metodos: 'comb',
+    pasos: [
+      { titulo: 'μ por OD', texto: rs ? `${rs.unico ? 'Curva de la cepa (ventana deslizante)' : `Media de ${rs.mu_max.n} réplicas (ventana deslizante)`}: ${g(muOd)} h⁻¹.` : 'Sin datos de OD.' },
+      { titulo: 'μ por recuento', texto: c?.ok ? `${MODELOS_UFC[c.modelo]}: ${g(muU)} h⁻¹.` : (c?.motivo || 'Sin ajuste.') },
+      { titulo: 'Cociente', formula: ['cociente = μ OD / μ recuento'], cuenta: [`cociente = ${g(muOd)} / ${g(muU)} = ${f2(q)}`],
+        nota: 'Si la OD siguiera exactamente a las células viables, el cociente sería ≈ 1. Un cociente distinto indica cambios en el tamaño de las células, agregación o pérdida de viabilidad. Es una comparación descriptiva (sin prueba estadística).' },
+    ] }
+}

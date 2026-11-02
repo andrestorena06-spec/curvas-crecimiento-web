@@ -9,6 +9,8 @@ import { PanelPersonalizar } from '../ui/personalizar.jsx'
 import { Icono, Num } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { LETRAS, exportarSVG, fmtTick, fx, tCuantil, ticks } from '../utils.js'
+import { Valor } from '../fichas/FichaCalculo.jsx'
+import { fichaBlancoPlaca } from '../fichas/definiciones.js'
 
 const ERRORES = [['sd', 'Desviación estándar'], ['sem', 'Error estándar (EEM)'], ['ic95', 'IC 95 %']]
 const errorDe = (v, tipo) => {
@@ -20,11 +22,16 @@ const errorDe = (v, tipo) => {
 const valorDe = (l) => (l.EsBlanco ? l.OD_leida : l.OD_corregida)
 
 // ---------------------------------------------------------------
-// Gráfico de exclusión (como el de Biofilm): una columna por cepa con sus pocillos de ese tiempo
+// Gráfico de exclusión (como el de Biofilm): una columna por cepa con sus pocillos de ese tiempo, todos sobre la misma
+// vertical (miden lo mismo en el mismo tiempo; solo cambia la OD). Un clic en una cepa la acerca (el eje Y se ajusta a sus
+// pocillos para ver las diferencias); con la cepa acercada, un clic en un punto lo excluye o lo reincorpora.
 // ---------------------------------------------------------------
 function GraficoExclusion(props) {
-  const { lect, orden, colores, o, onClick, titulo, estilo = {}, anchoFijo, altoTotal, refSvg, interactivo = true, idEstilo } = props
+  const { lect, orden: ordenTodo, colores, o, onClick, titulo, estilo = {}, anchoFijo, altoTotal, refSvg, interactivo = true, idEstilo, focoInicial = null } = props
   const [guardar, setGuardar] = useState(false)
+  const [foco, setFoco] = useState(focoInicial)   // cepa acercada
+  const orden = foco && ordenTodo.includes(foco) ? [foco] : ordenTodo
+  const acercada = orden.length === 1 && !!foco
   const [menu, setMenu] = useState(null)
   const ctx = useGraficoCtx()
   const Tt = useTema()
@@ -37,44 +44,54 @@ function GraficoExclusion(props) {
   const [cont, anchoMedido] = useAncho(900)
   const W = anchoFijo || anchoMedido, H = altoTotal || (Number(e.alto) > 150 ? Number(e.alto) : 420), L = 30 + e.tamNumeros * 3, R = 16, TOP = tit ? 18 + e.tamTitulo * 1.5 : 18, B = 40 + e.tamEjes * 2
   const grupos = orden.map((m) => lect.filter((l) => l.Muestra === m))
+  const lectV = grupos.flat()
   const res = grupos.map((g) => {
     const v = g.filter((l) => l.Usado).map(valorDe).filter(finito)
     return v.length ? { m: media(v), err: errorDe(v, o.error), n: v.length } : null
   })
-  const vals = [...lect.map(valorDe).filter(finito), ...res.filter(Boolean).flatMap((r) => (finito(r.err) ? [r.m + r.err, r.m - r.err] : [r.m]))]
+  const vals = [...lectV.map(valorDe).filter(finito), ...res.filter(Boolean).flatMap((r) => (finito(r.err) ? [r.m + r.err, r.m - r.err] : [r.m]))]
   let lo = Math.min(0, ...vals), hi = Math.max(0.1, ...vals)
+  if (acercada && vals.length) {
+    const a = Math.min(...vals), b = Math.max(...vals), sp = Math.max(b - a, 0.004)
+    lo = a - sp * 0.35; hi = b + sp * 0.35
+  }
   const fijoMin = e.ymin !== '' && Number.isFinite(Number(e.ymin)), fijoMax = e.ymax !== '' && Number.isFinite(Number(e.ymax))
   if (o.medias) hi += (hi - lo) * (o.errores ? 0.16 : 0.1)
   hi += (hi - lo) * 0.04
   if (fijoMin) lo = Number(e.ymin)
   if (fijoMax) hi = Number(e.ymax)
   const ty = ticks(lo, hi, 7)
-  const y0 = ty.ticks[0], y1 = ty.ticks[ty.ticks.length - 1]
-  const band = (W - L - R) / Math.max(orden.length, 1)
+  // acercada: el eje va justo de lo a hi (las marcas solo rotulan); si no, de la primera a la última marca
+  const y0 = acercada ? lo : ty.ticks[0], y1 = acercada ? hi : ty.ticks[ty.ticks.length - 1]
+  const anchoUtil = W - L - R
+  const band = Math.min(anchoUtil / Math.max(orden.length, 1), acercada ? 260 : Infinity)
+  const x0Band = L + (anchoUtil - band * orden.length) / 2
   const py = (v) => TOP + (1 - (v - y0) / (y1 - y0 || 1)) * (H - TOP - B)
-  const cx = (i) => L + band * (i + 0.5)
-  const px = (g, k, i) => cx(i) + (g.length > 1 ? (k - (g.length - 1) / 2) * Math.min(band * 0.7 / g.length, 18) : 0)
+  const cx = (i) => x0Band + band * (i + 0.5)
+  const px = (g, k, i) => cx(i)
   return (
     <div className="grafico" ref={cont} style={{ position: 'relative' }}>
       {interactivo && <div className="fila no-imprimir" style={{ justifyContent: 'flex-end', marginBottom: 4 }}>
+        {acercada && <button className="fantasma chico" onClick={() => setFoco(null)} data-tip="También con doble clic sobre el gráfico"><Icono n="refrescar" size={14} />Todas las cepas</button>}
         <button className="fantasma chico" onClick={() => setGuardar(true)} data-tip={'Guardar imagen\nFormato (PNG, JPG o SVG), tamaño, resolución y fondo'}><Icono n="bajar" size={14} />Guardar imagen</button>
       </div>}
-      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={`'${e.fuente}', system-ui, sans-serif`}
+      <svg ref={ref} viewBox={`0 0 ${W} ${H}`} fontFamily={`'${e.fuente}', system-ui, sans-serif`} onDoubleClick={interactivo ? () => setFoco(null) : undefined}
         onContextMenu={interactivo ? (ev) => { ev.preventDefault(); const r = ev.currentTarget.getBoundingClientRect(); setMenu({ cx: ev.clientX - r.left, cy: ev.clientY - r.top }) } : undefined}>
         <rect className="fondo-graf" width={W} height={H} fill={e.fondo === 'blanco' ? '#ffffff' : T.panel} />
         {tit && <text x={W / 2} y={10 + e.tamTitulo} textAnchor="middle" fontSize={e.tamTitulo} fontWeight="600" fill={T.texto}>{tit}</text>}
-        {ty.ticks.map((v) => (
+        {ty.ticks.filter((v) => v >= y0 - 1e-12 && v <= y1 + 1e-12).map((v) => (
           <g key={v}>
             {e.grilla && <line x1={L} x2={W - R} y1={py(v)} y2={py(v)} stroke={T.grilla} />}
             <text x={L - 8} y={py(v)} textAnchor="end" dominantBaseline="central" fontSize={e.tamNumeros} fill={T.sec}>{fmtTick(v, ty.paso)}</text>
           </g>
         ))}
-        <line x1={L} x2={W - R} y1={py(0)} y2={py(0)} stroke={T.eje} />
+        <line x1={L} x2={W - R} y1={acercada || y0 > 0 ? H - B : py(0)} y2={acercada || y0 > 0 ? H - B : py(0)} stroke={T.eje} />
         <line x1={L} x2={L} y1={TOP} y2={H - B} stroke={T.eje} />
         <text transform={`translate(16 ${(TOP + H - B) / 2}) rotate(-90)`} textAnchor="middle" fontSize={e.tamEjes} fill={T.texto}>{yT}</text>
         {orden.map((m, i) => (
           <g key={m}>
-            <rect x={cx(i) - band * 0.42} y={TOP} width={band * 0.84} height={H - TOP - B} fill={m === 'Blanco' ? T.grilla : colores[m]} opacity={m === 'Blanco' ? 0.35 : 0.07} rx="6" />
+            <rect x={cx(i) - band * 0.42} y={TOP} width={band * 0.84} height={H - TOP - B} fill={m === 'Blanco' ? T.grilla : colores[m]} opacity={m === 'Blanco' ? 0.35 : 0.07} rx="6"
+              onClick={interactivo && !acercada ? () => setFoco(m) : undefined} style={interactivo && !acercada ? { cursor: 'zoom-in' } : undefined} />
             <text x={cx(i)} y={H - B + 6 + e.tamEjes} textAnchor="middle" fontSize={e.tamEjes} fill={T.texto}>{m}</text>
             <text x={cx(i)} y={H - B + 10 + e.tamEjes * 2} textAnchor="middle" fontSize={e.tamNumeros * 0.95} fill={T.sec}>{res[i] ? `n = ${res[i].n} de ${grupos[i].length}` : ''}</text>
           </g>
@@ -90,8 +107,8 @@ function GraficoExclusion(props) {
           if (!finito(Y)) return null
           const col = l.EsBlanco ? '#8C9BB0' : colores[l.Muestra] || T.acento
           return (
-            <g key={l.clave} onClick={() => onClick(l.clave)} style={{ cursor: 'pointer' }}
-              data-tip={`${l.Pocillo} · ${l.Muestra}${l.EsBlanco ? '' : ` (réplica ${l.Replica})`} · t = ${l.Placa_T_h} h\n${l.EsBlanco ? `OD leída = ${fx(l.OD_leida, 4)}` : `OD = (${fx(l.OD_leida, 4)} − ${fx(l.Blanco, 4)})${l.Factor_dilucion > 1 ? ` × ${l.Factor_dilucion}` : ''} = ${fx(l.OD_corregida, 4)}`}\n${l.Motivo || (l.Usado ? 'Aceptado' : 'Excluido')}\nClic: ${l.Usado ? 'excluir' : 'reincorporar'}`}>
+            <g key={l.clave} onClick={!interactivo ? undefined : acercada ? () => onClick(l.clave) : () => setFoco(l.Muestra)} style={{ cursor: acercada ? 'pointer' : 'zoom-in' }}
+              data-tip={`${l.Pocillo} · ${l.Muestra}${l.EsBlanco ? '' : ` (réplica ${l.Replica})`} · t = ${l.Placa_T_h} h\n${l.EsBlanco ? `OD leída = ${fx(l.OD_leida, 4)}` : `OD = (${fx(l.OD_leida, 4)} − ${fx(l.Blanco, 4)})${l.Factor_dilucion > 1 ? ` × ${l.Factor_dilucion}` : ''} = ${fx(l.OD_corregida, 4)}`}\n${l.Motivo || (l.Usado ? 'Aceptado' : 'Excluido')}\nClic: ${acercada ? (l.Usado ? 'excluir' : 'reincorporar') : 'acercar esta cepa'}`}>
               <circle cx={X} cy={Y} r="13" fill="transparent" />
               {l.Sospechoso && <circle cx={X} cy={Y} r="9" fill="none" stroke={T.aviso} strokeWidth="2.4" />}
               {l.Usado ? <circle cx={X} cy={Y} r={5 * e.radio} fill={col} stroke={T.panel} strokeWidth="1" />
@@ -123,7 +140,7 @@ function GraficoExclusion(props) {
         </div>
       )}
       {guardar && <ModalGuardarImagen nombre="exclusion" anchoPantalla={W} altoPantalla={H} onClose={() => setGuardar(false)}
-        renderizar={(w, h, r, blanco) => <GraficoExclusion {...props} anchoFijo={w} altoTotal={h} refSvg={r} interactivo={false} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />}
+        renderizar={(w, h, r, blanco) => <GraficoExclusion {...props} focoInicial={foco} anchoFijo={w} altoTotal={h} refSvg={r} interactivo={false} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />}
     </div>
   )
 }
@@ -213,7 +230,7 @@ export function VistaCalidadPlacas({ s }) {
           ? <Grupo titulo="Límite"><CampoCinta etiqueta="CV máximo (%)"><Num value={aj.pl_cvmax ?? 20} onChange={(v) => setAj('pl_cvmax', v)} ancho={70} /></CampoCinta></Grupo>
           : <Grupo titulo="Confianza"><OpcionesCinta valor={String(aj.pl_conf || 95)} onChange={(v) => setAj('pl_conf', Number(v))} opciones={[['90', '90 %', '90', null, 'Confianza 90 %: marca más atípicos'], ['95', '95 %', '95', null, 'Confianza 95 % (la habitual)'], ['99', '99 %', '99', null, 'Confianza 99 %: solo marca valores muy extremos']]} /></Grupo>}
         <Grupo titulo="Sospechosos">
-          <OpcionesCinta valor={aj.pl_auto !== false ? 'si' : 'no'} onChange={(v) => setAj('pl_auto', v === 'si')} opciones={[['si', 'Excluir', '⛔', null, 'Excluir automáticamente los sospechosos'], ['no', 'Solo marcar', '◯', null, 'Marcarlos con un anillo y dejarlos en el análisis']]} />
+          <OpcionesCinta valor={aj.pl_auto === true ? 'si' : 'no'} onChange={(v) => setAj('pl_auto', v === 'si')} opciones={[['no', 'Solo marcar', '◯', null, 'Marcarlos con un anillo y dejarlos en el análisis (por defecto, como en UFC)\nDecidí vos con un clic cuáles excluir'], ['si', 'Excluir', '⛔', null, 'Excluir automáticamente los sospechosos']]} />
           <BotonCinta icono="refrescar" texto="Restablecer" tip="Borra todas las exclusiones y conservaciones hechas a mano" onClick={() => { if (window.confirm('Se borran todas las exclusiones y conservaciones manuales de las placas. ¿Continuar?')) s.restablecerLecturas() }} />
         </Grupo>
         <Grupo titulo="Gráfico">
@@ -245,12 +262,12 @@ export function VistaCalidadPlacas({ s }) {
           {vista === 'puntos' && <GraficoExclusion lect={lectT} orden={orden} colores={s.colores} o={o} onClick={s.alternarLectura} titulo={`t = ${fx(tt, tt % 1 ? 2 : 0)} h`} estilo={s.estiloGrafico('exclusion')} idEstilo="exclusion" />}
           {vista === 'placa' && <PlacaDeTiempo s={s} lect={lecturas.filter((l) => l.Placa_T_h === tt)} pl={pl} />}
           {vista === 'tabla' && <ResumenTiempos lect={lecturas} />}
-          <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>Clic sobre un punto para excluirlo o reincorporarlo. Color: aceptado · cruz roja: excluido · anillo naranja: sospechoso según el test.</p>
+          <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>{vista === 'puntos' ? 'Un clic en una cepa la acerca para ver las diferencias entre sus pocillos; con la cepa acercada, un clic en un punto lo excluye o lo reincorpora (doble clic: todas las cepas). ' : 'Clic sobre un pocillo para excluirlo o reincorporarlo. '}Color: aceptado · cruz roja: excluido · anillo naranja: sospechoso según el test (por defecto solo se marca).</p>
         </Mosaico>
         <div className="columna-mosaicos">
           <Mosaico titulo={`Blanco de t = ${fx(tt, tt % 1 ? 2 : 0)} h`}>
             {bl && finito(bl.valor) ? (<>
-              <div className="cifra"><b>{fx(bl.valor, 4)}</b>{finito(bl.de) && <span>± {fx(bl.de, 4)}</span>}</div>
+              <div className="cifra"><b><Valor f={() => fichaBlancoPlaca(bl, lecturas.filter((l) => l.Placa_T_h === bl.origen), tt)}>{fx(bl.valor, 4)}</Valor></b>{finito(bl.de) && <span>± {fx(bl.de, 4)}</span>}</div>
               <p className="ayuda" style={{ margin: 0 }}>Media de {bl.n} pocillo{bl.n === 1 ? '' : 's'} ({bl.pocillos.join(', ')}){bl.origen !== tt ? `, tomado de la placa t = ${bl.origen} h` : ''}. Se resta a cada lectura y el resultado se multiplica por la dilución.</p>
             </>) : <p className="ayuda">Sin blanco aceptado en esta placa.</p>}
           </Mosaico>

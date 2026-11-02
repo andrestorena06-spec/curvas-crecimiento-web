@@ -8,10 +8,20 @@ export const MODELOS = {
   gompertz: 'Gompertz modificado', logistico: 'Logístico', richards: 'Richards', baranyi: 'Baranyi-Roberts',
 }
 
-// y = ln(OD) para Baranyi con nu = mumax
-export function baranyiF(x, y0, ymax, mu, h0) {
+// y = ln(OD) (o ln N) para Baranyi y Roberts (1994) con ν = μmax y curvatura m hacia la meseta:
+//   y = y0 + μA − (1/m)·ln[1 + (e^{mμA} − 1) / e^{m(ymax − y0)}]
+// m = 1 es la forma habitual. Mientras las exponenciales no desbordan se usa la fórmula directa (con m = 1 da
+// exactamente los mismos valores que antes); si desbordarían, la forma equivalente con log1p:
+//   ln[1 + e^{u−d} − e^{−d}] = (u − d) + log1p(e^{d−u} − e^{−u}),  u = mμA, d = m(ymax − y0)
+export function baranyiF(x, y0, ymax, mu, h0, m = 1) {
   const a = x + Math.log(Math.exp(-mu * x) + Math.exp(-h0) - Math.exp(-mu * x - h0)) / mu
-  return y0 + mu * a - Math.log(1 + (Math.exp(mu * a) - 1) / Math.exp(ymax - y0))
+  const u = m * mu * a, d = m * (ymax - y0)
+  if (u < 700 && d < 700) {
+    if (m === 1) return y0 + mu * a - Math.log(1 + (Math.exp(mu * a) - 1) / Math.exp(ymax - y0))
+    return y0 + mu * a - Math.log(1 + (Math.exp(u) - 1) / Math.exp(d)) / m
+  }
+  const l = u > d ? u - d + Math.log1p(Math.exp(d - u) - Math.exp(-u)) : Math.log1p(Math.exp(u - d) - Math.exp(-d))
+  return y0 + mu * a - l / m
 }
 
 const resolver = (A, b) => {                  // Gauss con pivoteo parcial (sistemas chicos)
@@ -36,7 +46,7 @@ const resolver = (A, b) => {                  // Gauss con pivoteo parcial (sist
   return x
 }
 
-function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
+export function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
   const np = p0.length
   const clamp = (p) => p.map((v, i) => Math.min(Math.max(v, lo[i]), hi[i]))
   const rss = (p) => {
@@ -47,11 +57,18 @@ function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
   }
   let p = clamp(p0)
   let r0 = rss(p)
-  if (!finito(r0)) return { p, rss: NaN, conv: false }
+  if (!finito(r0)) return { p, rss: NaN, conv: false, estancado: false, iter: 0, enLimite: [] }
   let lam = 1e-3
   let conv = false
+  // estancado: ningún paso se pudo calcular (sistema singular o no finito) y se cortó sin cumplir el criterio de
+  // convergencia. Antes se lo contaba como convergido; ajustarModelo (OD) lo sigue aceptando para no cambiar sus
+  // resultados, pero el ajuste de UFC lo informa.
+  let estancado = false
+  let iter = 0
+  let grad = null
   const hist = []
   for (let it = 0; it < maxIter; it++) {
+    iter = it + 1
     const f0 = fn(p, x)
     const res = y.map((v, i) => v - f0[i])
     const J = []
@@ -65,11 +82,14 @@ function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
     }
     const A = Array.from({ length: np }, (_, a) => Array.from({ length: np }, (_, b) => J[a].reduce((s, v, i) => s + v * J[b][i], 0)))
     const g = J.map((col) => col.reduce((s, v, i) => s + v * res[i], 0))
+    grad = g
     let mejoro = false
+    let calculables = 0
     for (let intento = 0; intento < 25; intento++) {
       const Al = A.map((f, i) => f.map((v, k) => (i === k ? v + lam * Math.max(v, 1e-12) : v)))
       const delta = resolver(Al, g)
       if (!delta || !delta.every(finito)) { lam *= 10; continue }
+      calculables++
       const pn = clamp(p.map((v, i) => v + delta[i]))
       const rn = rss(pn)
       if (rn < r0) {
@@ -83,28 +103,20 @@ function levenbergMarquardt(fn, p0, lo, hi, x, y, maxIter = 800) {
       }
       lam *= 4
     }
-    if (!mejoro) { conv = true; break }
+    // ningún paso (ni con el amortiguamiento máximo) baja la suma de cuadrados: si los pasos se pudieron calcular,
+    // es un mínimo numérico (convergió); si ninguno se pudo calcular, el ajuste quedó estancado
+    if (!mejoro) { if (calculables > 0) conv = true; else estancado = true; break }
     if (conv) break
   }
-  return { p, rss: r0, conv }
-}
-
-// Baranyi-Roberts sobre ln(N) con pocos tiempos (recuentos de UFC: 4 o más medias).
-// Parámetros: y0 = ln N0, ymax = ln Nmax, mu (h⁻¹), h0 = mu · lag. Devuelve { ok, pred(t) → ln N, mu, lambda, y0, ymax }.
-export function ajustarBaranyiLn(t, ly, mu0, lag0) {
-  const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(ly[i])).sort((a, b) => t[a] - t[b])
-  const tt = idx.map((i) => t[i]), yy = idx.map((i) => ly[i])
-  if (tt.length < 4) return { ok: false }
-  const ymin = Math.min(...yy), ymaxObs = Math.max(...yy)
-  if (!(ymaxObs - ymin > 0.1)) return { ok: false }
-  const span = tt[tt.length - 1] - tt[0] || 1
-  const mu = finito(mu0) && mu0 > 0 ? mu0 : (2 * (ymaxObs - ymin)) / span
-  const h0 = mu * Math.max(finito(lag0) ? lag0 : 0, 0.05)
-  const fn = (p, x) => x.map((v) => baranyiF(v, p[0], p[1], p[2], p[3]))
-  const a = levenbergMarquardt(fn, [yy[0], ymaxObs, mu, h0], [ymin - 3, ymin, 1e-4, 0], [ymaxObs, ymaxObs + 3, 10, 60], tt, yy)
-  const [y0, ymax, m, h] = a.p
-  const ok = a.conv && finito(a.rss) && [y0, ymax, m, h].every(finito)
-  return { ok, pred: (x) => baranyiF(x, y0, ymax, m, h), mu: m, lambda: h / m, y0, ymax, rss: a.rss }
+  // parámetros que quedaron pegados a un límite (el gradiente empuja hacia afuera): el valor no es un óptimo libre
+  const enLimite = []
+  p.forEach((v, i) => {
+    const tol = 1e-6 * Math.max(1, Math.abs(hi[i] - lo[i]))
+    const empuja = grad ? grad[i] : 0
+    if (v - lo[i] <= tol && !(empuja > 0)) enLimite.push({ i, lado: 'inferior' })
+    else if (hi[i] - v <= tol && !(empuja < 0)) enLimite.push({ i, lado: 'superior' })
+  })
+  return { p, rss: r0, conv, estancado, iter, enLimite }
 }
 
 // Ajusta un modelo a una curva. Devuelve siempre un objeto; ok = true si convergió.
@@ -148,7 +160,8 @@ export function ajustarModelo(modelo, t, y, od0, mu0, lag0, K0) {
 function resumir(vacio, ajuste, tt, ly, fnVal, par, np, predLn) {
   const n = tt.length
   const rss = ajuste.rss
-  const ok = ajuste.conv && finito(rss) && [par.mu, par.lambda, par.K].every(finito)
+  // OD: se acepta también el ajuste «estancado» (así lo hacía antes levenbergMarquardt), para no cambiar resultados
+  const ok = (ajuste.conv || ajuste.estancado) && finito(rss) && [par.mu, par.lambda, par.K].every(finito)
   const ll = -(n / 2) * (Math.log(2 * Math.PI) + 1 - Math.log(n) + Math.log(rss))
   return {
     ...vacio, ok, ...par, RSS: rss,

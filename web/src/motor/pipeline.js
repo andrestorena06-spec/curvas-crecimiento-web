@@ -1,8 +1,11 @@
 // ============================================================
 // Cadena de preprocesado y análisis (equivale a las reactivas de la app en R):
 //   datos -> corrección al blanco -> marcado de puntos aberrantes -> datos_pre
-//         -> control de calidad por pocillo -> pocillos excluidos -> suavizado -> normalización
-// Los datos originales nunca se modifican.
+//         -> control de calidad por pocillo -> pocillos excluidos -> analisis (parámetros)
+//                                                                  -> suavizado -> normalización -> proc (solo gráficos)
+// Los parámetros se calculan SIEMPRE sobre `analisis` (OD corregida, sin suavizar ni normalizar): restar OD₀ cambia
+// la pendiente de ln(OD) (ln(N − N₀) no es ln N + constante) y suavizar quita independencia a los puntos (el EE de μ
+// quedaría chico). Los datos originales nunca se modifican.
 // ============================================================
 import { detectar, detectarCV } from './atipicos.js'
 import { analizarCurva, aplicarHampel, finito, mediana, media, suavizarVector, trapz } from './analisis.js'
@@ -120,10 +123,14 @@ export function dixonQ(vals, conf = 95) {
   return { i: d.idx, lado: d.lado, q: d.stat, crit: d.crit, n: d.n, conf, metodo: vals.length > 10 ? 'Grubbs' : 'Dixon' }
 }
 
-// Valores atípicos entre réplicas (misma muestra y mismo tiempo) con el test Q de Dixon: para lecturas de placas y de cubeta
+// Valores atípicos entre réplicas (misma muestra y mismo tiempo) con el test Q de Dixon: para lecturas de placas y de cubeta.
+// Por defecto el punto sospechoso solo se MARCA (sigue en el análisis, como en UFC); sale solo si aj.od_atip_auto === true
+// (y no se lo conservó a mano). Excluirlo a mano es un clic.
+export const autoExcluirOd = (aj) => aj?.od_atip_auto === true
 function aplicarDixon(marcado, E, aj) {
   const conf = Number(aj.dixon_conf) || 95
   const forz = new Set(E.forzados)
+  const motivoDe = (w, f) => (autoExcluirOd(aj) && !forz.has(clavePunto(w.Pocillo, f.t)) ? f.marca : null)
   const grupos = new Map()
   marcado.forEach((w) => {
     if (w.EsBlanco || E.pocillosExcl.includes(w.Pocillo)) return
@@ -142,7 +149,7 @@ function aplicarDixon(marcado, E, aj) {
       const { w, f } = g[c.idx]
       f.marca = 'Aberrante (RSD)'
       f.detalle = `RSD de las réplicas en ese tiempo = ${c.stat.toFixed(1)} % > límite ${lim} % (réplica más alejada de la media, extremo ${c.lado}; sin ella, RSD = ${c.cvSin.toFixed(1)} %).`
-      f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+      f.motivo = motivoDe(w, f)
       return
     }
     if (aj.od_atip_metodo === 'grubbs') {
@@ -151,7 +158,7 @@ function aplicarDixon(marcado, E, aj) {
       const { w, f } = g[gr.idx]
       f.marca = 'Aberrante (Grubbs)'
       f.detalle = `Test de Grubbs (extremo ${gr.lado}): G = ${gr.stat.toFixed(3)} > crítico ${gr.crit.toFixed(3)} (n = ${gr.n} réplicas, confianza ${conf} %).`
-      f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+      f.motivo = motivoDe(w, f)
       return
     }
     const d = dixonQ(g.map((x) => x.f.y), conf)
@@ -161,7 +168,7 @@ function aplicarDixon(marcado, E, aj) {
     f.detalle = d.metodo === 'Grubbs'
       ? `Test de Grubbs (más de 10 réplicas, extremo ${d.lado}): G = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n}, confianza ${d.conf} %).`
       : `Test Q de Dixon (extremo ${d.lado}): Q = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n} réplicas, confianza ${d.conf} %).`
-    f.motivo = forz.has(clavePunto(w.Pocillo, f.t)) ? null : f.marca
+    f.motivo = motivoDe(w, f)
   })
 }
 
@@ -186,7 +193,7 @@ export function calcularQC({ marcado, config, E, aj }) {
   const porPoc = Object.fromEntries(marcado.map((w) => [w.Pocillo, w]))
 
   // puntos quitados con su tipo (automáticos, interpolados y manuales)
-  const tipoAuto = { 'Aberrante (Dixon)': 'Dixon', 'Aberrante (RSD)': 'RSD', 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
+  const tipoAuto = { 'Aberrante (Dixon)': 'Dixon', 'Aberrante (Grubbs)': 'Grubbs', 'Aberrante (RSD)': 'RSD', 'Aberrante (Hampel)': 'Hampel', 'OD sobre el máximo': 'OD alta', 'Aberrante (interpolado)': 'Hampel, interpolado' }
   const quitados = {}
   marcado.forEach((w) => w.filas.forEach((f) => {
     if (f.motivo) (quitados[w.Pocillo] ||= []).push({ t: f.t, tipo: tipoAuto[f.motivo] })
@@ -268,8 +275,18 @@ export function calcularQC({ marcado, config, E, aj }) {
 }
 
 // ---------------------------------------------------------------
-// Datos procesados (sin pocillos excluidos, suavizados y normalizados)
+// Series para el análisis: OD corregida (blanco, dilución, sin puntos aberrantes ni pocillos excluidos),
+// sin suavizar ni normalizar
 // ---------------------------------------------------------------
+export function paraAnalisis({ pre, fuera }) {
+  return pre.filter((w) => !fuera.has(w.Pocillo) && w.filas.length)
+    .map((w) => ({ ...w, t: w.filas.map((f) => f.t), y: w.filas.map((f) => f.y), yOrig: w.filas.map((f) => f.yRaw) }))
+}
+
+// Series de los gráficos: las del análisis, suavizadas y normalizadas si se pidió
+export const soloGraficos = (aj) => (aj.suavizado || 'ninguno') !== 'ninguno' || (aj.normalizar || 'ninguna') !== 'ninguna'
+// Nombre de lo que se grafica en el eje Y (cambia con la normalización, que es solo para los gráficos)
+export const etiquetaOd = (aj) => (aj?.normalizar === 'dividir' ? 'OD / OD₀' : aj?.normalizar === 'restar' ? 'OD − OD₀' : 'OD')
 export function procesar({ pre, fuera, aj }) {
   const met = aj.suavizado || 'ninguno'
   const k = num(aj.suav_k, 3), sp = num(aj.suav_span, 0.3)
@@ -295,8 +312,9 @@ export function preprocesar({ datos, config, E, aj, blancosSel }) {
   const qc = calcularQC({ marcado, config, E, aj })
   const auto = aj.pocillo_auto ? qc.filter((q) => q.Categoria === 'Sospechoso').map((q) => q.Pocillo) : []
   const fuera = new Set([...E.pocillosExcl, ...auto])
-  const proc = procesar({ pre, fuera, aj })
-  return { blanco, marcado, pre, qc, auto, fuera, proc }
+  const analisis = paraAnalisis({ pre, fuera })
+  const proc = soloGraficos(aj) ? procesar({ pre, fuera, aj }) : analisis
+  return { blanco, marcado, pre, qc, auto, fuera, analisis, proc }
 }
 
 // Parámetros de crecimiento de todos los pocillos que no son blanco

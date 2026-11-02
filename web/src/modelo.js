@@ -39,8 +39,14 @@ export const ajustesDef = (origen) => ({
   an_ancho: origen === 'tecan' ? 2 : 3, an_minpts: origen === 'tecan' ? 4 : 3, an_lnmin: 0.01, an_r2: origen === 'tecan' ? 0.98 : 0.95,
   an_lag_metodo: 'tangente', an_lag_factor: 2, an_umbral_od: 0.3, an_frac_exp: 0.5, an_frac_est: 0.1, an_muerte_pct: 10, an_spline: origen === 'tecan',
   camino_on: false, pocillo_vol: 200, pocillo_diam: 6.4,
-  ufc_suave: true, ufc_recta: false,
+  ufc_suave: true, ufc_recta: false, ufc_modelo: 'baranyi', ufc_datos: 'medias',
   od_atip_metodo: 'q', od_cvmax: 20, ufc_atip_metodo: 'q', ufc_cvmax: 20,
+  // atípicos entre réplicas de OD (cubeta y Tecan) y de las placas por tiempo: solo se marcan, como en UFC
+  od_atip_auto: false, pl_auto: false,
+  // UFC: atípicos solo se marcan (no se excluyen solos); curvatura m del Baranyi y Roberts; centro de cada tiempo
+  // ('pool' = Σ colonias / Σ volúmenes, 'geo' = media de log₁₀ de las réplicas); fracción de μ máx que define la
+  // fase exponencial de los recuentos (para la calibración)
+  ufc_auto: false, ufc_mcurv: 1, ufc_centro: 'pool', ufc_frac_exp: 0.5,
 })
 
 // Camino óptico en un lector de placas (lectura vertical): el haz atraviesa la altura del líquido,
@@ -258,7 +264,8 @@ function evaluarGrupo(lect, opDet, manual, forz) {
   })
 }
 
-export const opDeteccion = (aj) => ({ metodo: aj.pl_metodo || 'q', conf: Number(aj.pl_conf) || 95, cvMax: Number(aj.pl_cvmax) || 20, usar: aj.pl_auto !== false })
+// usar: excluir solos los sospechosos (por defecto no: solo se marcan, como en UFC)
+export const opDeteccion = (aj) => ({ metodo: aj.pl_metodo || 'q', conf: Number(aj.pl_conf) || 95, cvMax: Number(aj.pl_cvmax) || 20, usar: aj.pl_auto === true })
 
 // Placas por tiempo → lecturas evaluadas y series para el motor.
 // En cada placa: 1) los pocillos de blanco se evalúan entre sí y B(t) = media de los blancos aceptados;
@@ -399,17 +406,23 @@ export function dilucionesUfc(u) {
 }
 export const filasConDilucion = (u) => { const d = dilucionesUfc(u); return u.filas.map((f) => { const g = d[claveGrupoUfc(f)]; return g && g.k !== null ? { ...f, dil: g.k, dilManual: g.manual } : f }) }
 
+// ¿Se excluyen solas las réplicas sospechosas de UFC? Solo si se eligió «Excluir» (ufc_auto === true).
+export const autoExcluirUfc = (aj) => aj?.ufc_dixon_on !== false && aj?.ufc_auto === true
 export function resultadosUfc(e) {
   const u = e.ufc
   const motor = (filas) => calcularUfc({ metodo: 'extendida', par: { estimados: u.estimados }, petri: [], tabla: { vol: u.vol, factor: u.factor, min: u.min, max: u.max, nd: u.nd, filas, D: serieUfc(u).map((d) => d.D) } })
   const filasD = filasConDilucion(u)
   const todas = motor(filasD)
-  // Dixon entre réplicas (n de 3 a 10)
+  // Dixon entre réplicas (n de 3 a 10). El test se arma con las MISMAS réplicas que entran al promedio
+  // (criterio de `pool` en calcularUfc: dilución del grupo contada, en rango o estimada si se usan estimados);
+  // las de 0 colonias entran al promedio pero no tienen log₁₀, así que no se pueden evaluar.
+  const incluirEst = u.estimados !== false
+  const entraAlPromedio = (r) => finito(r._D) && r._D > 0 && (r._estado === 'ok' || (incluirEst && ['bajo', 'alto'].includes(r._estado)))
   const forz = new Set(e.ufcForz)
   const dixon = {}
   const grupos = new Map()
   todas.reps.forEach((r) => {
-    if (!finito(r.log10) || e.ufcExcl.includes(`${r.Muestra}|${r.T_h}|${r.Replica}`)) return
+    if (!finito(r.log10) || !entraAlPromedio(r) || e.ufcExcl.includes(`${r.Muestra}|${r.T_h}|${r.Replica}`)) return
     const k = `${r.Muestra}|${r.T_h}`
     if (!grupos.has(k)) grupos.set(k, [])
     grupos.get(k).push(r)
@@ -434,7 +447,8 @@ export function resultadosUfc(e) {
       dixon[`${r.Muestra}|${r.T_h}|${r.Replica}`] = `${d.metodo === 'Grubbs' ? 'Test de Grubbs' : 'Test Q de Dixon'} sobre log₁₀: ${d.metodo === 'Grubbs' ? 'G' : 'Q'} = ${d.q.toFixed(3)} > crítico ${d.crit.toFixed(3)} (n = ${d.n}, ${d.conf} %), extremo ${d.lado}.`
     }
   })
-  const fuera = new Set([...e.ufcExcl, ...(e.aj.ufc_dixon_on !== false && e.aj.ufc_auto !== false ? Object.keys(dixon).filter((k) => !forz.has(k)) : [])])
+  // por defecto los sospechosos solo se marcan; se excluyen solos únicamente si el usuario eligió «Excluir»
+  const fuera = new Set([...e.ufcExcl, ...(autoExcluirUfc(e.aj) ? Object.keys(dixon).filter((k) => !forz.has(k)) : [])])
   const usadas = filasD.filter((f) => !fuera.has(claveUfc(f)))
   const res = motor(usadas)
   return { ...res, reps: todas.reps, dixon, fuera }
@@ -491,7 +505,9 @@ export function analizarPorCepa(proc, aj, ventanas, modo = 'media') {
       r.delta_od = r.K - r.od0
       r.generaciones = r.K > r.od0 && r.od0 > 0 ? Math.log2(r.K / r.od0) : NaN
     }
-    return { Pocillo: c.Pocillo, Muestra: c.Muestra, Replica: null, n_pocillos: c.nPocillos, modo_curva: modo, ...r }
+    // pocillos por tiempo (mínimo y máximo) y lecturas totales de la curva de la cepa
+    const nMin = c.n.length ? Math.min(...c.n) : 0, nMax = c.n.length ? Math.max(...c.n) : 0
+    return { Pocillo: c.Pocillo, Muestra: c.Muestra, Replica: null, n_pocillos: c.nPocillos, n_por_tiempo_min: nMin, n_por_tiempo_max: nMax, n_lecturas: c.n.reduce((a, b) => a + b, 0), modo_curva: modo, ...r }
   })
 }
 

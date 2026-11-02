@@ -4,6 +4,8 @@ import { TEXTO_OD, odCorregida } from '../motor/odmanual.js'
 import { Campo, Check, Encabezado, Icono, navegarTabla, Num, Sel } from '../ui/base.jsx'
 import { BotonCinta, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { fx, fin, nuevoId, tiemposDeSerie, textoTiemposSerie, siguienteReplica } from '../utils.js'
+import { Valor } from '../fichas/FichaCalculo.jsx'
+import { fichaOdCubeta } from '../fichas/definiciones.js'
 
 const etqDil = (k, f) => (k === 0 ? 'Sin diluir' : `1:${f ** k}`)
 
@@ -113,7 +115,7 @@ export function Cubeta({ s }) {
                         <td className="num"><Num value={x.replica} onChange={(v) => setFila(x.id, { replica: v })} ancho={54} /></td>
                         <td className="num"><Num value={x.t} onChange={(v) => setFila(x.id, { t: v })} ancho={64} /></td>
                         {ks.map((k) => <td key={k} className="num" style={{ background: c.usados.includes(k) ? 'var(--acento-suave)' : undefined }}><Num value={x.od[k] ?? ''} onChange={(v) => setOd(x.id, k, v)} ancho={74} /></td>)}
-                        <td className="num" data-tip={`OD corregida\n(lectura − blanco) × factor de la dilución usada\nen celeste: lecturas dentro de la ventana lineal (${m.vmin}–${m.vmax})`}><b>{fx(c.od, 4)}</b></td>
+                        <td className="num"><Valor f={fin(c.od) ? () => fichaOdCubeta(x, m, c) : null}><b>{fx(c.od, 4)}</b></Valor></td>
                         <td><span className={`chip ${c.estado === 'ok' ? 'ok' : c.estado === 'sin_od' ? '' : 'aviso'}`}>{TEXTO_OD[c.estado]}</span></td>
                         <td><button className="fantasma icono" aria-label="Quitar" onClick={() => setM((mm) => ({ filas: mm.filas.filter((y) => y.id !== x.id) }))}><Icono n="borrar" size={15} /></button></td>
                       </tr>

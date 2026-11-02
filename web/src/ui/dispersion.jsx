@@ -50,7 +50,10 @@ export function GraficoDispersion(props) {
   const filasLey = leyenda.length ? 1 : 0
   const altoBase = altoTotal || (fin(Number(e.alto)) && Number(e.alto) > 120 ? Number(e.alto) : alto)
   const H = altoBase
-  const L = 34 + e.tamNumeros * 2.8, R = 16, TOP = (tit ? 18 + e.tamTitulo * 1.6 : 14) + (o.media ? e.tamValores * 2.4 : 6)
+  // los valores de todas las cepas de un tiempo van apilados (uno debajo del otro) arriba del punto más alto de ese tiempo
+  const lineasValor = (c) => (c.valor ? c.valor.split('\n').length : 0)
+  const maxLin = o.media ? Math.max(1, ...grupos.map((g) => g.cols.filter((c) => fin(c.m)).reduce((n, c) => n + lineasValor(c), 0))) : 0
+  const L = 34 + e.tamNumeros * 2.8, R = 16, TOP = (tit ? 18 + e.tamTitulo * 1.6 : 14) + (o.media ? e.tamValores * 1.15 * maxLin + 6 : 6)
   const B = 24 + e.tamNumeros * 1.4 + e.tamEjes * 1.6 + filasLey * e.tamLeyenda * 2.2
 
   // rango del eje Y: puntos visibles y media ± error
@@ -76,18 +79,35 @@ export function GraficoDispersion(props) {
   const vis = zoom ? grupos.filter((g) => g.t >= zoom.t0 - 1e-9 && g.t <= zoom.t1 + 1e-9) : grupos
   const ts = vis.map((g) => g.t)
   const t0 = zoom ? zoom.t0 : Math.min(...todosT), t1 = zoom ? zoom.t1 : Math.max(...todosT)
-  const nMax = Math.max(1, ...vis.map((g) => g.cols.length))
+  const nMax = 1                                                                      // todas las cepas de un tiempo van sobre la misma vertical
   const dif = ts.slice(1).map((t, i) => t - ts[i]).filter((d) => d > 0)
   const ancho = W - L - R
   const fr = dif.length && t1 > t0 ? Math.min(1, Math.min(...dif) / (t1 - t0)) : 1            // separación mínima entre tiempos, en fracción del eje
   const anchoCol = Math.min(70, (ancho * fr * 0.8) / (1 + fr) / nMax, ancho / nMax / 2.2)
   const margen = (anchoCol * nMax) / 2 + 12
   const px = (t) => L + margen + (t1 > t0 ? (t - t0) / (t1 - t0) : 0.5) * (ancho - 2 * margen)
-  const cxCol = (gi, ci, n) => px(vis[gi].t) + (ci - (n - 1) / 2) * anchoCol
+  const cxCol = (gi) => px(vis[gi].t)
   const invT = (mx) => t0 + ((mx - L - margen) / (ancho - 2 * margen || 1)) * (t1 - t0)
   const invY = (my) => y0 + (1 - (my - TOP) / (H - TOP - B)) * (y1 - y0)
   const pos = (ev) => { const b = ref.current.getBoundingClientRect(), k = W / b.width; return { mx: (ev.clientX - b.left) * k, my: (ev.clientY - b.top) * k } }
   const rangoT = t1 - t0 || 1
+  // primer clic sobre un punto (sin zoom): acerca a ese tiempo; con zoom, el clic excluye o reincorpora la réplica
+  const acercarA = (g) => {
+    const yv = []
+    g.cols.forEach((c) => {
+      if (o.puntos) c.pts.forEach((p) => yv.push(p.y))
+      if (o.media || o.errores || !o.puntos) yv.push(c.m)
+      if (o.errores && fin(c.lo) && fin(c.hi)) yv.push(c.lo, c.hi)
+    })
+    const yd = yv.filter(fin)
+    if (!yd.length) return
+    const ot = todosT.filter((t) => Math.abs(t - g.t) > 1e-9)
+    const vecino = ot.length ? Math.min(...ot.map((t) => Math.abs(t - g.t))) : 1
+    let lo = Math.min(...yd), hi = Math.max(...yd)
+    const sp = Math.max(hi - lo, 0.04)
+    lo -= sp * 0.35; hi += sp * 0.45 + (o.media ? sp * 0.35 : 0)
+    setZoom({ t0: g.t - vecino * 0.35, t1: g.t + vecino * 0.35, y0: lo, y1: hi })
+  }
   const fondo = e.fondo === 'blanco' ? '#ffffff' : T.panel
   const fuente = `'${e.fuente}', system-ui, sans-serif`
   const r = 4.2 * e.radio
@@ -124,8 +144,29 @@ export function GraficoDispersion(props) {
           setCaja(null)
           if (Math.abs(b.mx - a.mx) > 8 && Math.abs(b.my - a.my) > 8) {
             const ta = invT(Math.min(a.mx, b.mx)), tb = invT(Math.max(a.mx, b.mx))
-            const pad = Math.max(rangoT * 0.02, 1e-6)
-            setZoom({ t0: ta - pad, t1: tb + pad, y0: invY(Math.max(a.my, b.my)), y1: invY(Math.min(a.my, b.my)) })
+            const ya = invY(Math.max(a.my, b.my)), yb = invY(Math.min(a.my, b.my))
+            // los tiempos que toca el recuadro: se acerca a ellos y el eje Y se ajusta a sus puntos, para ver las diferencias entre réplicas
+            const gs = vis.filter((g) => px(g.t) >= Math.min(a.mx, b.mx) - anchoCol / 2 && px(g.t) <= Math.max(a.mx, b.mx) + anchoCol / 2)
+            const yv = []
+            gs.forEach((g) => g.cols.forEach((c) => {
+              if (o.puntos) c.pts.forEach((p) => yv.push(p.y))
+              if (o.media || o.errores || !o.puntos) yv.push(c.m)
+              if (o.errores && fin(c.lo) && fin(c.hi)) yv.push(c.lo, c.hi)
+            }))
+            const yd = yv.filter((y) => fin(y) && y >= ya - (yb - ya) * 0.1 && y <= yb + (yb - ya) * 0.1)
+            if (gs.length && yd.length) {
+              const tt = gs.map((g) => g.t), mn = Math.min(...tt), mx = Math.max(...tt)
+              const ot = todosT.filter((t) => t < mn - 1e-9 || t > mx + 1e-9)
+              const vecino = ot.length ? Math.min(...ot.map((t) => Math.min(Math.abs(t - mn), Math.abs(t - mx)))) : 1
+              const medio = mx > mn ? (mx - mn) * 0.15 + 1e-6 : vecino * 0.35
+              let lo = Math.min(...yd), hi = Math.max(...yd)
+              const sp = Math.max(hi - lo, 0.04)
+              lo -= sp * 0.35; hi += sp * 0.45 + (o.media ? sp * 0.35 : 0)
+              setZoom({ t0: mn - medio, t1: mx + medio, y0: lo, y1: hi })
+            } else {
+              const pad = Math.max(rangoT * 0.02, 1e-6)
+              setZoom({ t0: ta - pad, t1: tb + pad, y0: ya, y1: yb })
+            }
           }
         }}
         onMouseLeave={() => { setCaja(null); setPaneo(null) }}
@@ -149,22 +190,24 @@ export function GraficoDispersion(props) {
         <line x1={L} x2={L} y1={TOP} y2={H - B} stroke={T.eje} />
         <text transform={`translate(${6 + e.tamEjes * 0.6} ${(TOP + H - B) / 2}) rotate(-90)`} textAnchor="middle" fontSize={e.tamEjes} fill={T.texto}>{yT}</text>
 
-        {vis.map((g, gi) => (
+        {vis.map((g, gi) => {
+          // valores de todas las cepas de este tiempo, uno debajo del otro, arriba del punto más alto del tiempo
+          const topeDe = (c) => Math.max(...(o.puntos ? c.pts.map((p) => p.y).filter(fin) : []), fin(c.m) ? (o.errores && fin(c.hi) && c.hi > c.lo ? c.hi : c.m) : -Infinity)
+          const topeG = Math.max(...g.cols.map(topeDe))
+          const etiq = o.media ? g.cols.filter((c) => fin(c.m) && c.valor).flatMap((c) => c.valor.split('\n').map((lin) => ({ lin, color: c.color }))) : []
+          return (
           <g key={'g' + gi}>
             <text x={px(g.t)} y={H - B + 6 + e.tamNumeros} textAnchor="middle" fontSize={e.tamNumeros} fill={T.sec}>{g.etiqueta}</text>
             <g clipPath={zoom ? `url(#${idClip})` : undefined}>
             {g.cols.map((c, ci) => {
               const cx = cxCol(gi, ci, g.cols.length)
-              const n = c.pts.length
-              const sep = Math.min(anchoCol * 0.22, 14)
               const media = fin(c.m) && (o.media || o.errores)
               const conErr = o.errores && fin(c.lo) && fin(c.hi) && c.hi > c.lo
-              const tope = Math.max(...(o.puntos ? c.pts.map((p) => p.y).filter(fin) : []), fin(c.m) ? (conErr ? c.hi : c.m) : -Infinity)
               return (
                 <g key={c.id}>
                   {media && (
                     <g stroke={c.color} strokeWidth={1.8 * e.grosor} data-tip={c.tip}>
-                      <line x1={cx - Math.max(anchoCol * 0.4, (n - 1) / 2 * Math.min(anchoCol * 0.22, 14) + 8)} x2={cx + Math.max(anchoCol * 0.4, (n - 1) / 2 * Math.min(anchoCol * 0.22, 14) + 8)} y1={py(c.m)} y2={py(c.m)} strokeWidth={2.4 * e.grosor} />
+                      <line x1={cx - Math.max(anchoCol * 0.3, 9)} x2={cx + Math.max(anchoCol * 0.3, 9)} y1={py(c.m)} y2={py(c.m)} strokeWidth={2.4 * e.grosor} />
                       {conErr && <>
                         <line x1={cx} x2={cx} y1={py(c.lo)} y2={py(c.hi)} />
                         <line x1={cx - anchoCol * 0.12} x2={cx + anchoCol * 0.12} y1={py(c.hi)} y2={py(c.hi)} />
@@ -175,8 +218,8 @@ export function GraficoDispersion(props) {
                   {!o.puntos && !media && fin(c.m) && <circle cx={cx} cy={py(c.m)} r={r} fill={c.color} data-tip={c.tip} />}
                   {o.puntos && c.pts.map((p, k) => {
                     if (!fin(p.y)) return null
-                    const x = cx + (n > 1 ? (k - (n - 1) / 2) * sep : 0), y = py(p.y)
-                    const clic = interactivo && onPuntoClick && p.key ? () => { if (!movido.current) onPuntoClick(p.key) } : undefined
+                    const x = cx, y = py(p.y)
+                    const clic = interactivo && onPuntoClick && p.key ? () => { if (movido.current) return; if (!zoom) return acercarA(g); onPuntoClick(p.key) } : undefined
                     return (
                       <g key={p.key || k} data-tip={p.tip} onClick={clic} style={clic ? { cursor: 'pointer' } : undefined}>
                         <circle cx={x} cy={y} r={r + 6} fill="transparent" />
@@ -189,16 +232,17 @@ export function GraficoDispersion(props) {
                       </g>
                     )
                   })}
-                  {o.media && fin(c.m) && fin(tope) && c.valor && c.valor.split('\n').map((lin, li, arr) => (
-                    <text key={li} x={cx} y={py(tope) - 8 - (arr.length - 1 - li) * e.tamValores * 1.15} textAnchor="middle" fontSize={e.tamValores} fontWeight="600"
-                      fill={c.color} stroke={fondo} strokeWidth="3" paintOrder="stroke">{lin}</text>
-                  ))}
                 </g>
               )
             })}
+            {fin(topeG) && etiq.map((x, li) => (
+              <text key={'v' + li} x={px(g.t)} y={py(topeG) - 8 - (etiq.length - 1 - li) * e.tamValores * 1.15} textAnchor="middle" fontSize={e.tamValores} fontWeight="600"
+                fill={x.color} stroke={fondo} strokeWidth="3" paintOrder="stroke">{x.lin}</text>
+            ))}
             </g>
           </g>
-        ))}
+          )
+        })}
 
         {caja && <rect x={Math.min(caja.a.mx, caja.b.mx)} y={Math.min(caja.a.my, caja.b.my)} width={Math.abs(caja.b.mx - caja.a.mx)} height={Math.abs(caja.b.my - caja.a.my)} fill={T.acento} opacity="0.12" stroke={T.acento} strokeDasharray="4 3" pointerEvents="none" />}
         {leyenda.length > 0 && (() => {
