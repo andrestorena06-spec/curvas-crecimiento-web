@@ -187,7 +187,7 @@ export function PlacasTiempo({ s }) {
           <BotonCinta simbolo="−B" texto="Restar blanco" activo={exp.aj.corregir_blanco} onClick={() => s.setAj('corregir_blanco', !exp.aj.corregir_blanco)} tip="Restar a cada lectura el promedio de los blancos de su placa" />
         </Grupo>
       </Cinta>
-      <Encabezado titulo="Lecturas de OD" sub="Placas por tiempo. Una placa por cada tiempo de lectura. En cada una definí los pocillos (cepa, blanco y dilución) y elegí su Excel. Clic derecho sobre un tiempo para ocultarlo (no entra en la curva) o borrarlo. Podés cargar varios Excel a la vez (Ctrl o Shift en la ventana de archivos) o arrastrarlos sobre la página." />
+      <Encabezado titulo="Cargar datos de OD" sub="Placas por tiempo. Una placa por cada tiempo de lectura. En cada una definí los pocillos (cepa, blanco y dilución) y elegí su Excel. Clic derecho sobre un tiempo para ocultarlo (no entra en la curva) o borrarlo. Podés cargar varios Excel a la vez (Ctrl o Shift en la ventana de archivos) o arrastrarlos sobre la página." />
 
       {placas.length > 0 && (
         <div className="tiempos">

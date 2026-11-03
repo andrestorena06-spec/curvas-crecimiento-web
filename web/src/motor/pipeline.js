@@ -25,7 +25,7 @@ export const opAnalisis = (aj) => ({
   ancho: num(aj.an_ancho, 2), minpts: Math.max(3, Math.round(num(aj.an_minpts, 4))), lnmin: num(aj.an_lnmin, 0.01),
   r2min: num(aj.an_r2, 0.98), n_od0: num(aj.n_od0, 3), od0_metodo: aj.od0_metodo || 'auto',
   lag_metodo: aj.an_lag_metodo || 'tangente', lag_factor: num(aj.an_lag_factor, 2), umbral_od: num(aj.an_umbral_od, 0.3),
-  frac_exp: num(aj.an_frac_exp, 0.5), frac_est: num(aj.an_frac_est, 0.1), muerte_pct: num(aj.an_muerte_pct, 10), spline: !!aj.an_spline,
+  quota: (() => { const v = aj.an_quota === undefined || aj.an_quota === '' ? 95 : Number(aj.an_quota); return Number.isFinite(v) && v > 0 && v < 100 ? v / 100 : NaN })(), frac_exp: num(aj.an_frac_exp, 0.5), frac_est: num(aj.an_frac_est, 0.1), muerte_pct: num(aj.an_muerte_pct, 10), spline: !!aj.an_spline,
 })
 
 // Serie original de un pocillo: [{t (s), y}] con valores finitos
@@ -177,7 +177,9 @@ export function marcarTodo({ datos, config, E, aj, blanco }) {
     .filter((c) => datos.pocillos[c.Pocillo])
     .sort((a, b) => ORDEN[a.Pocillo] - ORDEN[b.Pocillo])
     .map((c) => marcarPozo(datos, c, E, aj, blanco))
-  if (aj.atipicos === 'dixon') aplicarDixon(res, E, aj)
+  // Dixon / Grubbs / CV entre réplicas: en cinéticas (Tecan) se evalúa cada RÉPLICA completa (ver calcularQC), no punto por punto;
+  // en placas por tiempo y cubeta, cada tiempo es una muestra distinta y se compara tiempo a tiempo
+  if (aj.atipicos === 'dixon' && aj.od_atip_nivel !== 'replica') aplicarDixon(res, E, aj)
   return res
 }
 
@@ -219,6 +221,11 @@ export function calcularQC({ marcado, config, E, aj }) {
       auc: trapz(w.filas.map((f) => f.t / 3600), w.filas.map((f) => f.y)),
     }))
     const k = r.length
+    // entre réplicas (cinéticas): el test se aplica al área bajo la curva de cada réplica de la cepa; marca la réplica entera
+    if (aj.atipicos === 'dixon' && aj.od_atip_nivel === 'replica' && k >= 3) {
+      const d = detectar(r.map((x) => x.auc), { metodo: aj.od_atip_metodo || 'q', conf: Number(aj.dixon_conf) || 95, cvMax: Number(aj.od_cvmax) || 20 })
+      if (d.idx !== null && d.idx !== undefined) r[d.idx].atip = `AUC de la réplica: ${d.texto}`
+    }
     r.forEach((x, i) => {
       x.n_rep = k
       x.d_ref = k >= 3 ? mediana(r.filter((_, j) => j !== i).map((z) => z.d)) : NaN
@@ -259,6 +266,9 @@ export function calcularQC({ marcado, config, E, aj }) {
         Categoria = 'Divergentes'
         Estado = `Réplicas divergentes (el AUC difiere ${dif_pct.toFixed(0)}%; con 2 réplicas no se sabe cuál falla)`
       } else { Categoria = 'OK'; Estado = 'OK' }
+    } else if (m && m.atip) {
+      Categoria = 'Sospechoso'
+      Estado = `Sospechoso entre réplicas. ${m.atip}`
     } else if (finito(d_ref) && d_mediana > factor * d_ref && d_mediana > minP) {
       Categoria = 'Sospechoso'
       Estado = `Sospechoso (se aparta ${ratio.toFixed(1)} veces más de la mediana que sus réplicas)`
@@ -269,7 +279,7 @@ export function calcularQC({ marcado, config, E, aj }) {
     if (N_quitados > 0) Estado += ` · ${N_quitados} ${N_quitados === 1 ? 'punto quitado' : 'puntos quitados'}`
     return {
       Pocillo: c.Pocillo, Muestra: c.Muestra, Replica: c.Replica, EsBlanco: !!c.EsBlanco, Categoria, Estado,
-      d_mediana, ratio, dif_pct, N_quitados, Puntos_quitados, Pts_aberrantes, Pts_OD_alta, Pts_no_positivos, n_rep,
+      por_atip: !!(m && m.atip), d_mediana, ratio, dif_pct, N_quitados, Puntos_quitados, Pts_aberrantes, Pts_OD_alta, Pts_no_positivos, n_rep,
     }
   })
 }
@@ -310,7 +320,8 @@ export function preprocesar({ datos, config, E, aj, blancosSel }) {
   const marcado = marcarTodo({ datos, config, E, aj, blanco })
   const pre = marcado.map((w) => ({ ...w, filas: w.filas.filter(conservar) }))
   const qc = calcularQC({ marcado, config, E, aj })
-  const auto = aj.pocillo_auto ? qc.filter((q) => q.Categoria === 'Sospechoso').map((q) => q.Pocillo) : []
+  // se excluye solo la réplica sospechosa según el criterio que lo pidió: el test entre réplicas («Sospechosos › Excluir») o el desvío («Excluir solas»)
+  const auto = qc.filter((q) => q.Categoria === 'Sospechoso' && (q.por_atip ? aj.od_atip_auto === true : !!aj.pocillo_auto)).map((q) => q.Pocillo)
   const fuera = new Set([...E.pocillosExcl, ...auto])
   const analisis = paraAnalisis({ pre, fuera })
   const proc = soloGraficos(aj) ? procesar({ pre, fuera, aj }) : analisis

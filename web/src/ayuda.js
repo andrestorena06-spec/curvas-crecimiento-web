@@ -4,7 +4,7 @@ import { tCuantil } from './utils.js'
 
 export const PARAMS = {
   mu_max: 'μmax (h⁻¹)',
-  td_min: 'Tiempo de duplicación (min)',
+  td_h: 'Tiempo de duplicación (h)',
   lag_h: 'Lag λ (h)',
   K: 'K: OD máxima',
   t_K_h: 'Tiempo hasta K (h)',
@@ -33,7 +33,7 @@ export const AYUDA = {
     sig: 'Velocidad específica máxima de crecimiento: cuánto sube ln(OD) por hora en el momento en que la población crece más rápido.',
     interp: 'Más alto significa crecimiento más rápido. En lectores de placas suele dar menos que en matraz; compará siempre contra un control de la misma placa. Un R² bajo o una ventana muy corta vuelven poco confiable el valor.',
   },
-  td_min: {
+  td_h: {
     sig: 'Tiempo que tarda la población en duplicarse durante el crecimiento exponencial.',
     interp: 'Menor tiempo de duplicación significa crecimiento más rápido. Equivale a ln(2)/μmax.',
   },
@@ -124,8 +124,8 @@ export function explicarResultado(r, p, op) {
     case 'mu_max':
       calculo = `Regresión lineal de ln(OD) contra el tiempo en la ventana de ${ven}${man}. Se eligió la ventana con la pendiente más alta entre las de R² ≥ ${f(op.r2min, 3)}. Pendiente = ${f(r.mu_max)} h⁻¹; R² = ${f(r.r2)}.`
       break
-    case 'td_min':
-      calculo = `ln(2) / μmax = 0,693 / ${f(r.mu_max)} h⁻¹ = ${f(Math.log(2) / r.mu_max)} h = ${f(r.td_min)} min.`
+    case 'td_h':
+      calculo = `ln(2) / μmax = 0,693 / ${f(r.mu_max)} h⁻¹ = ${f(r.td_h)} h.`
       break
     case 'lag_h':
       calculo = op.lag_metodo === 'umbral'
@@ -155,9 +155,9 @@ export function explicarResultado(r, p, op) {
       const ic = tCuantil(0.975, Math.max(1, r.n_ventana - 2)) * r.mu_se
       error = `Error estándar de la pendiente = ${f(r.mu_se)} h⁻¹; IC 95% = ${f(r.mu_max - ic)} a ${f(r.mu_max + ic)} (t de Student, ${Math.round(r.n_ventana - 2)} g.l.). Solo refleja el ruido dentro de la ventana, no la variación entre réplicas.`
     } else error = 'No estimable (ventana con muy pocos puntos o ajuste perfecto).'
-  } else if (p === 'td_min') {
-    error = finito(r.td_se_min)
-      ? `Error estándar propagado desde μmax = ${f(r.td_se_min)} min (aproximación de primer orden: td × EE(μmax)/μmax).` : 'No estimable.'
+  } else if (p === 'td_h') {
+    error = finito(r.td_se_h)
+      ? `Error estándar propagado desde μmax = ${f(r.td_se_h)} h (aproximación de primer orden: td × EE(μmax)/μmax).` : 'No estimable.'
   } else if (p === 'r2') error = 'No aplica: es una medida de ajuste, no una estimación con error.'
   else error = 'Este parámetro no tiene un error analítico para un solo pocillo. El error se estima con la dispersión entre réplicas (ver abajo).'
   return { calculo, error }

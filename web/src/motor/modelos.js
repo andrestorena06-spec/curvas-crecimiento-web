@@ -24,6 +24,45 @@ export function baranyiF(x, y0, ymax, mu, h0, m = 1) {
   return y0 + mu * a - l / m
 }
 
+// Huang (2008), con λ como parámetro directo y α = 4 fijo (como en DMFit y en el paquete growthrates). y = ln N:
+//   y = y₀ + y_max − ln[ e^{y₀} + (e^{y_max} − e^{y₀}) e^{−μ B(t)} ] ;  B(t) = t + (1/α) ln[ (1 + e^{−α(t−λ)}) / (1 + e^{αλ}) ]
+// Forma estable (equivalente): y = y_max − softplus(ln(e^{d} − 1) − μB),  d = y_max − y₀,  softplus(z) = ln(1 + e^z)
+const softplus = (z) => (z > 30 ? z : z < -30 ? Math.exp(z) : Math.log1p(Math.exp(z)))
+export function huangF(x, y0, ymax, mu, lam, alpha = 4) {
+  const B = x + (softplus(-alpha * (x - lam)) - softplus(alpha * lam)) / alpha
+  const d = ymax - y0
+  if (!(d > 1e-9)) return ymax
+  return ymax - softplus(d + Math.log1p(-Math.exp(-d)) - mu * B)
+}
+
+// Errores estándar de los parámetros libres de un ajuste no lineal (como el summary de modFit/nls):
+//   cov = s² (JᵀJ)⁻¹ ,  s² = SSE / (n − k) ;  J = jacobiano numérico de la función en el óptimo.
+// Devuelve { se: [...], cov: [[...]], s2 } o null si JᵀJ es singular (parámetros no identificables).
+export function erroresAjuste(fn, p, x, y) {
+  const k = p.length, n = y.length
+  if (n <= k) return null
+  const f0 = fn(p, x)
+  const rss = f0.reduce((s, v, i) => s + (y[i] - v) ** 2, 0)
+  const J = []
+  for (let j = 0; j < k; j++) {
+    const h = 1e-6 * Math.max(1, Math.abs(p[j]))
+    const q = p.slice(); q[j] = p[j] + h
+    const f1 = fn(q, x)
+    J.push(f1.map((v, i) => (v - f0[i]) / h))
+  }
+  const A = Array.from({ length: k }, (_, a) => Array.from({ length: k }, (_, b) => J[a].reduce((s, v, i) => s + v * J[b][i], 0)))
+  const inv = []
+  for (let c = 0; c < k; c++) {
+    const col = resolver(A, Array.from({ length: k }, (_, i) => (i === c ? 1 : 0)))
+    if (!col || !col.every(finito)) return null
+    inv.push(col)
+  }
+  const s2 = rss / (n - k)
+  const cov = inv.map((fila) => fila.map((v) => v * s2))
+  const se = cov.map((fila, i) => Math.sqrt(Math.max(0, fila[i])))
+  return se.every(finito) ? { se, cov, s2 } : null
+}
+
 const resolver = (A, b) => {                  // Gauss con pivoteo parcial (sistemas chicos)
   const n = b.length
   const M = A.map((f, i) => [...f, b[i]])

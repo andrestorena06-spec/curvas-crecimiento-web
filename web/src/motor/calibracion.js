@@ -5,7 +5,7 @@
 import { finito, media } from './analisis.js'
 
 export const MODELOS_CALIB = {
-  clasico: 'Clásico: log₁₀ UFC = m·OD + b',
+  clasico: 'Recta: log₁₀ UFC = m·OD + b',
   lineal: 'Lineal: UFC = a + b·OD',
   proporcional: 'Proporcional: UFC = b·OD (por el origen)',
   potencia: 'Potencia (log–log): log₁₀ UFC = a + b·log₁₀ OD',
@@ -31,8 +31,8 @@ export function ajustarCalibracion(pares, modelo) {
   const vacio = { ok: false, modelo, n: p.length }
   // el modelo proporcional (por el origen) supone UFC = 0 con OD = 0: con OD ≤ 0 no tiene sentido físico
   const odNoPos = p.filter((q) => q.od <= 0).length
-  if (modelo === 'proporcional' && odNoPos) return { ...vacio, motivo: `El modelo proporcional (por el origen) no admite OD ≤ 0 (${odNoPos} de ${p.length} par${p.length > 1 ? 'es' : ''} con OD ≤ 0): una OD nula o negativa daría UFC ≤ 0. Usá el modelo clásico o el lineal, o revisá el blanco.` }
-  if (p.length < 3) return { ...vacio, motivo: sinPositiva ? `Hacen falta al menos 3 pares OD–UFC con OD > 0: el modelo log–log no admite OD ≤ 0 (${sinPositiva} par${sinPositiva > 1 ? 'es' : ''} con OD ≤ 0). Usá el modelo clásico o el lineal.` : 'Hacen falta al menos 3 pares OD–UFC.' }
+  if (modelo === 'proporcional' && odNoPos) return { ...vacio, motivo: `El modelo proporcional (por el origen) no admite OD ≤ 0 (${odNoPos} de ${p.length} par${p.length > 1 ? 'es' : ''} con OD ≤ 0): una OD nula o negativa daría UFC ≤ 0. Usá la recta log₁₀ UFC = m·OD + b o el modelo lineal, o revisá el blanco.` }
+  if (p.length < 3) return { ...vacio, motivo: sinPositiva ? `Hacen falta al menos 3 pares OD–UFC con OD > 0: el modelo log–log no admite OD ≤ 0 (${sinPositiva} par${sinPositiva > 1 ? 'es' : ''} con OD ≤ 0). Usá la recta log₁₀ UFC = m·OD + b o el modelo lineal.` : 'Hacen falta al menos 3 pares OD–UFC.' }
   const od = p.map((q) => q.od), ufc = p.map((q) => q.ufc), lg = ufc.map(Math.log10)
   let pred, coef, eq, inv
   if (modelo === 'clasico') {

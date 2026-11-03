@@ -153,6 +153,8 @@ table.tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-si
 .calib-resultado { padding: 12px 14px; border: 1px solid var(--borde); border-radius: 8px; background: var(--panel2); }
 .calib-resultado h3 { margin-top: 12px; }
 .tabla tr.fuera td { color: var(--tenue); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--tenue) 60%, transparent); }
+/* celdas del grupo (cepa, tiempo, CV) en la fila de una réplica excluida: no se tachan, la cepa sigue en el análisis */
+.tabla tr.fuera td.grupo { color: inherit; text-decoration: none; }
 [data-tip] { cursor: help; }
 .tabla td[data-tip] { text-decoration: underline dotted color-mix(in srgb, var(--acento) 60%, transparent); text-underline-offset: 3px; }
 
@@ -294,6 +296,98 @@ table.tabla { border-collapse: separate; border-spacing: 0; width: 100%; font-si
 .dil-col.rango { border-color: var(--ok); }
 .dil-col.elegida { border: 2px solid var(--acento); background: var(--acento-suave); color: var(--acento-fuerte); }
 .dil-col.incontable { opacity: .6; }
+.ficha-tabla-caja { margin-top: 8px; overflow-x: auto; max-height: 260px; overflow-y: auto; border: 1px solid var(--borde); border-radius: 8px; }
+.ficha-tabla { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.ficha-tabla th { position: sticky; top: 0; background: var(--panel2); font-weight: 600; text-align: right; padding: 5px 10px; white-space: nowrap; }
+.ficha-tabla td { text-align: right; padding: 3px 10px; border-top: 1px solid var(--borde); }
+.ficha-tabla tfoot td { font-weight: 700; background: var(--panel2); }
 .rep-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-top: 8px; }
 .rep-tarjeta { background: var(--panel2); border-radius: 8px; padding: 8px; text-align: center; font-size: 12.5px; display: grid; gap: 2px; }
 .rep-tarjeta b { font-size: 15.5px; }
+
+/* ---------- Curva OD vs t: cómo se obtiene la ecuación y la ecuación de cada curva ---------- */
+.como-se-calcula ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 8px; font-size: 14px; line-height: 1.6; }
+.como-se-calcula .num-input, .como-se-calcula input { vertical-align: middle; }
+.como-se-calcula .seg { display: inline-flex; vertical-align: middle; margin-left: 4px; }
+.mas-ajustes { margin-top: 10px; font-size: 13.5px; }
+.mas-ajustes summary { cursor: pointer; color: var(--acento); }
+.ecuacion-od { display: grid; gap: 8px; background: var(--panel2); border-left: 3px solid var(--acento); border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 6px 0 10px; }
+.ecuacion-od small { display: block; color: var(--sec); font-size: 14.5px; line-height: 1.5; margin-top: 4px; }
+.ecuacion-od code { font-size: 15.5px; font-family: 'Cambria Math', Cambria, Georgia, serif; }
+.ecuacion-calc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; font-size: 13.5px; }
+.ecuacion-calc label { display: inline-flex; align-items: center; gap: 6px; }
+
+/* Ecuación del modelo: un bloque por cepa (ecuación + calculadora), con el mismo aire que el resto de las tarjetas */
+.ec-modelo > h2 { margin: 0 0 6px; }
+.ec-cepa { border: 1px solid var(--borde); border-radius: 10px; background: var(--panel); padding: 12px 16px 14px; margin-top: 12px; }
+.ec-cepa h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 15px; }
+.ec-calc { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 24px; margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--borde); }
+.ec-calc label { display: grid; gap: 4px; font-size: 12.5px; color: var(--sec); }
+.ec-fila { display: inline-flex; align-items: center; gap: 8px; color: var(--texto); font-size: 14px; min-height: 34px; }
+.ec-calc > button { margin-left: auto; }
+.ec-rango { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 10px; }
+
+/* Ecuaciones con formato de ecuación (MathML): el mismo aspecto en todo el programa */
+.ec-math { font-family: 'Cambria Math', 'STIX Two Math', 'Latin Modern Math', Cambria, Georgia, serif; font-size: 1.3em; margin: 4px 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.ec-par { display: grid; gap: 4px; }
+.ecuacion-od .ec-math { margin: 2px 0; }
+.ec-dos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+@media (max-width: 900px) { .ec-dos { grid-template-columns: 1fr; } }
+
+.ec-sub { display: block; font-size: 12.5px; letter-spacing: .02em; color: var(--sec); margin-bottom: 2px; }
+.ecuacion-od + .ecuacion-od { margin-top: 8px; }
+
+/* Ecuaciones del modelo: tarjetas de a dos por renglón */
+.ec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+@media (max-width: 1100px) { .ec-grid { grid-template-columns: 1fr; } }
+.ec-grid .ec-cepa { margin-top: 0; min-width: 0; }
+.ec-grid .ec-math { font-size: 1.08em; }
+.ec-calc { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: stretch; margin-top: 10px; padding-top: 0; border-top: 0; }
+.ec-calc > button { grid-column: 1 / -1; justify-self: end; margin-left: 0; }
+.ec-conv { background: var(--panel2); border: 1px solid var(--borde); border-radius: 10px; padding: 8px 12px 10px; display: grid; gap: 6px; min-width: 0; }
+.ec-conv-et { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--sec); font-weight: 600; }
+.ec-conv-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ec-flecha { color: var(--tenue); }
+.ec-res { font-size: 17px; color: var(--acento); }
+
+.ec-conv-fila { align-items: flex-end; }
+.ec-conv-fila .ec-flecha, .ec-conv-fila .ec-res, .ec-conv-fila .chip, .ec-conv-fila .ayuda { margin-bottom: 4px; }
+.ec-calc > .cinta-boton { grid-column: 1 / -1; justify-self: end; flex-direction: row; gap: 8px; min-width: 0; padding: 6px 12px; border-color: var(--borde); }
+
+.ficha-tabla td { white-space: pre-line; vertical-align: top; }
+.ficha-tabla td:first-child, .ficha-tabla th:first-child { font-weight: 600; min-width: 110px; }
+
+.ficha-tabla-caja.por-replica { max-height: none; }
+.ficha-tabla-caja.por-replica .ficha-tabla th, .ficha-tabla-caja.por-replica .ficha-tabla td { text-align: left; white-space: pre-line; }
+.ficha-tabla-caja.por-replica .ficha-tabla tr:last-child td { font-weight: 700; background: var(--panel2); }
+
+.tabla.tabla-texto td, .tabla.tabla-texto th { white-space: normal; vertical-align: top; }
+.tabla.tabla-texto td:first-child { font-weight: 600; min-width: 150px; }
+
+/* ============================================================
+   Presentación: más legible y más calmada (tarjetas, textos, tablas)
+   ============================================================ */
+body { font-size: 15px; line-height: 1.6; }
+.pagina { padding: 20px 32px 56px; }
+.tarjeta, .mosaico { border-radius: 16px; box-shadow: 0 2px 10px rgba(65, 36, 2, .06); }
+.tarjeta { padding: 22px 26px; margin-bottom: 22px; }
+.tarjeta > h2:first-child { font-size: 18px; border-bottom: 0; padding-bottom: 0; margin-bottom: 14px; letter-spacing: -.01em; }
+.tarjeta h2 .ayuda { display: block; margin-top: 4px; font-size: 13.5px; font-weight: 400; }
+.ayuda { font-size: 14px; color: color-mix(in srgb, var(--sec) 88%, var(--texto)); line-height: 1.55; }
+.encabezado .sub { font-size: 15px; max-width: 900px; }
+h1 { font-size: 26px; }
+.ecuacion-od, .formula { border-left-width: 2px; border-radius: 12px; background: color-mix(in srgb, var(--panel2) 70%, var(--panel)); padding: 14px 18px; }
+.ec-cepa { border-radius: 14px; padding: 18px 22px 20px; box-shadow: 0 1px 6px rgba(65, 36, 2, .05); }
+.ec-cepa h3 { font-size: 16px; }
+.ec-sub { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--tenue); font-weight: 600; }
+.ec-conv { border-radius: 12px; background: var(--panel); }
+.ec-res { font-size: 20px; }
+.tabla th { font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; padding: 11px 14px; color: var(--tenue); background: color-mix(in srgb, var(--panel2) 60%, var(--panel)); }
+.tabla td { padding: 11px 14px; font-size: 14.5px; }
+.tabla tbody tr:nth-child(even) td { background: transparent; }
+.tabla td[data-tip] { text-decoration: none; }
+.tabla .calc, .tabla [tabindex] { border-bottom: 1px solid transparent; }
+.tabla td:hover .calc, .tabla td:hover [tabindex] { border-bottom-color: var(--acento); color: var(--acento-fuerte); }
+.tabla small.ayuda { color: var(--tenue); font-size: 12px; margin-left: 2px; }
+.tabla-scroll { border-radius: 12px; }
+.cinta-boton { font-size: 12.5px; }

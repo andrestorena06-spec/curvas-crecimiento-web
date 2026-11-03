@@ -97,6 +97,15 @@ export function Esquema({ e }) {
       </div>
     )
   }
+  if (e.tipo === 'tabla') {
+    return (
+      <div className={`ficha-tabla-caja ${e.clase || ''}`}><table className="ficha-tabla">
+        <thead><tr>{e.columnas.map((c) => <th key={c}>{c}</th>)}</tr></thead>
+        <tbody>{e.filas.map((f, i) => <tr key={i}>{f.map((x, j) => <td key={j}>{x}</td>)}</tr>)}</tbody>
+        {e.pie && <tfoot><tr>{e.pie.map((x, j) => <td key={j}>{x}</td>)}</tr></tfoot>}
+      </table></div>
+    )
+  }
   if (e.tipo === 'diluciones') {
     return (
       <div className="dil-fila">

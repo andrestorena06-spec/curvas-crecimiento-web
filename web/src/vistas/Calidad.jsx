@@ -7,13 +7,19 @@ import { useTema, rellenoPocillo } from '../tema.js'
 import { Campo, Check, Encabezado, Icono, Modal, Num, Seg, Sel, Vacio } from '../ui/base.jsx'
 import { Grafico } from '../ui/grafico.jsx'
 import { LETRAS, fx, ordenPocillo } from '../utils.js'
-import { VistaCalidadPlacas } from './CalidadPlacas.jsx'
+import { VistaCalidadPlacas, ZoomTiempo } from './CalidadPlacas.jsx'
+import { ModalFases, ventanaOdElegida, zonasFases } from './FasesCepa.jsx'
+import { GrupoMostrar, GrupoTipoError, conEtiquetas, textoMostrar, useMostrar } from '../ui/mostrar.jsx'
+import { mediaPorTiempo } from './Curva.jsx'
 import { BotonCinta, Cajon, Cinta, Grupo, Mosaico, OpcionesCinta, CampoCinta } from '../ui/cinta.jsx'
 
 const CHIP_CAT = { OK: 'ok', Sospechoso: 'peligro', Divergentes: 'aviso', Ruidoso: 'aviso', Excluido: '', 'Sin réplicas': 'acento', Blanco: '', 'Sin datos': '' }
+// en cinéticas (Tecan) el test entre réplicas compara el área bajo la curva de cada réplica y marca la réplica entera
+const textoEntre = (origen) => (origen === 'tecan' ? '\nCompara el área bajo la curva (AUC) de las réplicas de cada cepa y marca la réplica entera, no puntos sueltos' : '\nEntre las réplicas de cada tiempo')
 const nombreSerie = (e) => (e.origenOd === 'tecan' ? 'pocillo' : 'serie')
 
 // ---------- ajustes ----------
+// Solo lo que NO está en la cinta (lo que se prende y apaga está en la cinta; acá quedan los números de cada criterio)
 export function AjustesCalidad({ s }) {
   const { exp, setAj } = s
   const aj = exp.aj
@@ -22,8 +28,7 @@ export function AjustesCalidad({ s }) {
     <div className="tarjeta ajustes">
       {exp.origenOd === 'tecan' && (<>
         <h3>Blanco</h3>
-        <Check label="Restar el blanco" checked={aj.corregir_blanco} onChange={(v) => setAj('corregir_blanco', v)} />
-        {aj.corregir_blanco && (<>
+        {!aj.corregir_blanco ? <p className="ayuda">Restar el blanco está apagado (botón «Restar blanco» de la cinta).</p> : (<>
           <Campo label="Cómo se resta">
             <Sel value={aj.blanco_metodo} onChange={(v) => setAj('blanco_metodo', v)} opciones={[['tiempo', 'Promedio de los blancos, tiempo a tiempo'], ['const_media', 'Constante: media de todo el blanco'], ['const_min', 'Constante: mínimo del blanco']]} />
           </Campo>
@@ -34,13 +39,10 @@ export function AjustesCalidad({ s }) {
           }) : <p className="aviso-caja">No hay pocillos de blanco. Marcalos en «Pocillos».</p>}
         </>)}
       </>)}
-      {exp.origenOd === 'placas' && <p className="aviso-caja info">El blanco de cada placa se define y se resta en «Placas por tiempo».</p>}
-      {exp.origenOd === 'cubeta' && <p className="aviso-caja info">El blanco y las diluciones de la cubeta se aplican en «Lecturas de OD».</p>}
+      {exp.origenOd === 'cubeta' && <p className="aviso-caja info">El blanco y las diluciones de la cubeta se aplican en «Cargar datos».</p>}
 
-      <h3>Puntos aberrantes</h3>
-      <Check label="Filtro de Hampel (dentro de cada curva)" checked={aj.hampel_on} onChange={(v) => setAj('hampel_on', v)}
-        ayuda={exp.origenOd === 'tecan' ? 'Recomendado para cinéticas: detecta picos (burbujas, condensación).' : exp.origenOd === 'placas' ? 'No corresponde aquí: cada placa es un instante y los pocillos no forman curvas propias. Usá Dixon.' : 'Necesita curvas con muchas lecturas; con pocas lecturas conviene Dixon.'} />
       {aj.hampel_on && (<>
+        <h3>Filtro de Hampel</h3>
         <div className="fila">
           <Campo label="Semiventana (puntos)"><Num value={aj.hampel_k} onChange={(v) => setAj('hampel_k', v)} ancho={80} /></Campo>
           <Campo label="Umbral (× MAD)"><Num value={aj.hampel_sigma} onChange={(v) => setAj('hampel_sigma', v)} ancho={80} /></Campo>
@@ -48,39 +50,25 @@ export function AjustesCalidad({ s }) {
         <Campo label="Diferencia mínima para marcar (OD)" ayuda="Piso en unidades de OD: evita marcar desvíos minúsculos cuando la curva es muy lisa."><Num value={aj.hampel_min} onChange={(v) => setAj('hampel_min', v)} /></Campo>
         <Campo label="Puntos marcados"><Sel value={aj.hampel_accion} onChange={(v) => setAj('hampel_accion', v)} opciones={[['excluir', 'Excluirlos'], ['interpolar', 'Reemplazarlos por interpolación']]} /></Campo>
       </>)}
-      <Campo label="Entre réplicas de cada tiempo" ayuda="Dixon: 3 a 10 réplicas (Grubbs con más). RSD: si la desviación estándar relativa supera el límite, sale la réplica más alejada de la media.">
-        <Seg value={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }} opciones={[['no', 'Ninguno'], ['q', 'Dixon'], ['grubbs', 'Grubbs'], ['cv', 'RSD']]} />
-      </Campo>
-      {aj.dixon_on && <Check label="Excluir solos los puntos sospechosos entre réplicas (si no, solo se marcan)" checked={aj.od_atip_auto === true} onChange={(v) => setAj('od_atip_auto', v)} />}
-      {aj.dixon_on && (aj.od_atip_metodo || 'q') !== 'cv' && <Campo label="Confianza"><Seg value={String(aj.dixon_conf)} onChange={(v) => setAj('dixon_conf', Number(v))} opciones={[['90', '90 %'], ['95', '95 %'], ['99', '99 %']]} /></Campo>}
-      {aj.dixon_on && aj.od_atip_metodo === 'cv' && <Campo label="RSD máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} /></Campo>}
-      <Check label="Excluir OD por encima de un máximo confiable" checked={aj.odmax_on} onChange={(v) => setAj('odmax_on', v)} />
       {aj.odmax_on && <Campo label="OD máxima confiable"><Num value={aj.odmax} onChange={(v) => setAj('odmax', v)} /></Campo>}
 
-      {!s.porCepa && (<>
       <h3>Réplicas que no concuerdan</h3>
       <div className="fila">
         <Campo label="Factor de desvío"><Num value={aj.pocillo_factor} onChange={(v) => setAj('pocillo_factor', v)} ancho={80} /></Campo>
         <Campo label="Desvío mínimo (OD)"><Num value={aj.pocillo_min} onChange={(v) => setAj('pocillo_min', v)} ancho={80} /></Campo>
       </div>
       <Campo label="Con 2 réplicas: diferencia de AUC (%)"><Num value={aj.pocillo_div} onChange={(v) => setAj('pocillo_div', v)} /></Campo>
-      <Check label="Excluir solos los «Sospechosos»" checked={aj.pocillo_auto} onChange={(v) => setAj('pocillo_auto', v)} />
-      </>)}
 
-      <h3>Procesado</h3>
-      <Campo label="OD inicial (OD₀)"><Sel value={aj.od0_metodo} onChange={(v) => setAj('od0_metodo', v)} opciones={[['auto', 'Automática (meseta inicial, tres fases)'], ['primeros', 'Media de los primeros N puntos']]} /></Campo>
+      <h3>OD inicial</h3>
+      <Campo label="OD₀"><Sel value={aj.od0_metodo} onChange={(v) => setAj('od0_metodo', v)} opciones={[['auto', 'Automática (meseta inicial, tres fases)'], ['primeros', 'Media de los primeros N puntos']]} /></Campo>
       <Campo label="N puntos iniciales"><Num value={aj.n_od0} onChange={(v) => setAj('n_od0', v)} /></Campo>
-      {!s.porCepa && (<>
+
+      <h3>Solo para los gráficos</h3>
+      <p className="ayuda" style={{ marginTop: 0 }}>El suavizado y la normalización cambian cómo se dibujan las curvas; los parámetros se calculan siempre con la OD sin suavizar ni normalizar.</p>
       <Campo label="Suavizado"><Sel value={aj.suavizado} onChange={(v) => setAj('suavizado', v)} opciones={[['ninguno', 'Ninguno'], ['media', 'Media móvil'], ['mediana', 'Mediana móvil'], ['loess', 'LOESS']]} /></Campo>
       {(aj.suavizado === 'media' || aj.suavizado === 'mediana') && <Campo label="Ventana (puntos, impar)"><Num value={aj.suav_k} onChange={(v) => setAj('suav_k', v)} /></Campo>}
       {aj.suavizado === 'loess' && <Campo label="Span (0 a 1)"><Num value={aj.suav_span} onChange={(v) => setAj('suav_span', v)} /></Campo>}
       <Campo label="Normalizar"><Sel value={aj.normalizar} onChange={(v) => setAj('normalizar', v)} opciones={[['ninguna', 'Sin normalizar'], ['restar', 'Restar OD₀'], ['dividir', 'Dividir por OD₀']]} /></Campo>
-      </>)}
-      {s.porCepa && (<>
-        <h3>Curva de cada cepa</h3>
-        <Seg value={s.modoCurva} onChange={(v) => setAj('placas_curva', v)} opciones={[['media', 'Promediada'], ['puntos', 'Sin promediar']]} />
-        <p className="ayuda" style={{ marginTop: 8 }}>{s.modoCurva === 'media' ? 'Cada placa es un tiempo: la curva de la cepa es la media de sus pocillos en cada tiempo.' : 'Cada placa es un tiempo: μmax, su error, OD₀ y lag salen de la regresión con todos los pocillos de todos los tiempos; K y AUC, de la curva media.'}</p>
-      </>)}
     </div>
   )
 }
@@ -219,7 +207,7 @@ function VistaPlaca({ s, onAbrir }) {
                 setHover({ x: e.clientX - r.left, y: e.clientY - r.top, t: `${nombreReplica(w.Muestra, w.Replica)}${s.exp.origenOd === 'tecan' ? ` (${p})` : ''}${w.EsBlanco ? ' · blanco' : ''}\n${fuera ? 'Excluido del análisis' : q?.Estado || ''}${marcados + manuales ? `\n${marcados + manuales} puntos fuera` : ''}\nClic para ampliar` })
               }}>
               <rect x={x0 + 2} y={y0 + 2} width={CW - 4} height={CH - 4} rx="8" fill={w ? (fuera ? T.fondo : rellenoPocillo(col, { ...T, mezcla: T.mezcla + 0.22 })) : T.pocilloVacio}
-                stroke={alerta && !fuera ? (q.Categoria === 'Sospechoso' ? T.peligro : T.aviso) : T.borde} strokeWidth={alerta && !fuera ? 1.6 : 1} />
+                stroke={fuera && w ? T.peligro : alerta ? (q.Categoria === 'Sospechoso' ? T.peligro : T.aviso) : T.borde} strokeWidth={fuera && w ? 2.6 : alerta ? 1.6 : 1} />
               {w && (<>
                 <polyline fill="none" strokeWidth="1.5" stroke={fuera ? T.eje : col} strokeDasharray={w.EsBlanco ? '2 2' : undefined} strokeLinejoin="round"
                   points={w.filas.filter((r) => finito(r.yAntes) && !r.motivo).map((r) => `${px(r.t / 3600, c).toFixed(1)},${py(r.yAntes, fi).toFixed(1)}`).join(' ')} />
@@ -234,7 +222,7 @@ function VistaPlaca({ s, onAbrir }) {
           )
         }))}
         <text x={L + 6 * CW} y={H - 6} textAnchor="middle" fontSize="11" fill={T.sec}>
-          Tiempo {fx(m.t0, 1)} a {fx(m.t1, 1)} h · eje Y común de {fx(m.y0, 2)} a {fx(m.y1, 2)} OD · ✕ puntos fuera del análisis · borde rojo: sospechoso · ámbar: divergente o ruidoso
+          Tiempo {fx(m.t0, 1)} a {fx(m.t1, 1)} h · eje Y común de {fx(m.y0, 2)} a {fx(m.y1, 2)} OD · ✕ puntos fuera del análisis · borde rojo grueso: pocillo excluido · borde rojo fino: sospechoso · ámbar: divergente o ruidoso
         </text>
       </svg>
     </div>
@@ -242,12 +230,21 @@ function VistaPlaca({ s, onAbrir }) {
 }
 
 // ---------- cubeta: una curva por cepa con sus réplicas (no hay pocillos) ----------
-function VistaCepas({ s, onAbrir }) {
+function VistaCepas({ s, onAbrir, mo, error }) {
   const T = useTema()
   const est = ESTILO_EST(T)
   const cepas = [...new Set(s.serie.config.filter((c) => !c.EsBlanco).map((c) => c.Muestra))]
   const qc = Object.fromEntries(s.pre.qc.map((q) => [q.Pocillo, q]))
+  const [zoom, setZoom] = useState(null)   // { m, t }: los puntos de una cepa en un tiempo, acercados
+  const [fasesDe, setFasesDe] = useState(null)   // cepa cuyas fases se están eligiendo (curva ampliada)
+  const claves = new Map(), datosFases = new Map()
+  const usado = (q) => !est[q.estado] || q.estado === 'Marcado (sigue en el análisis)' || q.estado === 'Reincorporado a mano'
+  const lectDe = (m, t) => s.serie.config.filter((c) => c.Muestra === m && !c.EsBlanco).sort((a, b) => a.Replica - b.Replica).flatMap((c) => puntosDe(s, c.Pocillo).filter((q) => Math.abs(q.t / 3600 - t) < 1e-6).map((q) => ({
+    Muestra: m, clave: q.k, Pocillo: c.Pocillo, Replica: c.Replica, Placa_T_h: t, EsBlanco: false, OD_leida: q.v, OD_corregida: q.v, tipOD: `OD = ${fx(q.v, 4)}`,
+    Usado: !s.pre.fuera.has(c.Pocillo) && usado(q), Sospechoso: q.estado === 'Marcado (sigue en el análisis)', Motivo: q.estado + (q.detalle ? ' · ' + q.detalle : ''),
+  })))
   return (
+    <>
     <div className="grilla-cepas">
       {cepas.map((m) => {
         const reps = s.serie.config.filter((c) => c.Muestra === m && !c.EsBlanco).sort((a, b) => a.Replica - b.Replica)
@@ -255,15 +252,29 @@ function VistaCepas({ s, onAbrir }) {
         reps.forEach((c) => {
           const fuera = s.pre.fuera.has(c.Pocillo)
           const pts = puntosDe(s, c.Pocillo)
+          pts.forEach((q) => claves.set(q.k, { m, t: q.t / 3600 }))
           const color = s.estilos[c.Pocillo]?.color || s.colores[m]
-          series.push({ id: c.Pocillo, nombre: `Réplica ${c.Replica}`, color, dash: fuera ? '4 4' : undefined, opacidad: fuera ? 0.35 : 1, ancho: 1.6, puntos: true, radio: 3,
-            data: pts.filter((q) => !est[q.estado] || q.estado === 'Marcado (sigue en el análisis)').map((q) => ({ x: q.t / 3600, y: q.v, key: q.k, tip: `${m} · réplica ${c.Replica}\nt = ${fx(q.t / 3600, 2)} h · OD ${fx(q.v, 3)}\nClic para excluir el punto` })) })
-          pts.filter((q) => est[q.estado]).forEach((q) => extras.push({ x: q.t / 3600, y: q.v, key: q.k, ...est[q.estado], tip: `${m} · réplica ${c.Replica}\n${q.estado}${q.detalle ? '\n' + q.detalle : ''}\nClic para cambiar` }))
+          if (mo.replicas) series.push({ id: c.Pocillo, nombre: `Réplica ${c.Replica}`, color, dash: fuera ? '4 4' : undefined, opacidad: fuera ? 0.35 : 1, ancho: 1.6, linea: false, puntos: true, radio: 3,
+            data: pts.filter((q) => !est[q.estado] || q.estado === 'Marcado (sigue en el análisis)').map((q) => ({ x: q.t / 3600, y: q.v, key: q.k, tip: `${m} · réplica ${c.Replica}\nt = ${fx(q.t / 3600, 2)} h · OD ${fx(q.v, 3)}\nClic: ver los puntos de ese tiempo` })) })
+          if (mo.replicas) pts.filter((q) => est[q.estado]).forEach((q) => extras.push({ x: q.t / 3600, y: q.v, key: q.k, ...est[q.estado], tip: `${m} · réplica ${c.Replica}\n${q.estado}${q.detalle ? '\n' + q.detalle : ''}\nClic: ver los puntos de ese tiempo` }))
         })
+        const filasM = (s.res || []).filter((r) => r.Muestra === m)
+        const tiemposM = [...new Set(reps.flatMap((c) => puntosDe(s, c.Pocillo).map((q) => q.t / 3600)))].sort((a, b) => a - b)
+        // puntos / barras / valores: la media de los pocillos aceptados en cada tiempo
+        if (mo.puntos || mo.barras || conEtiquetas(mo)) {
+          const mt = mediaPorTiempo((s.pre.proc || []).filter((w) => w.Muestra === m && !w.EsBlanco), (v) => v, error)
+          series.push({ id: 'media' + m, nombre: 'Media', color: s.colores[m], linea: false, puntos: !!mo.puntos, radio: 3.6, errores: !!mo.barras,
+            etiqueta: conEtiquetas(mo) ? (d) => d.valor : null,
+            data: mt.map((q) => ({ x: q.t / 3600, y: q.m, lo: q.lo, hi: q.hi, key: (() => { const k = `T|${m}|${q.t / 3600}`; claves.set(k, { m, t: q.t / 3600 }); return k })(), valor: textoMostrar(mo, fx(q.m, 3), Number.isFinite(q.hi) ? `± ${fx(q.hi - q.m, 3)}` : ''), tip: `${m}
+t = ${fx(q.t / 3600, 2)} h
+media OD = ${fx(q.m, 4)}
+n = ${q.n}` })) })
+        }
+        datosFases.set(m, { series, extras, tiempos: tiemposM, filas: filasM })
         return (
           <div key={m} className="mosaico">
-            <div className="mosaico-cab"><h2><i className="punto" style={{ background: s.colores[m], marginRight: 6 }} />{m}</h2></div>
-            <Grafico series={series} extras={extras} yTxt="OD" alto={240} estilo={s.estiloGrafico('cepaCubeta')} idEstilo="cepaCubeta" onPuntoClick={s.alternarPunto} nombre={`cubeta_${m}`} />
+            <div className="mosaico-cab" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><h2><i className="punto" style={{ background: s.colores[m], marginRight: 6 }} />{m}</h2>{filasM.length > 0 && <button className="chico fantasma" onClick={() => setFasesDe(m)} data-tip={'Fases de la curva: lag, exponencial y estacionaria\nAmplía la curva para elegir qué puntos forman la fase exponencial'}>Fases…</button>}</div>
+            <Grafico series={series} extras={extras} yTxt="OD" alto={240} zonas={zonasFases(filasM, tiemposM[0], tiemposM[tiemposM.length - 1], false, ventanaOdElegida(s, filasM))} estilo={s.estiloGrafico('cepaCubeta')} idEstilo="cepaCubeta" onPuntoClick={(k) => { const z = claves.get(k); if (z) setZoom(z) }} nombre={`cubeta_${m}`} />
             <div className="fila" style={{ flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
               {reps.map((c) => {
                 const q = qc[c.Pocillo], fuera = s.pre.fuera.has(c.Pocillo)
@@ -276,6 +287,9 @@ function VistaCepas({ s, onAbrir }) {
         )
       })}
     </div>
+    {fasesDe && datosFases.get(fasesDe) && <ModalFases s={s} cepa={fasesDe} {...datosFases.get(fasesDe)} onClose={() => setFasesDe(null)} />}
+    {zoom && <ZoomTiempo titulo={`${zoom.m} · t = ${fx(zoom.t, zoom.t % 1 ? 2 : 0)} h`} cepa={zoom.m} colores={s.colores} o={{ puntos: true, medias: mo.puntos, errores: mo.barras, etiquetas: conEtiquetas(mo), mostrar: mo, error }} onClick={s.alternarPunto} estilo={s.estiloGrafico('exclusion')} onClose={() => setZoom(null)} lect={lectDe(zoom.m, zoom.t)} />}
+    </>
   )
 }
 
@@ -315,6 +329,8 @@ export function Calidad({ s }) {
   const [vista, setVista] = useOpcion('calidad.vista.' + s.exp.origenOd, s.exp.origenOd === 'tecan' ? 'placa' : 'cepas')
   const [abierto, setAbierto] = useState(null)
   const [ajustes, setAjustes] = useState(false)
+  const [mo, setMo] = useMostrar('calidadCubeta', { puntos: false, replicas: true })
+  const [errorOd, setErrorOd] = useOpcion('curva.error', 'sd')
   const { pre, exp, setAj } = s
   const aj = exp.aj
   const sinDatos = !s.serie.datos || !s.serie.config.length
@@ -325,6 +341,8 @@ export function Calidad({ s }) {
     <div className="pagina">
       {!s.porCepa && (
         <Cinta>
+          {exp.origenOd !== 'tecan' && <GrupoMostrar m={mo} set={setMo} notas={{ puntos: 'La media de las réplicas aceptadas en cada tiempo', replicas: 'Cada réplica como una curva de puntos: clic en un punto para excluirlo o reincorporarlo', barras: 'Barras de error: el tipo (DE, EEM o IC 95 %) se elige en este mismo menú, «Tipo de error»' }} />}
+          {<GrupoTipoError valor={errorOd} onChange={setErrorOd} nota={'\n(el mismo en todos los gráficos de OD)'} />}
           {exp.origenOd === 'tecan' && (
             <Grupo titulo="Blanco">
               <BotonCinta simbolo="−B" texto="Restar blanco" activo={aj.corregir_blanco} onClick={() => setAj('corregir_blanco', !aj.corregir_blanco)} />
@@ -336,7 +354,7 @@ export function Calidad({ s }) {
           </Grupo>
           <Grupo titulo="Método (entre réplicas)">
             <OpcionesCinta valor={!aj.dixon_on ? 'no' : aj.od_atip_metodo || 'q'} onChange={(v) => { setAj('dixon_on', v !== 'no'); if (v !== 'no') setAj('od_atip_metodo', v) }}
-              opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, METODOS_ATIPICOS.q + '\nEntre las réplicas de cada tiempo'], ['grubbs', 'Grubbs', 'G', null, METODOS_ATIPICOS.grubbs + '\nEntre las réplicas de cada tiempo'], ['cv', 'CV %', 'CV', null, METODOS_ATIPICOS.cv + '\nSi las réplicas de un tiempo lo superan, sale la más alejada de la media']]} />
+              opciones={[['no', 'Ninguno', '·', null, 'No comparar las réplicas entre sí'], ['q', 'Dixon', 'Q', null, METODOS_ATIPICOS.q + textoEntre(exp.origenOd)], ['grubbs', 'Grubbs', 'G', null, METODOS_ATIPICOS.grubbs + textoEntre(exp.origenOd)], ['cv', 'CV %', 'CV', null, METODOS_ATIPICOS.cv + '\nSi las réplicas de un tiempo lo superan, sale la más alejada de la media']]} />
           </Grupo>
           {aj.dixon_on && (aj.od_atip_metodo === 'cv'
             ? <Grupo titulo="Límite"><CampoCinta etiqueta="CV máximo (%)"><Num value={aj.od_cvmax ?? 20} onChange={(v) => setAj('od_cvmax', v)} ancho={70} /></CampoCinta></Grupo>
@@ -353,21 +371,21 @@ export function Calidad({ s }) {
             <OpcionesCinta valor={vista} onChange={setVista} opciones={exp.origenOd === 'tecan' ? [['placa', 'Placa', null, 'placa'], ['tabla', 'Tabla', null, 'tabla']] : [['cepas', 'Por cepa', null, 'curva'], ['tabla', 'Tabla', null, 'tabla']]} />
           </Grupo>
           <Grupo titulo="Detalle">
-            <BotonCinta icono="editar" texto="Todos los ajustes" activo={ajustes} onClick={() => setAjustes(!ajustes)} />
+            <BotonCinta icono="editar" texto="Más ajustes" activo={ajustes} onClick={() => setAjustes(!ajustes)} tip={'Los números de cada criterio (Hampel, OD máxima, réplicas que no concuerdan),\nOD inicial y suavizado/normalización de los gráficos'} />
           </Grupo>
         </Cinta>
       )}
-      <Encabezado titulo="Calidad OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel dentro de cada curva; Dixon, Grubbs o CV % entre réplicas, que por defecto solo marcan) y réplicas que no concuerdan. Nada se borra: todo se puede revertir con un clic.'} />
+      <Encabezado titulo="Revisión de la OD" sub={s.porCepa ? 'Cada placa es un tiempo. En cada una se promedian los blancos aceptados y ese valor se resta a cada lectura; después se comparan los pocillos de cada cepa entre sí. Nada se borra: todo se puede revertir con un clic.' : 'Blanco, puntos aberrantes (Hampel: puntos sueltos dentro de cada curva) y réplicas sospechosas (Dixon, Grubbs o CV %: comparan las réplicas entre sí; por defecto solo marcan). Nada se borra: todo se puede revertir con un clic.'} />
       {s.serie.avisos.map((a, i) => <div key={i} className="aviso-caja">{a}</div>)}
       {sinDatos ? <Vacio titulo="Todavía no hay curvas" accion={<button className="primario" onClick={() => s.irA(irDatos)}>Ir a cargar los datos</button>}>Cargá los datos y definí las cepas para ver el control de calidad.</Vacio> : s.porCepa ? <VistaCalidadPlacas s={s} /> : (
         pre?.error ? <div className="aviso-caja error">{pre.error}</div> : pre && (<>
-          {vista === 'cepas' && exp.origenOd !== 'tecan' ? <VistaCepas s={s} onAbrir={setAbierto} /> : (
+          {vista === 'cepas' && exp.origenOd !== 'tecan' ? <VistaCepas s={s} onAbrir={setAbierto} mo={mo} error={errorOd} /> : (
           <Mosaico titulo={vista === 'placa' && exp.origenOd === 'tecan' ? 'Placa con la curva de cada pocillo' : `Tabla por ${nombreSerie(exp)}`}>
             {vista === 'placa' && exp.origenOd === 'tecan' ? <VistaPlaca s={s} onAbrir={setAbierto} /> : <TablaQC s={s} onAbrir={setAbierto} />}
           </Mosaico>)}
         </>)
       )}
-      <Cajon titulo="Ajustes del control de calidad" abierto={ajustes && !s.porCepa} onClose={() => setAjustes(false)}><AjustesCalidad s={s} /></Cajon>
+      <Cajon titulo="Más ajustes de la revisión" abierto={ajustes && !s.porCepa} onClose={() => setAjustes(false)}><AjustesCalidad s={s} /></Cajon>
       {abierto && pre && !pre.error && <ModalPocillo s={s} p={abierto} onClose={() => setAbierto(null)} />}
     </div>
   )

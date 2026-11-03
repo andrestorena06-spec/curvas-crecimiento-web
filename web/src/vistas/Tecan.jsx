@@ -64,7 +64,7 @@ export function ArchivoTecan({ s }) {
         )}
         {d && <GrupoCamino s={s} />}
       </Cinta>
-      <Encabezado titulo="Lecturas de OD" sub={`Excel exportado por el lector (Tecan u otro con cinética). Se aceptan ${TEXTO_FORMATOS}, incluidos los .xls viejos y los de LibreOffice.`} />
+      <Encabezado titulo="Cargar datos de OD" sub={`Excel exportado por el lector (Tecan u otro con cinética). Se aceptan ${TEXTO_FORMATOS}, incluidos los .xls viejos y los de LibreOffice.`} />
       <ZonaCarga acepta={ACEPTA_LIBRO} onArchivos={(f) => leer(f[0])} titulo={cargando ? 'Leyendo…' : d ? 'Reemplazar el archivo' : 'Elegí o soltá el Excel del lector'}
         texto="Formatos reconocidos: «Time [s]» en la columna A con los pocillos debajo, una fila con A1…H12 y una columna de tiempo, o bloques «T=…» con la matriz A–H." compacta={!!d} />
       {d && (

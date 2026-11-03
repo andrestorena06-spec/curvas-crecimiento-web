@@ -19,12 +19,13 @@ export const recordarPreferida = (clave, valor) => {
 // valor: { opciones (las del experimento abierto), set(clave, valor) }
 export const OpcionesCtx = createContext({ opciones: {}, set: () => {} })
 
-export function useOpcion(clave, def) {
+// propia = true: el valor es de ESTE experimento (p. ej. lo escrito en una calculadora): no se recuerda para otros experimentos
+export function useOpcion(clave, def, propia = false) {
   const { opciones, set } = useContext(OpcionesCtx)
-  const valor = clave in (opciones || {}) ? opciones[clave] : clave in preferidas() ? preferidas()[clave] : def
+  const valor = clave in (opciones || {}) ? opciones[clave] : !propia && clave in preferidas() ? preferidas()[clave] : def
   const cambiar = (x) => {
     const nuevo = typeof x === 'function' ? x(valor) : x
-    recordarPreferida(clave, nuevo)
+    if (!propia) recordarPreferida(clave, nuevo)
     set(clave, nuevo)
   }
   return [valor, cambiar]

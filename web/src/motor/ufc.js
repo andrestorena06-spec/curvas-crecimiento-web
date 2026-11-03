@@ -12,8 +12,8 @@
 // COLUMNA j es la dilución −j) o de una tabla (una fila por muestra, tiempo y réplica, una columna por dilución).
 // ============================================================
 import { LETRAS, convertirNumero } from './lectura.js'
-import { desvio, finito, interpolar, media } from './analisis.js'
-import { baranyiF, levenbergMarquardt } from './modelos.js'
+import { desvio, finito, interpolar, media, regLineal } from './analisis.js'
+import { baranyiF, erroresAjuste, huangF, levenbergMarquardt } from './modelos.js'
 import { tCuantil } from '../utils.js'
 
 // ---------- parámetros ----------
@@ -186,39 +186,6 @@ export function estimarUfc(cont, par) {
   return { ufc: c / D, lo: lo / D, hi: hi / D, estado, lim: NaN, ...base }
 }
 
-// ---------- ajuste entre diluciones ----------
-// Si la columna k tiene C colonias, la siguiente (dilución D₂ en vez de D₁) debería tener C · D₁/D₂.
-// Para cada par de diluciones consecutivas con conteo se compara lo observado con lo esperado con una prueba
-// binomial exacta: dado el total S = C₁ + C₂, C₂ ~ Binomial(S, p) con p = (1/D₂) / (1/D₁ + 1/D₂).
-// Si p-valor < 0,05 el par no es coherente (pipeteo, error de dilución, colonias superpuestas o mal contadas).
-function pBinomial(x, n, p) {
-  if (n <= 0) return 1
-  const lf = (k) => lgamma(k + 1)
-  const pr = (k) => Math.exp(lf(n) - lf(k) - lf(n - k) + k * Math.log(p) + (n - k) * Math.log(1 - p))
-  const px = pr(x)
-  let tot = 0
-  for (let k = 0; k <= n; k++) { const q = pr(k); if (q <= px * (1 + 1e-7)) tot += q }
-  return Math.min(1, tot)
-}
-export function ajusteDiluciones(cont, par) {
-  const e = entradas(cont).sort((x, y) => dilDe(par, x[0]) - dilDe(par, y[0]))
-  const pares = []
-  for (let i = 0; i < e.length - 1; i++) {
-    const [k1, c1] = e[i], [k2, c2] = e[i + 1]
-    const D1 = dilDe(par, k1), D2 = dilDe(par, k2)
-    const esperado = (c1 * D1) / D2
-    const r = { k1, k2, c1, c2, esperado, factor: D2 / D1 }
-    if (c1 > 2 * par.max) pares.push({ ...r, estado: 'no_evaluable', motivo: `${c1} colonias: demasiadas para contar bien` })
-    else if (c1 + c2 < 5) pares.push({ ...r, estado: 'pocas', motivo: 'menos de 5 colonias entre las dos: no se puede juzgar' })
-    else {
-      const p = (1 / D2) / (1 / D1 + 1 / D2)
-      const pv = pBinomial(c2, c1 + c2, p)
-      pares.push({ ...r, p: pv, estado: pv < 0.05 ? 'desvio' : 'ok' })
-    }
-  }
-  const malos = pares.filter((x) => x.estado === 'desvio')
-  return { pares, ok: !malos.length, evaluados: pares.filter((x) => x.estado === 'ok' || x.estado === 'desvio').length, malos }
-}
 
 // ---------- recuentos de una experiencia ----------
 // Una fila por réplica: { Muestra, T_h, Replica, Fila, origen, cont, par }
@@ -274,7 +241,7 @@ export function calcularUfc(u) {
     return {
       Muestra: r.Muestra, T_h: r.T_h, Fila: r.Fila || '', Replica: r.Replica, Origen: r.origen, Conteos: n,
       Diluciones_usadas: est.usados.map((k) => `columna ${k + 1} (${r.cont[k]} col.)`).join(', '), Dilucion_elegida: est.manual ? 'a mano' : 'sugerida',
-      _aj: ajusteDiluciones(r.cont, r.par), _manual: est.manual, _sugerida: est.sugerida,
+      _manual: est.manual, _sugerida: est.sugerida,
       UFC_mL: est.ufc, IC95_inf: est.lo, IC95_sup: est.hi, Estado: textoEstado(est.estado), _estado: est.estado,
       log10: finito(est.ufc) && est.ufc > 0 ? Math.log10(est.ufc) : NaN, Colonias_usadas: est.S, Limite: est.lim,
       _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S, _D: est.D,
@@ -375,6 +342,13 @@ export function errorUfc(r, escala = 'log10', tipo = 'sd', centro = 'pool') {
   }
   return { m: mLog, lo: finito(err) ? mLog - err : NaN, hi: finito(err) ? mLog + err : NaN, err, fac: NaN, cv, n, ic: false, nBajo }
 }
+// solo el error, para escribirlo sobre el punto: «[lo – hi]» (IC del conteo), «± err» o «×/÷ factor»
+export function errorTextoUfc(e, lin) {
+  const f = (v) => (lin ? sciUfc(v) : v.toFixed(2).replace('.', ','))
+  if (e.ic) return finito(e.lo) && finito(e.hi) ? `[${f(e.lo)} – ${f(e.hi)}]` : ''
+  if (finito(e.fac)) return `×/÷ ${e.fac.toFixed(2).replace('.', ',')}`
+  return finito(e.err) ? `± ${f(e.err)}` : ''
+}
 // texto «valor ± error» (o «valor [IC]») para poner sobre el punto
 export function textoErrorUfc(e, lin) {
   const f = (v) => (lin ? sciUfc(v) : v.toFixed(2).replace('.', ','))
@@ -394,106 +368,203 @@ const sciUfc = (v) => (finito(v) ? v.toExponential(2).replace('.', ',').replace(
 //   A(t) = t + ln(e^{−μt} + e^{−h₀} − e^{−μt−h₀}) / μ ;  λ = h₀ / μ
 // Como en DMFit, se informan la velocidad en log₁₀ UFC/mL por hora («Rate»), y₀ e y_final en log₁₀, R² y el
 // error estándar del ajuste (en log₁₀), con los grados de libertad n − p.
-export const MODELOS_UFC = { lineal: 'Lineal', baranyi: 'Baranyi y Roberts', bifasico: 'Bifásico (sin asíntota)' }
-export const modeloUfc = (aj) => (MODELOS_UFC[aj?.ufc_modelo] ? aj.ufc_modelo : 'baranyi')
+// Solo dos modelos: «Linealizar log₁₀» (recta de ln N en la fase exponencial) y Baranyi y Roberts. El «bifásico» de sesiones viejas
+// se trata como Baranyi y Roberts.
+export const MODELOS_UFC = { lineal: 'Linealizar log₁₀ (recta de log₁₀ en la fase exponencial)', baranyi: 'Baranyi y Roberts', huang: 'Huang' }
+export const modeloUfc = (aj) => (aj?.ufc_modelo === 'lineal' ? 'lineal' : aj?.ufc_modelo === 'huang' ? 'huang' : 'baranyi')
+// lag fijo (h): se fija λ en el ajuste de Baranyi y Roberts o de Huang (estabiliza μ cuando hay pocos puntos)
+export const lagFijoUfc = (aj) => { const v = aj?.ufc_lagfijo; return v === '' || v === null || v === undefined || !finito(Number(v)) || Number(v) < 0 ? NaN : Number(v) }
 // curvatura m del Baranyi y Roberts (aj.ufc_mcurv, por defecto 1)
 export const mcurvUfc = (aj) => { const v = Number(aj?.ufc_mcurv); return finito(v) && v > 0 ? v : 1 }
-const NPAR = { lineal: 2, baranyi: 4, bifasico: 3 }
-const MIN_T = { lineal: 2, baranyi: 4, bifasico: 3 }
+const NPAR = { lineal: 2, baranyi: 4, huang: 4 }
+const MIN_T = { lineal: 2, baranyi: 4, huang: 4 }
 
-const aFun = (x, mu, h0) => x + Math.log(Math.exp(-mu * x) + Math.exp(-h0) - Math.exp(-mu * x - h0)) / mu
-const bifasicoF = (x, y0, mu, h0) => y0 + mu * aFun(x, mu, h0)
 const f2 = (x) => (finito(x) ? x.toFixed(2).replace('.', ',') : '–')
 
 // t (h) y ly = ln(UFC/mL) de cada punto. ymaxFijo10: N máx en log₁₀ fijado por el usuario (solo Baranyi y Roberts).
 // mcurv: curvatura m del Baranyi y Roberts (1 por defecto).
-export function ajusteDmfit(t, ly, modelo = 'baranyi', ymaxFijo10 = NaN, mcurv = 1) {
-  const fijo = modelo === 'baranyi' && finito(ymaxFijo10) ? ymaxFijo10 * Math.LN10 : NaN
-  const mc = modelo === 'baranyi' && finito(mcurv) && mcurv > 0 ? mcurv : 1
+// Modelo «Linealizar log₁₀»: recta de ln N contra t en la FASE EXPONENCIAL (la ventana de pendiente máxima entre las que son bien
+// rectas), igual que μmax por OD. t en horas, ly = ln de cada punto (todos los puntos, o los valores de cada tiempo).
+// op: { ancho (h), minpts, r2min }. Devuelve el mismo objeto que ajusteDmfit. y₀ = ordenada al origen (log₁₀) para que la
+// ecuación sea ln N(t) = a + μ t; c.t0 y c.t1 = la ventana (donde la ecuación vale); c.tDatos0/1 = rango de los datos.
+export function ajusteClasico(t, ly, op = {}) {
+  const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(ly[i])).sort((a, b) => t[a] - t[b])
+  const tt = idx.map((i) => t[i]), yy = idx.map((i) => ly[i])
+  const n = tt.length, nT = new Set(tt).size
+  const vacio = { ok: false, modelo: 'lineal', n, nT, mu: NaN, avisos: [] }
+  if (nT < 3) return { ...vacio, motivo: `El modelo «Linealizar log₁₀» necesita al menos 3 tiempos con recuento (hay ${nT}).` }
+  const tu = [...new Set(tt)]
+  const paso = tu.slice(1).map((x, i) => x - tu[i]).sort((a, b) => a - b)[Math.floor((tu.length - 1) / 2)] || 1
+  const minpts = Math.max(3, Math.round(op.minpts || 3)), r2min = op.r2min ?? 0.95
+  const ancho = Math.max(Number(op.ancho) || 2, paso * (minpts - 1) * 1.0001)
+  const vent = []
+  for (let i = 0; i < n; i++) {
+    const j = []
+    for (let k = 0; k < n; k++) if (tt[k] >= tt[i] && tt[k] <= tt[i] + ancho + 1e-9) j.push(k)
+    if (j.length < minpts || new Set(j.map((k) => tt[k])).size < 3) continue
+    const x = j.map((k) => tt[k]), y = j.map((k) => yy[k])
+    const rg = regLineal(x, y)
+    if (!finito(rg.b)) continue
+    vent.push({ ini: Math.min(...x), fin: Math.max(...x), n: j.length, a: rg.a, b: rg.b, r2: rg.r2, x, y })
+  }
+  // tramo elegido a mano (op.ventana = [t0, t1]): la recta se ajusta a todos los puntos de ese tramo
+  let manual = null
+  if (op.ventana && finito(op.ventana[0]) && finito(op.ventana[1])) {
+    const j = []
+    for (let k = 0; k < n; k++) if (tt[k] >= op.ventana[0] - 1e-9 && tt[k] <= op.ventana[1] + 1e-9) j.push(k)
+    if (j.length >= 3 && new Set(j.map((k) => tt[k])).size >= 3) {
+      const x = j.map((k) => tt[k]), y = j.map((k) => yy[k]), rg = regLineal(x, y)
+      if (finito(rg.b)) manual = { ini: Math.min(...x), fin: Math.max(...x), n: j.length, a: rg.a, b: rg.b, r2: rg.r2, x, y }
+    }
+  }
+  if (!vent.length && !manual) return { ...vacio, motivo: 'No hay una ventana con suficientes recuentos para ajustar la recta de la fase exponencial.' }
+  const avisos = []
+  // solo compiten las ventanas de ancho (casi) completo; si ninguna cumple, todas
+  const anchoMax = vent.length ? Math.max(...vent.map((v) => v.fin - v.ini)) : 0
+  const ventC = vent.filter((v) => v.fin - v.ini >= 0.8 * anchoMax - 1e-9)
+  let cand = manual ? [manual] : ventC.filter((v) => v.r2 >= r2min)
+  if (!manual && !cand.length) cand = vent.filter((v) => v.r2 >= r2min)
+  if (!cand.length) { cand = vent; avisos.push(`Ninguna ventana alcanza R² ≥ ${r2min.toFixed(2).replace('.', ',')}: se usó la de mayor pendiente.`) }
+  let w = cand.reduce((m, v) => (v.b > m.b ? v : m), cand[0])
+  // quota (como fit_easylinear de growthrates): las ventanas contiguas con pendiente ≥ quota · máxima se suman a la mejor y se reajusta la recta
+  let ampliada = false
+  const quota = finito(op.quota) && op.quota > 0 && op.quota < 1 ? op.quota : NaN
+  if (!manual && finito(quota) && w.b > 0) {
+    let L = vent.indexOf(w), R = L
+    while (L > 0 && vent[L - 1].b >= quota * w.b) L--
+    while (R < vent.length - 1 && vent[R + 1].b >= quota * w.b) R++
+    const ini = vent[L].ini, fin = vent[R].fin
+    if (ini < w.ini - 1e-9 || fin > w.fin + 1e-9) {
+      const x = [], y = []
+      for (let k = 0; k < n; k++) if (tt[k] >= ini - 1e-9 && tt[k] <= fin + 1e-9) { x.push(tt[k]); y.push(yy[k]) }
+      const rg = regLineal(x, y)
+      if (finito(rg.b) && rg.b > 0) { w = { ini: Math.min(...x), fin: Math.max(...x), n: x.length, a: rg.a, b: rg.b, r2: rg.r2, x, y }; ampliada = true }
+    }
+  }
+  if (!(w.b > 0)) return { ...vacio, motivo: 'La pendiente de ln N no es positiva: sin crecimiento detectable.' }
+  const L = Math.LN10
+  const sse = w.y.reduce((s, y, i) => s + (y - w.a - w.b * w.x[i]) ** 2, 0) / (L * L)
+  const gl = w.n - 2
+  const yInit = media(yy.filter((_, i) => tt[i] === tt[0]))   // nivel inicial observado (ln)
+  const lag = Math.max(0, (yInit - w.a) / w.b)
+  if (!manual && !ampliada && w.fin >= tt[n - 1] - 1e-9 && vent.length > 2 && vent[vent.length - 1].b > vent[vent.length - 2].b) avisos.push('La fase exponencial no está bien definida: el tramo termina en el último punto de la corrida y la curva todavía se acelera. Si la corrida es más larga o el cultivo sigue creciendo, el tramo cambia; podés elegirlo a mano en «Fases…».')
+  if (gl <= 1) avisos.push(`La recta usa solo ${w.n} puntos (${gl} grado${gl === 1 ? '' : 's'} de libertad): μ es poco firme. Más tiempos de muestreo en la fase exponencial lo resuelven.`)
+  return {
+    ok: true, modelo: 'lineal', n, nT, k: 2, gl, pred10: (x) => (w.a + w.b * x) / L, mcurv: NaN, convergio: true, avisos,
+    mu: w.b, rate: w.b / L, td_h: Math.LN2 / w.b, lag_h: lag, h0: NaN, a: w.a, yInit10: yInit / L,
+    y0: w.a / L, yEnd: NaN, sinAsintota: false, r2: w.r2, se: gl > 0 ? Math.sqrt(sse / gl) : NaN,
+    t0: w.ini, t1: w.fin, tDatos0: tt[0], tDatos1: tt[n - 1], nVentana: w.n, ymaxFijo: false, mesetaExtrapolada: false, ventana: { ini: w.ini, fin: w.fin, n: w.n }, ventanaAmpliada: ampliada,
+  }
+}
+
+export function ajusteDmfit(t, ly, modelo = 'baranyi', ymaxFijo10 = NaN, mcurv = 1, op = null) {
+  if (modelo === 'lineal') return ajusteClasico(t, ly, op || {})
+  const esBar = modelo === 'baranyi'
+  const fijo = finito(ymaxFijo10) ? ymaxFijo10 * Math.LN10 : NaN
+  const lagF = finito(op?.lagFijo) && op.lagFijo >= 0 ? Number(op.lagFijo) : NaN
+  const mc = esBar && finito(mcurv) && mcurv > 0 ? mcurv : 1
   const idx = t.map((_, i) => i).filter((i) => finito(t[i]) && finito(ly[i])).sort((a, b) => t[a] - t[b])
   const tt = idx.map((i) => t[i]), yy = idx.map((i) => ly[i])
   const n = tt.length, nT = new Set(tt).size
   const vacio = { ok: false, modelo, n, nT, mu: NaN, avisos: [] }
-  if (nT < MIN_T[modelo]) return { ...vacio, motivo: `El modelo ${MODELOS_UFC[modelo].toLowerCase()} necesita al menos ${MIN_T[modelo]} tiempos con recuento (hay ${nT}).` }
+  if (nT < MIN_T[modelo]) return { ...vacio, motivo: `El modelo ${MODELOS_UFC[modelo]} necesita al menos ${MIN_T[modelo]} tiempos con recuento (hay ${nT}).` }
   // N máx fijado: tiene que estar por encima de todo lo medido (si no, la curva no puede pasar por los datos)
   if (finito(fijo) && fijo <= Math.max(...yy)) {
     return { ...vacio, motivo: `El N máx fijado (${f2(ymaxFijo10)} log₁₀) no es mayor que el máximo observado (${f2(Math.max(...yy) / Math.LN10)} log₁₀): no se puede usar. Poné un N máx mayor o dejalo vacío.` }
   }
-  // recta de todos los puntos: es el modelo lineal y el punto de partida de los otros
   const mx = media(tt), my = media(yy)
   let sxx = 0, sxy = 0
   tt.forEach((v, i) => { sxx += (v - mx) ** 2; sxy += (v - mx) * (yy[i] - my) })
-  const b = sxx > 0 ? sxy / sxx : NaN, a = my - b * mx
-  let pred, par
-  let convergio = true
-  const limites = []
-  if (modelo === 'lineal') {
-    if (!finito(b)) return { ...vacio, motivo: 'Los tiempos no varían.' }
-    pred = (x) => a + b * x
-    par = { y0: a, mu: b, h0: NaN, ymax: NaN }
-  } else {
-    const ymin = Math.min(...yy), ymaxObs = Math.max(...yy)
-    if (!(ymaxObs - ymin > 0.05)) return { ...vacio, motivo: 'Los recuentos casi no cambian: no hay crecimiento para ajustar.' }
-    const span = tt[n - 1] - tt[0] || 1
-    // pendiente máxima entre tiempos consecutivos (medias) como valor inicial de μ
-    const tu = [...new Set(tt)]
-    const mu_t = tu.map((x) => media(yy.filter((_, i) => tt[i] === x)))
-    let mu0 = finito(b) && b > 0 ? b : (ymaxObs - ymin) / span
-    for (let i = 0; i + 1 < tu.length; i++) mu0 = Math.max(mu0, (mu_t[i + 1] - mu_t[i]) / (tu[i + 1] - tu[i]))
-    // y₀ no puede pasar el máximo medido ni el N máx fijado
-    const y0Hi = finito(fijo) ? Math.min(ymaxObs, fijo) : ymaxObs
-    const nombres = finito(fijo) ? ['y₀', 'μ', 'h₀'] : modelo === 'baranyi' ? ['y₀', 'y máx', 'μ', 'h₀'] : ['y₀', 'μ', 'h₀']
-    let mejor = null, mejorConv = null
-    // varios puntos de partida para el lag: el ajuste no lineal puede quedar en un mínimo local
-    for (const fr of [0, 0.15, 0.3, 0.5, 0.7]) for (const fm of [0.6, 1]) {
-      const m0 = Math.max(mu0 * fm, 1e-3), h = m0 * fr * span
-      const r = finito(fijo)
-        ? levenbergMarquardt((p, x) => x.map((v) => baranyiF(v, p[0], fijo, p[1], p[2], mc)), [mu_t[0], m0, h], [ymin - 3, 1e-4, 0], [y0Hi, 20, 80], tt, yy)
-        : modelo === 'baranyi'
-        ? levenbergMarquardt((p, x) => x.map((v) => baranyiF(v, p[0], p[1], p[2], p[3], mc)), [mu_t[0], ymaxObs, m0, h], [ymin - 3, ymin, 1e-4, 0], [y0Hi, ymaxObs + 5, 20, 80], tt, yy)
-        : levenbergMarquardt((p, x) => x.map((v) => bifasicoF(v, p[0], p[1], p[2])), [mu_t[0], m0, h], [ymin - 3, 1e-4, 0], [y0Hi, 20, 80], tt, yy)
-      if (!finito(r.rss) || !r.p.every(finito)) continue
-      if (!mejor || r.rss < mejor.rss) mejor = r
-      // se prefieren los arranques que cumplieron el criterio de convergencia
-      if (r.conv && !r.estancado && (!mejorConv || r.rss < mejorConv.rss)) mejorConv = r
-    }
-    if (!mejor) return { ...vacio, motivo: 'El modelo no convergió.' }
-    if (mejorConv) mejor = mejorConv
-    else convergio = false
-    const p = mejor.p
-    // parámetros pegados a un límite (la asíntota en el límite superior se informa aparte como «sin meseta»;
-    // h₀ = 0 es lag nulo, un valor posible)
-    ;(mejor.enLimite || []).forEach(({ i, lado }) => {
-      const nom = nombres[i]
-      if (nom === 'y máx' && lado === 'superior') return
-      if (nom === 'h₀' && lado === 'inferior') return
-      limites.push(`${nom} en el límite ${lado}`)
-    })
-    // si la asíntota queda en el límite superior, los datos no llegan a la fase estacionaria y no se puede estimar
-    if (finito(fijo)) { pred = (x) => baranyiF(x, p[0], fijo, p[1], p[2], mc); par = { y0: p[0], ymax: fijo, mu: p[1], h0: p[2] } }
-    else if (modelo === 'baranyi') { pred = (x) => baranyiF(x, p[0], p[1], p[2], p[3], mc); par = { y0: p[0], ymax: p[1], mu: p[2], h0: p[3], sinAsintota: p[1] >= ymaxObs + 5 - 1e-3 } }
-    else { pred = (x) => bifasicoF(x, p[0], p[1], p[2]); par = { y0: p[0], ymax: NaN, mu: p[1], h0: p[2] } }
+  const b = sxx > 0 ? sxy / sxx : NaN
+  const ymin = Math.min(...yy), ymaxObs = Math.max(...yy)
+  if (!(ymaxObs - ymin > 0.05)) return { ...vacio, motivo: 'Los recuentos casi no cambian: no hay crecimiento para ajustar.' }
+  const span = tt[n - 1] - tt[0] || 1
+  // pendiente máxima entre tiempos consecutivos (medias) como valor inicial de μ
+  const tu = [...new Set(tt)]
+  const mu_t = tu.map((x) => media(yy.filter((_, i) => tt[i] === x)))
+  let mu0 = finito(b) && b > 0 ? b : (ymaxObs - ymin) / span
+  for (let i = 0; i + 1 < tu.length; i++) mu0 = Math.max(mu0, (mu_t[i + 1] - mu_t[i]) / (tu[i + 1] - tu[i]))
+  // y₀ no puede pasar el máximo medido ni el N máx fijado
+  const y0Hi = finito(fijo) ? Math.min(ymaxObs, fijo) : ymaxObs
+  // parámetros: y₀, y máx, μ y q (Baranyi y Roberts: h₀, con λ = h₀/μ; Huang: λ). Se ajustan los libres.
+  const nomQ = esBar ? 'h₀' : 'λ'
+  const nombresTodos = ['y₀', 'y máx', 'μ', nomQ]
+  const libre = [true, !finito(fijo), true, !finito(lagF)]
+  const ix = [0, 1, 2, 3].filter((i) => libre[i])
+  const armar = (p) => {
+    let k = 0
+    const y0 = p[k++], ym = libre[1] ? p[k++] : fijo, mu = p[k++]
+    const q = libre[3] ? p[k++] : esBar ? mu * lagF : lagF
+    return [y0, ym, mu, q]
   }
-  // bondad del ajuste en log₁₀ (como DMFit)
+  const F = (x, y0, ym, mu, q) => (esBar ? baranyiF(x, y0, ym, mu, q, mc) : huangF(x, y0, ym, mu, q))
+  const fn = (p, x) => { const [y0, ym, mu, q] = armar(p); return x.map((v) => F(v, y0, ym, mu, q)) }
+  const lo = [ymin - 3, ymin, 1e-4, 0], hi = [y0Hi, ymaxObs + 5, 20, esBar ? 80 : Math.max(4 * span, 10)]
+  let mejor = null, mejorConv = null
+  // varios puntos de partida para el lag: el ajuste no lineal puede quedar en un mínimo local
+  for (const fr of [0, 0.15, 0.3, 0.5, 0.7]) for (const fm of [0.6, 1]) {
+    const m0 = Math.max(mu0 * fm, 1e-3)
+    const p0 = [mu_t[0], ymaxObs, m0, esBar ? m0 * fr * span : fr * span]
+    const r = levenbergMarquardt(fn, ix.map((i) => p0[i]), ix.map((i) => lo[i]), ix.map((i) => hi[i]), tt, yy)
+    if (!finito(r.rss) || !r.p.every(finito)) continue
+    if (!mejor || r.rss < mejor.rss) mejor = r
+    // se prefieren los arranques que cumplieron el criterio de convergencia
+    if (r.conv && !r.estancado && (!mejorConv || r.rss < mejorConv.rss)) mejorConv = r
+  }
+  if (!mejor) return { ...vacio, motivo: 'El modelo no convergió.' }
+  let convergio = true
+  if (mejorConv) mejor = mejorConv
+  else convergio = false
+  const limites = []
+  // parámetros pegados a un límite (la asíntota en el límite superior se informa aparte como «sin meseta»; lag nulo es un valor posible)
+  ;(mejor.enLimite || []).forEach(({ i, lado }) => {
+    const nom = nombresTodos[ix[i]]
+    if (nom === 'y máx' && lado === 'superior') return
+    if ((nom === 'h₀' || nom === 'λ') && lado === 'inferior') return
+    limites.push(`${nom} en el límite ${lado}`)
+  })
+  const [y0, ymax, mu, q] = armar(mejor.p)
+  const pred = (x) => F(x, y0, ymax, mu, q)
+  const par = { y0, ymax, mu, q, sinAsintota: !finito(fijo) && ymax >= ymaxObs + 5 - 1e-3 }
+  const h0 = esBar ? q : mu * q
+  const lag = esBar ? q / mu : q
+  // errores estándar de los parámetros libres (como el summary de modFit): cov = s² (JᵀJ)⁻¹
+  const EE = erroresAjuste(fn, mejor.p, tt, yy)
   const L = Math.LN10
+  const pos = (i) => ix.indexOf(i)   // posición del parámetro i entre los libres (−1 si está fijo)
+  const seDe = (i) => (EE && pos(i) >= 0 ? EE.se[pos(i)] : NaN)
+  const covDe = (i, j) => (EE && pos(i) >= 0 && pos(j) >= 0 ? EE.cov[pos(i)][pos(j)] : NaN)
+  const seMu = seDe(2)
+  let seLag = NaN
+  if (finito(lagF)) seLag = 0
+  else if (esBar) {   // λ = h₀/μ: método delta con la covarianza de (h₀, μ)
+    const v = covDe(3, 3) / mu ** 2 + (q ** 2 * covDe(2, 2)) / mu ** 4 - (2 * q * covDe(2, 3)) / mu ** 3
+    seLag = finito(v) ? Math.sqrt(Math.max(0, v)) : NaN
+  } else seLag = seDe(3)
+  const corrMuLag = EE && pos(2) >= 0 && pos(3) >= 0 ? covDe(2, 3) / (seDe(2) * seDe(3)) : NaN
+  // bondad del ajuste en log₁₀ (como DMFit)
   const res = yy.map((v, i) => (v - pred(tt[i])) / L)
-  const sse = res.reduce((s, r) => s + r * r, 0)
+  const sse = res.reduce((s2, r) => s2 + r * r, 0)
   const m10 = my / L
-  const sst = yy.reduce((s, v) => s + (v / L - m10) ** 2, 0)
-  const k = NPAR[modelo] - (finito(fijo) ? 1 : 0)
+  const sst = yy.reduce((s2, v) => s2 + (v / L - m10) ** 2, 0)
+  const k = NPAR[modelo] - (finito(fijo) ? 1 : 0) - (finito(lagF) ? 1 : 0)
   const gl = n - k
-  const lag = modelo === 'lineal' ? NaN : par.h0 / par.mu
   const avisos = []
   if (!convergio) avisos.push('El ajuste no cumplió el criterio de convergencia en ningún punto de partida: se muestra el mejor intento; tomá los parámetros con cautela.')
   if (limites.length) avisos.push(`Parámetros en el límite permitido (${limites.join(', ')}): ese valor no es un óptimo libre del ajuste.`)
-  if (gl <= 1 || nT <= k) avisos.push(`Pocos grados de libertad (n − p = ${n} − ${k} = ${gl}${nT < n ? `; ${nT} tiempos distintos` : ''}): con tan pocos puntos por parámetro el modelo pasa casi por todos los datos y sus parámetros son poco identificables. Tomá μ y λ con cautela (más tiempos de muestreo, sobre todo en la fase exponencial, lo resuelven).`)
+  if (gl <= 1 || nT <= k) avisos.push(`Pocos grados de libertad (n − p = ${n} − ${k} = ${gl}${nT < n ? `; ${nT} tiempos distintos` : ''}): con tan pocos puntos por parámetro el modelo pasa casi por todos los datos y sus parámetros quedan mal determinados; los errores estándar pueden ser engañosos.`)
+  if (!EE && gl > 0) avisos.push('No se pudieron calcular los errores estándar de los parámetros: algunos no están determinados por los datos (probá fijar el lag o N máx).')
+  else if (finito(corrMuLag) && Math.abs(corrMuLag) > 0.95) avisos.push(`μ y ${esBar ? 'λ' : 'λ'} están casi perfectamente correlacionados (r = ${corrMuLag.toFixed(2).replace('.', ',')}): con estos datos no se pueden separar bien. Fijar el lag estabiliza μ.`)
   return {
     ok: finito(par.mu), modelo, n, nT, k, gl, pred10: (x) => pred(x) / L, mcurv: mc, convergio, avisos,
-    mu: par.mu, rate: par.mu / L, td_min: par.mu > 0 ? (Math.LN2 / par.mu) * 60 : NaN, lag_h: lag, h0: par.h0,
-    y0: par.y0 / L, yEnd: par.sinAsintota ? NaN : par.ymax / L, sinAsintota: !!par.sinAsintota, r2: sst > 0 ? 1 - sse / sst : NaN, se: n > k ? Math.sqrt(sse / (n - k)) : NaN,
+    mu, rate: mu / L, td_h: mu > 0 ? Math.LN2 / mu : NaN, lag_h: lag, h0,
+    y0: y0 / L, yEnd: par.sinAsintota ? NaN : ymax / L, sinAsintota: !!par.sinAsintota, r2: sst > 0 ? 1 - sse / sst : NaN, se: n > k ? Math.sqrt(sse / (n - k)) : NaN,
+    // errores estándar de los parámetros (μ y λ en sus unidades; y₀ e y máx en log₁₀) y correlación μ–λ
+    ee_mu: seMu, ee_lag: seLag, ee_y0: seDe(0) / L, ee_ymax: seDe(1) / L, ee_td: mu > 0 && finito(seMu) ? (Math.LN2 / mu) * (seMu / mu) : NaN, corr_mu_lag: corrMuLag,
+    lagFijo: finito(lagF), yAsint10: ymax / L,
     t0: tt[0], t1: tt[n - 1], ymaxFijo: finito(fijo),
     // la asíntota queda bastante por encima del máximo medido: los datos no llegan a la meseta y N máx es extrapolado
-    mesetaExtrapolada: modelo === 'baranyi' && !finito(fijo) && !par.sinAsintota && par.ymax - Math.max(...yy) > 0.3,
+    mesetaExtrapolada: !finito(fijo) && !par.sinAsintota && ymax - Math.max(...yy) > 0.3,
   }
 }
 
@@ -506,17 +577,27 @@ export const nmaxFijado = (aj) => { const v = predDe(aj).nmax; return v === '' |
 // ---------- un solo ajuste por cepa ----------
 // El mismo ajuste (modelo elegido, N máx fijado, curvatura m y centro de cada tiempo) se usa en la tabla de
 // parámetros, la curva, la predicción y las fases de la calibración: μ y λ son los mismos en todas las pantallas.
+// ventana del modelo Linealizar log₁₀: la de «μmax por ventana deslizante» (an_ancho, an_minpts, an_r2)
+// ampliar la ventana con las vecinas de pendiente ≥ quota × la máxima (aj.an_quota en %, por defecto 95; 0 = no ampliar)
+export const cuotaDe = (aj) => { const v = aj?.an_quota === undefined || aj?.an_quota === '' ? 95 : Number(aj.an_quota); return finito(v) && v > 0 && v < 100 ? v / 100 : NaN }
+const opClasico = (aj) => ({ ancho: Number(aj?.an_ancho) || 2, minpts: Number(aj?.an_minpts) || 3, r2min: Number(aj?.an_r2) || 0.95, quota: cuotaDe(aj) })
+export const opClasicoDe = opClasico
+// con el tramo (fase exponencial) elegido para la cepa, si lo hay: aj.calib_ventana = { cepa: [t0, t1] }
+// (el tramo de las UFC es independiente del de la OD; calib_ventana es el nombre que tenía en sesiones guardadas antes)
+export const tramoUfcElegido = (aj, m) => aj?.ufc_ventana?.[m] ?? aj?.calib_ventana?.[m]
+const opClasicoCepa = (aj, m) => ({ ...opClasico(aj), ventana: tramoUfcElegido(aj, m), lagFijo: lagFijoUfc(aj) })
 const cacheAjuste = new WeakMap()
 export function ajusteCepaUfc(ufcRes, m, aj) {
   const modelo = modeloUfc(aj)
-  const nmax = modelo === 'baranyi' ? nmaxFijado(aj) : NaN
+  const nmax = modelo !== 'lineal' ? nmaxFijado(aj) : NaN
   const mc = mcurvUfc(aj)
-  const clave = [m, modelo, nmax, mc, aj?.ufc_datos === 'replicas' ? 'r' : 'm', centroUfc(aj)].join('|')
+  const clave = [m, modelo, nmax, mc, aj?.ufc_datos === 'replicas' ? 'r' : 'm', centroUfc(aj), JSON.stringify(opClasicoCepa(aj, m))].join('|')
   let porRes = cacheAjuste.get(ufcRes)
   if (!porRes) { porRes = new Map(); cacheAjuste.set(ufcRes, porRes) }
   if (porRes.has(clave)) return porRes.get(clave)
   const { t, ly } = puntosUfc(ufcRes, m, aj)
-  const c = ajusteDmfit(t, ly, modelo, nmax, mc)
+  const c = ajusteDmfit(t, ly, modelo, nmax, mc, opClasicoCepa(aj, m))
+  if (c.tDatos0 === undefined) { c.tDatos0 = c.t0; c.tDatos1 = c.t1 }
   c.avisosPuntos = puntosExcluidosUfc(ufcRes, m, aj)
   porRes.set(clave, c)
   return c
@@ -547,9 +628,11 @@ export function prediccionUfc(ufcRes, m, aj) {
   const o = predDe(aj)
   const c = ajusteCepaUfc(ufcRes, m, aj)
   if (!c.ok) return { ok: false, c, motivo: c.motivo }
-  if (c.modelo !== 'baranyi') return { ok: false, c, motivo: 'la predicción usa Baranyi y Roberts: elegí ese modelo en «Modelo de ajuste (DMFit)» (así la tabla, la predicción y la calibración usan el mismo ajuste)' }
-  if (c.sinAsintota) return { ok: false, c, motivo: 'los recuentos no llegan a la fase estacionaria; indicá N máx (log₁₀) para predecir' }
-  const hasta = Math.min(Math.max(finito(Number(o.hasta)) ? Number(o.hasta) : 24, c.t1), T_MAX_PRED)
+  if (c.modelo === 'lineal') return { ok: false, c, motivo: 'la predicción usa Baranyi y Roberts o Huang: elegí uno de esos modelos en «Modelo de ajuste (DMFit)» (así la tabla, la predicción y la calibración usan el mismo ajuste)' }
+  // sin meseta en los datos y sin N máx fijado: se predice igual, con la asíntota en su límite (observado + 5 ln ≈ 2,2 log₁₀), y se avisa
+  // «Hasta» vacío (o 0) = 24 h: antes quedaba en 0 y la predicción no se extendía más allá del último recuento
+  const hasta0 = o.hasta === '' || o.hasta === null || o.hasta === undefined ? NaN : Number(o.hasta)
+  const hasta = Math.min(Math.max(finito(hasta0) && hasta0 > 0 ? hasta0 : 24, c.t1), T_MAX_PRED)
   const f = c.pred10
   // tiempo en que la curva llega a un nivel (es creciente: bisección, con el intervalo acotado)
   const tiempoA = (y) => {
@@ -564,7 +647,7 @@ export function prediccionUfc(ufcRes, m, aj) {
   const N = 160
   const puntos = Array.from({ length: N + 1 }, (_, i) => c.t0 + ((hasta - c.t0) * i) / N).map((x) => ({ x, y: f(x) }))
   return {
-    ok: true, c, hasta, puntos, yHasta: f(hasta), tMeseta: tiempoA(c.yEnd - 0.1),
+    ok: true, c, hasta, puntos, yHasta: f(hasta), sinMeseta: !!c.sinAsintota, tMeseta: c.sinAsintota ? NaN : tiempoA(c.yEnd - 0.1),
     objetivo: o.objetivo === '' ? NaN : Number(o.objetivo), tObjetivo: o.objetivo === '' ? NaN : tiempoA(Number(o.objetivo)),
   }
 }
@@ -587,7 +670,7 @@ export function puntosUfc(ufcRes, m, aj) {
 // centrales observados (primer tiempo y máximo), y se indica (aumentoDe).
 export function crecimientoUfc(ufcRes, m, aj) {
   const f = { ...ajusteCepaUfc(ufcRes, m, aj) }
-  if (f.ok && f.pred10) {
+  if (f.ok && f.pred10 && f.modelo !== 'lineal') {
     const ini = f.pred10(f.t0), fin = f.pred10(f.t1)
     Object.assign(f, { log10_N0: ini, log10_fin: fin, crecimiento_log10: fin - ini, generaciones: (fin - ini) / Math.log10(2), aumentoDe: 'modelo' })
     return f
@@ -611,7 +694,11 @@ export const fraccionExp = (aj) => { const v = Number(aj?.ufc_frac_exp); return 
 export function fasesUfc(ufcRes, m, aj) {
   const c = ajusteCepaUfc(ufcRes, m, aj)
   if (!c.ok || !(c.mu > 0)) return { ok: false, c, motivo: c.motivo || 'Sin crecimiento' }
-  if (c.modelo === 'lineal') return { ok: false, c, motivo: 'el modelo lineal no distingue fases; elegí Baranyi y Roberts o bifásico' }
+  if (c.modelo === 'lineal') {
+    // Linealizar log₁₀: la fase exponencial ES la ventana de la recta; antes es lag y después estacionaria
+    const fase = (x) => (x >= c.t0 - 1e-9 && x <= c.t1 + 1e-9 ? 'exponencial' : x < c.t0 ? 'lag' : 'estacionaria')
+    return { ok: true, c, fase, frac: NaN, tIni: c.t0, tFin: c.t1, sigue: c.t1 >= c.tDatos1 - 1e-9 }
+  }
   const frac = fraccionExp(aj)
   const h = 1e-3
   const rel = (x) => ((c.pred10(x + h) - c.pred10(x - h)) / (2 * h)) * Math.LN10 / c.mu
@@ -630,34 +717,12 @@ export function fasesUfc(ufcRes, m, aj) {
 
 
 // ---------- curva del crecimiento por recuento ----------
-// metodo: 'baranyi' (= la curva del modelo elegido en aj.ufc_modelo) o 'spline' (spline cúbica monótona de
-// Fritsch-Carlson: pasa por cada valor central sin oscilar; 2 o más tiempos).
-function pchip(xs, ys) {
-  const n = xs.length, h = [], d = []
-  for (let i = 0; i < n - 1; i++) { h.push(xs[i + 1] - xs[i]); d.push((ys[i + 1] - ys[i]) / h[i]) }
-  const m = new Array(n)
-  m[0] = d[0]; m[n - 1] = d[n - 2]
-  for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (3 * (h[i - 1] + h[i])) / ((2 * h[i] + h[i - 1]) / d[i - 1] + (h[i] + 2 * h[i - 1]) / d[i])
-  return (x) => {
-    let i = 0
-    while (i < n - 2 && x > xs[i + 1]) i++
-    const t = (x - xs[i]) / h[i], t2 = t * t, t3 = t2 * t
-    return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h[i] * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h[i] * m[i + 1]
-  }
-}
-export const metodoCurvaUfc = (aj) => (aj.ufc_suave === false ? 'no' : aj.ufc_suave === true || aj.ufc_suave === undefined ? 'baranyi' : aj.ufc_suave)
+// La curva que se dibuja es la del modelo elegido (aj.ufc_modelo), el mismo de los parámetros; aj.ufc_suave === false:
+// sin curva. (Las sesiones que tenían «spline» muestran la del modelo.)
+export const metodoCurvaUfc = (aj) => (aj.ufc_suave === false ? 'no' : 'baranyi')
 // Devuelve { ok, puntos: [{ x, y (log10) }], motivo } o null si no se pide curva
 export function curvaUfc(ufcRes, m, aj) {
-  const metodo = metodoCurvaUfc(aj)
-  if (metodo === 'no') return null
-  const p = ufcRes.res.filter((r) => r.Muestra === m && finito(r.UFC_mL) && r.UFC_mL > 0).sort((a, b) => a.T_h - b.T_h)
-  if (metodo === 'spline') {
-    if (p.length < 2) return { ok: false, motivo: 'Hacen falta al menos 2 tiempos' }
-    const cen = centroUfc(aj)
-    const f = pchip(p.map((r) => r.T_h), p.map((r) => centroLog10(r, cen)))
-    const t0 = p[0].T_h, t1 = p[p.length - 1].T_h
-    return { ok: true, puntos: Array.from({ length: 121 }, (_, i) => t0 + ((t1 - t0) * i) / 120).map((x) => ({ x, y: f(x) })) }
-  }
+  if (metodoCurvaUfc(aj) === 'no') return null
   const c = ajusteCepaUfc(ufcRes, m, aj)
   if (!c.ok) return { ok: false, motivo: c.motivo }
   return { ok: true, puntos: Array.from({ length: 121 }, (_, i) => c.t0 + ((c.t1 - c.t0) * i) / 120).map((x) => ({ x, y: c.pred10(x) })) }

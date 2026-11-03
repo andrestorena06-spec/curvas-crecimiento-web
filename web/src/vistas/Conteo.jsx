@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { usePlanilla } from '../ui/planilla.js'
-import { ajusteDiluciones, estimarUfc, textoEstado } from '../motor/ufc.js'
+import { estimarUfc, textoEstado } from '../motor/ufc.js'
 import { Valor } from '../fichas/FichaCalculo.jsx'
 import { fichaUfcReplica } from '../fichas/definiciones.js'
 import { claveGrupoUfc, claveUfc, dilucionesUfc, serieUfc } from '../modelo.js'
@@ -131,7 +131,7 @@ export function Conteo({ s }) {
           <BotonCinta simbolo="≈" texto="Usar estimados" activo={u.estimados} onClick={() => setU({ estimados: !u.estimados })} tip={'Usar estimados\nSi ninguna dilución es contable, se estima con la más cercana al rango, se marca y entra en las medias.'} />
         </Grupo>
       </Cinta>
-      <Encabezado titulo="Colonias" sub="Elegí la cepa, la réplica y el tiempo, y anotá las colonias de cada dilución. Las UFC/mL se calculan solas con las diluciones dentro del rango contable."></Encabezado>
+      <Encabezado titulo="Cargar conteos" sub="Elegí la cepa, la réplica y el tiempo, y anotá las colonias de cada dilución. Las UFC/mL se calculan solas con las diluciones dentro del rango contable."></Encabezado>
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}>
@@ -155,16 +155,14 @@ export function Conteo({ s }) {
               <span className="espacio" />
               <span className="ayuda">Para crear filas vacías elegí cepa, réplicas, cantidad de tiempos e intervalo en la cinta.</span>
             </div>
-            {filas.length > 0 && <p className="ayuda" style={{ margin: '-4px 0 10px' }}>Todas las réplicas de una cepa en un mismo tiempo usan <b>la misma dilución</b> (recuadrada); las demás quedan atenuadas y solo sirven para revisar la coherencia (⚠). Para cambiarla: columna <b>«Dilución usada»</b> o <b>clic derecho</b> sobre el conteo.</p>}
+            {filas.length > 0 && <p className="ayuda" style={{ margin: '-4px 0 10px' }}>Todas las réplicas de una cepa en un mismo tiempo usan <b>la misma dilución</b> (recuadrada); las demás quedan atenuadas y no entran en el cálculo. Para cambiarla: columna <b>«Dilución usada»</b> o <b>clic derecho</b> sobre el conteo.</p>}
             {!filas.length ? <p className="ayuda">Todavía no hay conteos.</p> : (
               <div className="tabla-scroll">
                 <table className="tabla" ref={planilla} onKeyDown={navegarTabla}>
-                  <thead><tr><th>Cepa</th><th className="num">Réplica</th><th className="num">T (h)</th><th className="num">Vol. µL</th><th data-tip={'Dilución usada para calcular las UFC/mL (la misma para todas las réplicas de la cepa en ese tiempo)\nAuto: la que tiene más réplicas dentro del rango contable. Podés elegir otra acá o con clic derecho sobre un conteo.\nLas demás diluciones de la réplica no entran en el cálculo.'}>Dilución usada</th><th data-tip={'Réplicas con la dilución usada\nDE: desviación estándar de log₁₀ UFC/mL entre las réplicas de la cepa en ese tiempo.\n⚠ Dixon: esta réplica quedaría excluida por el test (Q de Dixon, o Grubbs con más de 10).'}>DE · Dixon</th>{ks.map((k) => <th key={k} className="num" data-tip={fraccion(serieD[k]?.D)}>{etqD(serieD[k])}</th>)}<th className="num" data-tip={'Coherencia entre diluciones\nSi una dilución tiene C colonias, la siguiente debería tener C dividido por el factor del paso.\n⚠: alguna dilución no coincide con lo esperado (prueba binomial, p < 0,05).'}>Ajuste</th><th className="num">UFC/mL</th><th className="num">log₁₀ UFC/mL</th><th>Estado</th><th /></tr></thead>
+                  <thead><tr><th>Cepa</th><th className="num">Réplica</th><th className="num">T (h)</th><th className="num">Vol. µL</th><th data-tip={'Dilución usada para calcular las UFC/mL (la misma para todas las réplicas de la cepa en ese tiempo)\nAuto: la que tiene más réplicas dentro del rango contable. Podés elegir otra acá o con clic derecho sobre un conteo.\nLas demás diluciones de la réplica no entran en el cálculo.'}>Dilución usada</th><th data-tip={'Réplicas con la dilución usada\nDE: desviación estándar de log₁₀ UFC/mL entre las réplicas de la cepa en ese tiempo.\n⚠ Dixon: esta réplica quedaría excluida por el test (Q de Dixon, o Grubbs con más de 10).'}>DE · Dixon</th>{ks.map((k) => <th key={k} className="num" data-tip={fraccion(serieD[k]?.D)}>{etqD(serieD[k])}</th>)}<th className="num">UFC/mL</th><th className="num">log₁₀ UFC/mL</th><th>Estado</th><th /></tr></thead>
                   <tbody>{filas.map((x) => {
                     const p = par(x)
                     const e = estimarUfc(x.c, p)
-                    const aj = ajusteDiluciones(x.c, p)
-                    const malas = new Set(aj.malos.map((m) => m.k2))
                     const conDatos = ks.filter((k) => u.filas.some((f) => claveGrupoUfc(f) === claveGrupoUfc(x) && fin(f.c[k])))
                     const fuera = s.ufcRes?.fuera?.has(claveUfc(x))
                     // ficha de la réplica (la misma fila de resultados que usa el resto del programa)
@@ -181,8 +179,7 @@ export function Conteo({ s }) {
                         {(() => { const g = claveGrupoUfc(x), c = candDe(g)[dilG[g]?.k]; if (!c) return <td />; const sale = c.dixon && c.dixon.replica === x.replica
                           return <td data-tip={resumenCand(c) + (c.dixon ? `\n${c.dixon.texto}` : '')}>{sale ? <span className="aviso-texto">⚠ {nomTest}</span> : <small className="ayuda">DE {dec(c.sd)} log</small>}</td> })()}
                         {ks.map((k) => <td key={k} className={`num celda-conteo ${e.usados[0] === k ? 'usada' : fin(x.c[k]) ? 'no-usada' : ''}`}
-                          onContextMenu={(ev) => { if (!fin(x.c[k])) return; ev.preventDefault(); const g = claveGrupoUfc(x); setDilGrupo(g, dilG[g]?.manual && dilG[g].k === k ? undefined : k) }} style={{ background: color(x.c[k]) }} data-tip={malas.has(k) ? 'Esta dilución no coincide con lo esperado según la anterior (prueba binomial, p < 0,05).\nClic en ⚠ de la columna «Ajuste» para ver la prueba.' : e.usados[0] === k ? `Dilución usada para las UFC/mL de esta cepa en este tiempo${e.manual ? ' (elegida a mano)' : ' (sugerida)'}` : fin(x.c[k]) ? 'No entra en el cálculo (solo se usa para revisar la coherencia entre diluciones).\nClic derecho para usar esta dilución.' : undefined}><Num value={x.c[k] ?? ''} onChange={(v) => setC(x.id, k, v)} ancho={60} />{malas.has(k) && <span className="marca-aviso">⚠</span>}</td>)}
-                        <td className="num"><Valor f={aj.evaluados ? fRep : null} tip="Clic: ver la prueba de coherencia entre diluciones">{aj.malos.length ? <span className="aviso-texto">⚠ {aj.malos.length}</span> : aj.evaluados ? <span style={{ color: 'var(--ok)' }}>✓</span> : <span className="ayuda">—</span>}</Valor></td>
+                          onContextMenu={(ev) => { if (!fin(x.c[k])) return; ev.preventDefault(); const g = claveGrupoUfc(x); setDilGrupo(g, dilG[g]?.manual && dilG[g].k === k ? undefined : k) }} style={{ background: color(x.c[k]) }} data-tip={e.usados[0] === k ? `Dilución usada para las UFC/mL de esta cepa en este tiempo${e.manual ? ' (elegida a mano)' : ' (sugerida)'}` : fin(x.c[k]) ? 'No entra en el cálculo.\nClic derecho para usar esta dilución.' : undefined}><Num value={x.c[k] ?? ''} onChange={(v) => setC(x.id, k, v)} ancho={60} /></td>)}
                         <td className="num"><Valor f={fRep}><b>{fin(e.ufc) ? sciCorto(e.ufc) : e.estado === 'cero' ? `< ${sciCorto(e.lim)}` : ''}</b></Valor></td>
                         <td className="num">{fin(e.ufc) && e.ufc > 0 ? Math.log10(e.ufc).toFixed(2) : ''}</td>
                         <td><small>{Object.keys(x.c).length ? (fuera ? 'Excluida' : textoEstado(e.estado)) : ''}</small></td>

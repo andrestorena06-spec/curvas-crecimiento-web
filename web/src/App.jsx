@@ -21,7 +21,6 @@ import { Calidad } from './vistas/Calidad.jsx'
 import { CalidadUfc } from './vistas/CalidadUfc.jsx'
 import { Curva } from './vistas/Curva.jsx'
 import { CurvaUfc } from './vistas/CurvaUfc.jsx'
-import { Parametros } from './vistas/Parametros.jsx'
 import { Combinado } from './vistas/Combinado.jsx'
 import { Datos } from './vistas/Datos.jsx'
 import { Metodos } from './vistas/Metodos.jsx'
@@ -41,17 +40,16 @@ const ICONOS = { resumen: 'nuevo', archivo: 'tecan', placa: 'placa', placas: 'ti
 // pestañas: [título, vista]
 const PASOS = {
   resumen: ['Resumen', Resumen],
-  archivo: ['Lecturas de OD', ArchivoTecan],
+  archivo: ['Cargar datos', ArchivoTecan],
   placa: ['Pocillos', PlacaTecan],
-  placas: ['Lecturas de OD', PlacasTiempo],
-  lecturas: ['Lecturas de OD', Cubeta],
-  conteo: ['Colonias', Conteo],
-  calidad: ['Calidad OD', Calidad],
-  calidadUfc: ['Calidad UFC', CalidadUfc],
+  placas: ['Cargar datos', PlacasTiempo],
+  lecturas: ['Cargar datos', Cubeta],
+  conteo: ['Cargar datos', Conteo],
+  calidad: ['Revisión', Calidad],
+  calidadUfc: ['Revisión', CalidadUfc],
   curva: ['Curva OD vs t', Curva],
   curvaUfc: ['Curva UFC vs t', CurvaUfc],
   combinado: ['OD ↔ UFC', Combinado],
-  parametros: ['Parámetros', Parametros],
   datos: ['Datos', Datos],
   metodos: ['Métodos', Metodos],
 }
@@ -64,12 +62,14 @@ const GRUPOS = {
 }
 const grupoDe = (id) => Object.keys(GRUPOS).find((g) => GRUPOS[g].hijos.includes(id))
 export const TITULO_PASO = Object.fromEntries(Object.entries(PASOS).map(([k, v]) => [k, v[0]]))
+// nombre completo (los submenús de OD y de Conteo repiten «Cargar datos» y «Revisión»): para anterior/siguiente y globos
+export const NOMBRE_LARGO = { ...TITULO_PASO, archivo: 'Cargar datos de OD', placas: 'Cargar datos de OD', lecturas: 'Cargar datos de OD', conteo: 'Cargar conteos', calidad: 'Revisión de la OD', calidadUfc: 'Revisión de los recuentos' }
 export function pasosDe(e) {
   if (!e) return []
   const od = { tecan: ['archivo', 'placa'], placas: ['placas'], cubeta: ['lecturas'] }[e.origenOd] || []
-  if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'parametros', 'metodos', 'datos']
-  if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'parametros', 'metodos', 'datos']
-  return ['resumen', ...od, 'calidad', 'curva', 'conteo', 'calidadUfc', 'curvaUfc', 'parametros', 'combinado', 'metodos', 'datos']
+  if (e.tipo === 'od') return ['resumen', ...od, 'calidad', 'curva', 'metodos', 'datos']
+  if (e.tipo === 'ufc') return ['resumen', 'conteo', 'calidadUfc', 'curvaUfc', 'metodos', 'datos']
+  return ['resumen', ...od, 'calidad', 'curva', 'conteo', 'calidadUfc', 'curvaUfc', 'combinado', 'metodos', 'datos']
 }
 
 const Logo = () => (
@@ -270,17 +270,24 @@ export default function App() {
 
   // ---------- cálculo ----------
   const expD = useDeferredValue(exp)
-  const serie = useMemo(() => (expD && tieneOd(expD) ? seriesOd(expD) : { datos: null, config: [], aj: expD?.aj || {}, avisos: [] }), [expD])
-  const pre = useMemo(() => (serie.datos && serie.config.length ? preprocesar({ datos: serie.datos, config: serie.config, E: expD.E, aj: serie.aj, blancosSel: expD.blancosSel }) : null), [serie, expD])
+  // Los cálculos pesados (series, preprocesado, parámetros, UFC) NO dependen de lo que solo cambia cómo se ve (ocultar una cepa, opciones de pantalla,
+  // colores, estilos de gráficos, selección del tramo): sin esto, cada clic en una cepa recalculaba todo el experimento.
+  const AJ_VISTA = ['cepas_ocultas', 'calib_incl', 'calib_ventana', 'ufc_ventana']
+  const ajCalc = useMemo(() => (expD ? Object.fromEntries(Object.entries(expD.aj || {}).filter(([k]) => !AJ_VISTA.includes(k))) : null), [expD?.aj]) // eslint-disable-line react-hooks/exhaustive-deps
+  const ajClave = useMemo(() => JSON.stringify(ajCalc), [ajCalc])   // aj es chico: solo esto se serializa
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const expC = useMemo(() => expD, [expD?.E, expD?.blancosSel, expD?.tipo, expD?.origenOd, expD?.cond, expD?.cepas, expD?.tecan, expD?.placas, expD?.excels, expD?.manual, expD?.ufc, expD?.ufcExcl, expD?.ufcForz, expD?.plExcl, expD?.plForz, expD?.nombre, ajClave])
+  const serie = useMemo(() => (expC && tieneOd(expC) ? seriesOd(expC) : { datos: null, config: [], aj: expC?.aj || {}, avisos: [] }), [expC])
+  const pre = useMemo(() => (serie.datos && serie.config.length ? preprocesar({ datos: serie.datos, config: serie.config, E: expC.E, aj: serie.aj, blancosSel: expC.blancosSel }) : null), [serie, expC])
   // placas por tiempo: la curva es por cepa (cada placa es un instante); en los demás orígenes, una curva por réplica.
   // Los parámetros salen de pre.analisis (OD corregida, sin suavizar ni normalizar); pre.proc es solo para los gráficos.
   const porCepa = expD?.origenOd === 'placas'
-  const modoCurva = expD?.aj?.placas_curva || 'media'
+  const modoCurva = expD?.aj?.placas_curva || 'puntos'   // sin promediar: todos los puntos
   const res = useMemo(() => (pre && !pre.error
-    ? (porCepa ? analizarPorCepa(pre.analisis, serie.aj, expD.E.ventanas, modoCurva) : analizarTodos(pre.analisis, serie.aj, expD.E.ventanas))
-    : null), [pre, serie.aj, expD, porCepa, modoCurva])
+    ? (porCepa ? analizarPorCepa(pre.analisis, serie.aj, expC.E.ventanas, modoCurva) : analizarTodos(pre.analisis, serie.aj, expC.E.ventanas))
+    : null), [pre, serie.aj, expC, porCepa, modoCurva])
   const seriesAn = useMemo(() => (pre && !pre.error ? (porCepa ? seriesPorCepa(pre.analisis) : pre.analisis.filter((w) => !w.EsBlanco)) : []), [pre, porCepa])
-  const ufcRes = useMemo(() => (expD && tieneUfc(expD) ? resultadosUfc(expD) : null), [expD])
+  const ufcRes = useMemo(() => (expC && tieneUfc(expC) ? resultadosUfc(expC) : null), [expC])
   const muestras = useMemo(() => (exp ? muestrasDe(exp) : []), [exp])
   const colores = useMemo(() => ({ ...coloresCepas(muestras), ...(exp?.coloresCepa || {}) }), [muestras, exp?.coloresCepa])
   const estilos = useMemo(() => ({ ...estilosSeries(serie.config, colores), ...Object.fromEntries(muestras.map((m) => [idCepa(m), { color: colores[m] }])) }), [serie.config, colores, muestras])
@@ -314,6 +321,18 @@ export default function App() {
     return { plExcl: [...e.plExcl, k] }
   })
   const restablecerLecturas = () => upd({ plExcl: [], plForz: [] })
+  // tramo exponencial de la OD de una cepa (una ventana por réplica) y de las UFC: se eligen POR SEPARADO, cada uno en un solo cambio
+  const redondeo = (v) => (v ? [Number(v[0].toFixed(3)), Number(v[1].toFixed(3))] : null)
+  const setTramoOd = (pocillos, v) => upd((e) => {
+    const w = redondeo(v), ven = { ...e.E.ventanas }
+    pocillos.forEach((p) => { if (w) ven[p] = w; else delete ven[p] })
+    return { E: { ...e.E, ventanas: ven } }
+  })
+  const setTramoUfc = (cepa, v) => upd((e) => {
+    const w = redondeo(v), cv = { ...(e.aj.ufc_ventana || {}) }
+    if (w) cv[cepa] = w; else delete cv[cepa]
+    return { aj: { ...e.aj, ufc_ventana: cv } }
+  })
   const setVentana = (p, v) => setE((E) => { const ven = { ...E.ventanas }; if (v) ven[p] = v; else delete ven[p]; return { ...E, ventanas: ven } })
   // personalización de gráficos (se guarda con el experimento)
   const estiloGrafico = (id) => exp?.graficos?.[id] || {}
@@ -331,7 +350,6 @@ export default function App() {
       case 'lecturas': return filasConOd(exp).length > 0
       case 'conteo': return filasConConteo(exp).length > 0
       case 'calidad': case 'curva': return !!res?.length
-      case 'parametros': return !!res?.length || !!ufcRes?.hay
       case 'calidadUfc': case 'curvaUfc': return !!ufcRes?.hay
       case 'combinado': return !!res?.length && !!ufcRes?.hay
       default: return false
@@ -341,7 +359,7 @@ export default function App() {
   const s = {
     exp, upd, setAj, setE, avisar, irA, archivoRef, agregarCepa, guardar, guardarComo, archivoExp, pasos, listo, estiloGrafico, setEstiloGrafico, setColorCepa, restablecerColores,
     serie, pre, res, seriesAn, porCepa, modoCurva, ufcRes, muestras, colores, estilos, tema: TEMAS[tema],
-    alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, alternarLectura, restablecerLecturas, abrirFicha: setFicha,
+    alternarPunto, alternarPocillo, reincorporarPocillo, setVentana, setTramoOd, setTramoUfc, alternarLectura, restablecerLecturas, abrirFicha: setFicha,
   }
 
   // barra de estado
@@ -373,7 +391,7 @@ export default function App() {
               <button className="titulo-boton" onClick={rehacer} disabled={!hist.current.futuro.length} aria-label="Rehacer" data-tip="Rehacer (Ctrl + Y)"><Icono n="rehacer" size={16} /></button>
             </>}
             <button className={`titulo-boton solo-compu ${panelRev ? 'on' : ''}`} onClick={() => setPanelRev(!panelRev)} data-tip={'Modo revisión\nMarcá zonas de la pantalla y comentá qué cambiarías'}>
-              💬 Revisión
+              💬 Comentar
             </button>
             <button className="titulo-boton" onClick={() => setTema(tema === 'oscuro' ? 'claro' : 'oscuro')} data-tip="Cambiar entre tema claro y oscuro">
               <Icono n={tema === 'oscuro' ? 'sol' : 'luna'} size={15} />
@@ -388,7 +406,7 @@ export default function App() {
             {exp && <div className="sep-menu" />}
             {exp && (() => {
               const item = (id, sub) => (
-                <button key={id} className={`item-menu ${sub ? 'sub' : ''} ${!enArchivo && !asistente && pasoAct === id ? 'on' : ''}`} onClick={() => irA(id)} data-tip={menuCorto ? PASOS[id][0] : undefined}>
+                <button key={id} className={`item-menu ${sub ? 'sub' : ''} ${!enArchivo && !asistente && pasoAct === id ? 'on' : ''}`} onClick={() => irA(id)} data-tip={menuCorto ? NOMBRE_LARGO[id] : undefined}>
                   <span className="ico"><Icono n={ICONOS[id]} size={sub ? 16 : 18} />{listo(id) && <i className="hecho" aria-label="listo"><Icono n="check" size={9} ancho={4} /></i>}</span>
                   <span className="txt">{PASOS[id][0]}</span>
                 </button>
@@ -438,8 +456,8 @@ export default function App() {
                   <span className="ruta">{g && <span>{GRUPOS[g].titulo}</span>}<b>{PASOS[pasoAct][0]}</b></span>
                   <span className="paso-n">paso {i + 1} de {pasos.length}</span>
                   <span className="espacio" />
-                  {ant && <button className="fantasma chico" onClick={() => irA(ant)} data-tip={`Anterior: ${PASOS[ant][0]}`}><Icono n="flecha" size={13} style={{ transform: 'rotate(180deg)' }} />{PASOS[ant][0]}</button>}
-                  {sig && <button className="chico" onClick={() => irA(sig)} data-tip={`Siguiente: ${PASOS[sig][0]}`}>{PASOS[sig][0]}<Icono n="flecha" size={13} /></button>}
+                  {ant && <button className="fantasma chico" onClick={() => irA(ant)} data-tip={`Anterior: ${NOMBRE_LARGO[ant]}`}><Icono n="flecha" size={13} style={{ transform: 'rotate(180deg)' }} />{NOMBRE_LARGO[ant]}</button>}
+                  {sig && <button className="chico" onClick={() => irA(sig)} data-tip={`Siguiente: ${NOMBRE_LARGO[sig]}`}>{NOMBRE_LARGO[sig]}<Icono n="flecha" size={13} /></button>}
                 </nav>
               )
             })()}
@@ -454,7 +472,7 @@ export default function App() {
           <input ref={inputCargar} type="file" hidden accept=".json" onChange={(e) => { if (e.target.files[0]) cargarArchivo(e.target.files[0]); e.target.value = '' }} />
           <Revision pestana={pestanaActual} experimento={exp?.nombre} activo={revisar} setActivo={setRevisar} panel={panelRev} setPanel={setPanelRev} avisar={avisar} />
           <Globo />
-          {exp && <Cajon titulo="Personalizar gráfico" abierto={!!persGraf} onClose={() => setPersGraf(null)}><PanelPersonalizar s={s} id={persGraf} /></Cajon>}
+          {exp && <Cajon titulo="Personalizar gráfico" abierto={!!persGraf} onClose={() => setPersGraf(null)}><PanelPersonalizar s={s} id={persGraf} ejeDerecho={persGraf === 'combinado'} /></Cajon>}
           {ficha && <FichaCalculo ficha={ficha} onClose={() => setFicha(null)}
             onMetodos={exp ? (ancla) => { setFicha(null); irA('metodos'); setTimeout(() => document.getElementById(ancla)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 450) } : null} />}
           <div className="toasts">{avisos.map((x) => <div key={x.id} className={`toast ${x.tipo}`}>{x.texto}</div>)}</div>

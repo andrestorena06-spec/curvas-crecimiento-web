@@ -1,2 +1,2 @@
 // Versión del programa (distinta de VERSION de modelo.js, que es la del formato de los archivos .curvas.json)
-export const APP_VERSION = '2.6.0 · 2026-11-02'
+export const APP_VERSION = '2.7.0 · 2026-11-03'

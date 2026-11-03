@@ -54,7 +54,12 @@ export function hampelDiag(y, k = 3, nsig = 3, minDif = 0.002) {
   const out = { flag: Array(n).fill(false), med: Array(n).fill(NaN), umbral: Array(n).fill(NaN), dif: Array(n).fill(NaN) }
   if (n < 5) return out
   for (let i = 0; i < n; i++) {
-    const w = y.slice(Math.max(0, i - k), Math.min(n, i + k + 1))
+    // ventana SIMÉTRICA (la mitad del ancho nunca pasa de las lecturas que hay de cada lado): en una curva creciente la mediana
+    // de una ventana centrada es el propio punto, pero una ventana cortada en el borde sesga la mediana hacia abajo y marcaba
+    // como aberrantes las últimas lecturas buenas. El primer y el último punto no tienen vecinos de ambos lados: no se evalúan.
+    const h = Math.min(k, i, n - 1 - i)
+    if (h < 1) { out.med[i] = y[i]; out.dif[i] = 0; continue }
+    const w = y.slice(i - h, i + h + 1)
     const med = mediana(w)
     const s = 1.4826 * mediana(w.map((v) => Math.abs(v - med)))
     const um = Math.max(nsig * s, minDif)
@@ -316,7 +321,7 @@ export function muSpline(t, lny, df) {
 // ------------------------------------------------------------
 export function resultadoVacio(n) {
   return {
-    n_puntos: n, od0: NaN, od0_metodo: '', od0_n_base: NaN, mu_max: NaN, mu_se: NaN, td_min: NaN, td_se_min: NaN,
+    n_puntos: n, od0: NaN, od0_metodo: '', od0_n_base: NaN, mu_max: NaN, mu_se: NaN, td_h: NaN, td_se_h: NaN,
     lag_h: NaN, lag_tangente_h: NaN, lag_umbral_h: NaN, K: NaN, t_K_h: NaN, od_final: NaN, delta_od: NaN,
     generaciones: NaN, auc_od: NaN, auc_ln: NaN, t_umbral_od_h: NaN, t_max_dod_h: NaN, dod_max: NaN,
     mu_spline: NaN, r2: NaN, intercepto: NaN, n_ventana: NaN, t_ini_ventana: NaN, t_fin_ventana: NaN,
@@ -387,9 +392,14 @@ export function analizarCurva(tIn, yIn, op, ventanaManual = null) {
     if (!sel) avisos.push('Ventana manual inválida: se usó la automática')
   }
   if (!sel) {
-    let cand = vent.filter((v) => v.r2 >= op.r2min && finito(v.pendiente))
+    // solo compiten las ventanas de ancho (casi) completo: las que se cortan al terminar la corrida tienen pocos puntos y, con la curva acelerando, ganarían siempre
+    const anchoMax = Math.max(...vent.map((v) => v.t_fin - v.t_ini))
+    const completa = (v) => v.t_fin - v.t_ini >= 0.8 * anchoMax - 1e-9
+    let cand = vent.filter((v) => v.r2 >= op.r2min && finito(v.pendiente) && completa(v))
+    if (!cand.length) cand = vent.filter((v) => v.r2 >= op.r2min && finito(v.pendiente))
     if (!cand.length) {
-      cand = vent.filter((v) => finito(v.pendiente))
+      cand = vent.filter((v) => finito(v.pendiente) && completa(v))
+      if (!cand.length) cand = vent.filter((v) => finito(v.pendiente))
       avisos.push(`R2 de la ventana menor que ${op.r2min.toFixed(2)}`)
     }
     if (!cand.length) {
@@ -400,6 +410,20 @@ export function analizarCurva(tIn, yIn, op, ventanaManual = null) {
     let j = 0
     cand.forEach((v, i) => { if (v.pendiente > cand[j].pendiente) j = i })
     sel = { a: cand[j].intercepto, b: cand[j].pendiente, r2: cand[j].r2, n: cand[j].n, t_ini: cand[j].t_ini, t_fin: cand[j].t_fin, manual: false }
+    // quota (como fit_easylinear de growthrates): las ventanas contiguas con pendiente ≥ quota · máxima se suman a la mejor y se reajusta la recta
+    if (finito(op.quota) && op.quota > 0 && op.quota < 1 && sel.b > 0) {
+      let L = vent.findIndex((v) => v.t_ini === sel.t_ini && v.t_fin === sel.t_fin), R = L
+      if (L >= 0) {
+        while (L > 0 && finito(vent[L - 1].pendiente) && vent[L - 1].pendiente >= op.quota * sel.b) L--
+        while (R < vent.length - 1 && finito(vent[R + 1].pendiente) && vent[R + 1].pendiente >= op.quota * sel.b) R++
+        const ini = vent[L].t_ini, fin = vent[R].t_fin
+        if (ini < sel.t_ini - 1e-9 || fin > sel.t_fin + 1e-9) {
+          const ix = tH.map((_, i) => i).filter((i) => tH[i] >= ini - 1e-9 && tH[i] <= fin + 1e-9 && y[i] >= op.lnmin && y[i] > 0)
+          const rg = ix.length >= 3 ? regLineal(ix.map((i) => tH[i]), ix.map((i) => Math.log(y[i]))) : null
+          if (rg && finito(rg.b) && rg.b > 0) { sel = { a: rg.a, b: rg.b, r2: rg.r2, n: ix.length, t_ini: Math.min(...ix.map((i) => tH[i])), t_fin: Math.max(...ix.map((i) => tH[i])), manual: false, ampliada: true } }
+        }
+      }
+    }
   }
 
   const mu = sel.b
@@ -410,10 +434,16 @@ export function analizarCurva(tIn, yIn, op, ventanaManual = null) {
   r.t_ini_ventana = sel.t_ini
   r.t_fin_ventana = sel.t_fin
   r.ventana_manual = sel.manual
-  r.td_min = mu > 0 ? (Math.log(2) / mu) * 60 : NaN
+  // aviso: el tramo automático llega al final de la corrida y la curva sigue acelerando
+  if (!sel.manual && sel.t_fin >= tH[tH.length - 1] - 1e-9 && vent.length > 2) {
+    const ult = vent[vent.length - 1], pen = vent[vent.length - 2]
+    if (finito(ult.pendiente) && finito(pen.pendiente) && ult.pendiente > pen.pendiente) avisos.push('La fase exponencial no está bien definida: el tramo termina en el último punto de la corrida y la curva todavía se acelera. Si la corrida es más larga o el cultivo sigue creciendo, el tramo cambia; podés elegirlo a mano en «Fases…».')
+  }
+  r.ventana_ampliada = !!sel.ampliada
+  r.td_h = mu > 0 ? Math.log(2) / mu : NaN   // horas
   if (sel.n > 2 && finito(sel.r2) && sel.r2 > 0) {
     r.mu_se = Math.abs(mu) * Math.sqrt(Math.max(0, 1 - sel.r2) / (sel.r2 * (sel.n - 2)))
-    if (mu > 0) r.td_se_min = (r.td_min * r.mu_se) / mu
+    if (mu > 0) r.td_se_h = (r.td_h * r.mu_se) / mu
   }
   if (!finito(mu) || mu <= 0) avisos.push('Pendiente no positiva: sin crecimiento detectable')
 

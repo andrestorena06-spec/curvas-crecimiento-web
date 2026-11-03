@@ -50,7 +50,7 @@ export const estiloGraficoDef = () => ({
 export function Grafico(props) {
   const {
     series, extras = [], xTxt = 'Tiempo (h)', yTxt = '', yTxtDer = '', titulo = '', xlim, ylim, ylimDer, alto = 380, ancho = 900,
-    onPuntoClick, ventana, onSeleccion, leyenda = true, nombre = 'grafico', exportar = true, ceroY = false, estilo = {},
+    onPuntoClick, ventana, zonas = [], onSeleccion, tiemposSnap, leyenda = true, nombre = 'grafico', exportar = true, ceroY = false, estilo = {},
     idEstilo, anchoFijo, altoTotal, refSvg, interactivo = true,
   } = props
   const Tt = useTema()
@@ -68,6 +68,15 @@ export function Grafico(props) {
   const [menu, setMenu] = useState(null)          // menú del clic derecho: { cx, cy }
   const [guardar, setGuardar] = useState(false)
   const movido = useRef(false)
+  // la selección de un tramo termina aunque el mouse se suelte fuera del gráfico (antes se perdía al salir del borde)
+  const arrastreRef = useRef(null), terminarRef = useRef(null)
+  arrastreRef.current = arrastre
+  useEffect(() => {
+    if (!arrastre) return undefined
+    const f = () => { const ar = arrastreRef.current; if (ar && terminarRef.current) terminarRef.current(ar) }
+    window.addEventListener('mouseup', f)
+    return () => window.removeEventListener('mouseup', f)
+  }, [!!arrastre]) // eslint-disable-line react-hooks/exhaustive-deps
   const idClip = 'clip-' + useId().replace(/[^a-zA-Z0-9]/g, '')   // único: la vista previa de «Guardar imagen» no comparte el recorte
   const ctx = useGraficoCtx()
   useEffect(() => {
@@ -136,15 +145,32 @@ export function Grafico(props) {
   const invX = (mx) => x0 + ((mx - L) / (W - L - R)) * (x1 - x0)
   const invY = (my) => y0 + (1 - (my - TOP) / (H - TOP - B)) * (y1 - y0)
 
-  const linea = (s, f) => s.data.filter((d) => fin(d.x) && fin(d.y) && dentro(d.x)).map((d) => `${px(d.x).toFixed(1)},${f(d.y).toFixed(1)}`).join(' ')
+  // las líneas y las bandas usan también el punto anterior y el siguiente al rango visible: con zoom, la curva sigue
+  // hasta el borde (el recorte del gráfico tapa lo que queda afuera) en vez de desaparecer cuando hay pocos puntos adentro
+  const visibles = (d) => { const i = d.map((q) => dentro(q.x)); return d.filter((q, k) => i[k] || i[k - 1] || i[k + 1]) }
+  const linea = (s, f) => visibles(s.data.filter((d) => fin(d.x) && fin(d.y)).sort((a, b) => a.x - b.x)).map((d) => `${px(d.x).toFixed(1)},${f(d.y).toFixed(1)}`).join(' ')
   const banda = (s, f) => {
-    const d = s.data.filter((q) => fin(q.lo) && fin(q.hi) && dentro(q.x))
+    const d = visibles(s.data.filter((q) => fin(q.lo) && fin(q.hi)).sort((a, b) => a.x - b.x))
     if (d.length < 2) return null
     return [...d.map((q) => `${px(q.x)},${f(q.hi)}`), ...d.slice().reverse().map((q) => `${px(q.x)},${f(q.lo)}`)].join(' ')
   }
   const cruz = (X, Y, r = 3.2) => `M${X - r},${Y - r}L${X + r},${Y + r}M${X - r},${Y + r}L${X + r},${Y - r}`
   const fondoExport = e.fondo === 'blanco' ? '#ffffff' : T.panel
 
+  // fin de la selección de un tramo: los extremos se ajustan al tiempo medido más cercano (si hay tiempos), así no hace falta puntería
+  const terminarSel = (ar) => {
+    arrastreRef.current = null
+    setArrastre(null)
+    let a = Math.min(ar.a, ar.b), b = Math.max(ar.a, ar.b)
+    if (tiemposSnap && tiemposSnap.length) {
+      const cerca = (v) => tiemposSnap.reduce((m, t) => (Math.abs(t - v) < Math.abs(m - v) ? t : m), tiemposSnap[0])
+      a = cerca(a); b = cerca(b)
+      if (!(b > a)) return false
+    } else if (!(b - a > (x1 - x0) * 0.004)) return false
+    onSeleccion([a, b])
+    return true
+  }
+  terminarRef.current = terminarSel
   return (
     <div className="grafico" ref={cont} style={{ position: 'relative' }}>
       {exportar && interactivo && (
@@ -171,7 +197,7 @@ export function Grafico(props) {
           const c = cercano(p.mx, p.my)
           setHover(c ? { cx: p.cx, cy: p.cy, X: c.X, Y: c.Y, color: c.d.s.color, tip: c.d.tip || `${c.d.s.nombre ? c.d.s.nombre + '\n' : ''}x = ${c.d.x.toFixed(2)}\ny = ${c.d.y.toFixed(4)}`, key: c.d.key } : null)
         }}
-        onMouseLeave={() => { setHover(null); setArrastre(null); setCaja(null); setPaneo(null) }}
+        onMouseLeave={() => { setHover(null); setCaja(null); setPaneo(null) }}
         onMouseDown={!interactivo ? undefined : (ev) => {
           if (ev.button !== 0) return
           const p = pos(ev)
@@ -181,11 +207,7 @@ export function Grafico(props) {
           setCaja({ a: { mx: p.mx, my: p.my }, b: { mx: p.mx, my: p.my } })
         }}
         onMouseUp={!interactivo ? undefined : () => {
-          if (arrastre) {
-            const a = Math.min(arrastre.a, arrastre.b), b = Math.max(arrastre.a, arrastre.b)
-            setArrastre(null)
-            if (b - a > (x1 - x0) * 0.01) return onSeleccion([a, b])
-          }
+          if (arrastre) { if (terminarSel(arrastre)) return }
           if (caja) {
             const { a, b } = caja
             setCaja(null)
@@ -226,6 +248,16 @@ export function Grafico(props) {
         {ventana && fin(ventana[0]) && (
           <rect x={px(Math.max(ventana[0], x0))} y={TOP} width={Math.max(0, px(Math.min(ventana[1], x1)) - px(Math.max(ventana[0], x0)))} height={H - TOP - B} fill={T.acento} opacity="0.1" />
         )}
+        {zonas.map((z, i) => {
+          const a = Math.max(z.x0, x0), b = Math.min(z.x1, x1)
+          if (!fin(z.x0) || !fin(z.x1) || !(b > a)) return null
+          return (
+            <g key={i}>
+              <rect x={px(a)} y={TOP} width={px(b) - px(a)} height={H - TOP - B} fill={z.color} opacity="0.14" />
+              {z.etiqueta && <text x={(px(a) + px(b)) / 2} y={TOP + 13} textAnchor="middle" fontSize={e.tamNumeros} fontWeight="600" fill={z.color}>{z.etiqueta}</text>}
+            </g>
+          )
+        })}
         {arrastre && <rect x={px(Math.min(arrastre.a, arrastre.b))} y={TOP} width={Math.abs(px(arrastre.b) - px(arrastre.a))} height={H - TOP - B} fill={T.acento} opacity="0.18" />}
         {caja && <rect x={Math.min(caja.a.mx, caja.b.mx)} y={Math.min(caja.a.my, caja.b.my)} width={Math.abs(caja.b.mx - caja.a.mx)} height={Math.abs(caja.b.my - caja.a.my)} fill={T.acento} opacity="0.12" stroke={T.acento} strokeDasharray="4 3" />}
         <defs><clipPath id={idClip}><rect x={L} y={TOP - 4} width={W - L - R} height={H - TOP - B + 8} /></clipPath></defs>

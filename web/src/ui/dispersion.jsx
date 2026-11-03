@@ -52,8 +52,8 @@ export function GraficoDispersion(props) {
   const H = altoBase
   // los valores de todas las cepas de un tiempo van apilados (uno debajo del otro) arriba del punto más alto de ese tiempo
   const lineasValor = (c) => (c.valor ? c.valor.split('\n').length : 0)
-  const maxLin = o.media ? Math.max(1, ...grupos.map((g) => g.cols.filter((c) => fin(c.m)).reduce((n, c) => n + lineasValor(c), 0))) : 0
-  const L = 34 + e.tamNumeros * 2.8, R = 16, TOP = (tit ? 18 + e.tamTitulo * 1.6 : 14) + (o.media ? e.tamValores * 1.15 * maxLin + 6 : 6)
+  const maxLin = o.etiquetas ? Math.max(1, ...grupos.map((g) => g.cols.filter((c) => fin(c.m)).reduce((n, c) => n + lineasValor(c), 0))) : 0
+  const L = 34 + e.tamNumeros * 2.8, R = 16, TOP = (tit ? 18 + e.tamTitulo * 1.6 : 14) + (o.etiquetas ? e.tamValores * 1.15 * maxLin + 6 : 6)
   const B = 24 + e.tamNumeros * 1.4 + e.tamEjes * 1.6 + filasLey * e.tamLeyenda * 2.2
 
   // rango del eje Y: puntos visibles y media ± error
@@ -105,7 +105,7 @@ export function GraficoDispersion(props) {
     const vecino = ot.length ? Math.min(...ot.map((t) => Math.abs(t - g.t))) : 1
     let lo = Math.min(...yd), hi = Math.max(...yd)
     const sp = Math.max(hi - lo, 0.04)
-    lo -= sp * 0.35; hi += sp * 0.45 + (o.media ? sp * 0.35 : 0)
+    lo -= sp * 0.35; hi += sp * 0.45 + (o.etiquetas ? sp * 0.35 : 0)
     setZoom({ t0: g.t - vecino * 0.35, t1: g.t + vecino * 0.35, y0: lo, y1: hi })
   }
   const fondo = e.fondo === 'blanco' ? '#ffffff' : T.panel
@@ -161,7 +161,7 @@ export function GraficoDispersion(props) {
               const medio = mx > mn ? (mx - mn) * 0.15 + 1e-6 : vecino * 0.35
               let lo = Math.min(...yd), hi = Math.max(...yd)
               const sp = Math.max(hi - lo, 0.04)
-              lo -= sp * 0.35; hi += sp * 0.45 + (o.media ? sp * 0.35 : 0)
+              lo -= sp * 0.35; hi += sp * 0.45 + (o.etiquetas ? sp * 0.35 : 0)
               setZoom({ t0: mn - medio, t1: mx + medio, y0: lo, y1: hi })
             } else {
               const pad = Math.max(rangoT * 0.02, 1e-6)
@@ -194,7 +194,7 @@ export function GraficoDispersion(props) {
           // valores de todas las cepas de este tiempo, uno debajo del otro, arriba del punto más alto del tiempo
           const topeDe = (c) => Math.max(...(o.puntos ? c.pts.map((p) => p.y).filter(fin) : []), fin(c.m) ? (o.errores && fin(c.hi) && c.hi > c.lo ? c.hi : c.m) : -Infinity)
           const topeG = Math.max(...g.cols.map(topeDe))
-          const etiq = o.media ? g.cols.filter((c) => fin(c.m) && c.valor).flatMap((c) => c.valor.split('\n').map((lin) => ({ lin, color: c.color }))) : []
+          const etiq = o.etiquetas ? g.cols.filter((c) => fin(c.m) && c.valor).flatMap((c) => c.valor.split('\n').map((lin) => ({ lin, color: c.color }))) : []
           return (
           <g key={'g' + gi}>
             <text x={px(g.t)} y={H - B + 6 + e.tamNumeros} textAnchor="middle" fontSize={e.tamNumeros} fill={T.sec}>{g.etiqueta}</text>
@@ -215,7 +215,6 @@ export function GraficoDispersion(props) {
                       </>}
                     </g>
                   )}
-                  {!o.puntos && !media && fin(c.m) && <circle cx={cx} cy={py(c.m)} r={r} fill={c.color} data-tip={c.tip} />}
                   {o.puntos && c.pts.map((p, k) => {
                     if (!fin(p.y)) return null
                     const x = cx, y = py(p.y)

@@ -153,9 +153,9 @@ function desdeExpUnificado(e, global) {
   const agit = c.agitacion === 'si' ? `Con agitación${c.rpm ? ` (${c.rpm} rpm)` : ''}.` : c.agitacion === 'no' ? 'Sin agitación.' : ''
   const ufcViejo = e.ufc || {}
   const tabla = ufcViejo.metodo === 'extendida' ? ufcViejo.tabla : null
-  if (origen === 'placas') avisos.push(`«${nombre}»: la OD estaba en una placa leída por pocillos; volvé a cargar los Excel en «Lecturas de OD».`)
+  if (origen === 'placas') avisos.push(`«${nombre}»: la OD estaba en una placa leída por pocillos; volvé a cargar los Excel en «OD › Cargar datos».`)
   if (tipo !== 'od' && ufcViejo.metodo !== 'extendida' && (ufcViejo.placasG || []).some((p) => Object.keys(p.conteos || {}).length))
-    avisos.push(`«${nombre}»: los conteos por gota del programa anterior no se pueden convertir; volvé a cargarlos en «Colonias».`)
+    avisos.push(`«${nombre}»: los conteos por gota del programa anterior no se pueden convertir; volvé a cargarlos en «Conteo › Cargar datos».`)
   const cepas = unicas([
     ...(Array.isArray(e.cepas) ? e.cepas : []),
     ...(e.config || []).map((x) => x.Muestra),
@@ -365,7 +365,8 @@ export function seriesOd(e) {
 }
 
 function seriesOdBase(e) {
-  const aj = { ...e.aj, atipicos: e.aj.dixon_on ? 'dixon' : 'ninguno' }
+  // en cinéticas (Tecan) el test entre réplicas evalúa cada réplica completa; en las demás, tiempo a tiempo
+  const aj = { ...e.aj, atipicos: e.aj.dixon_on ? 'dixon' : 'ninguno', od_atip_nivel: e.origenOd === 'tecan' ? 'replica' : 'punto' }
   if (e.origenOd === 'tecan') {
     // camino óptico: escalar las lecturas es lo mismo que escalar (lectura − blanco), porque es una constante
     const c = caminoOptico(e.aj)

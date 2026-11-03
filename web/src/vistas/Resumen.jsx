@@ -11,10 +11,9 @@ import { fs, fx, sciCorto } from '../utils.js'
 import { mediaPorTiempo } from './Curva.jsx'
 import { celdaResumen, fichaCeldaResumen, resumenPorCepa } from './Parametros.jsx'
 import { Valor } from '../fichas/FichaCalculo.jsx'
-import { descargarExcel } from './Datos.jsx'
 import { EditarExperimento } from './EditarExperimento.jsx'
 
-const NOMBRE_PASO = { archivo: 'Lecturas de OD', placa: 'Pocillos', placas: 'Lecturas de OD', lecturas: 'Lecturas de OD', conteo: 'Colonias', calidad: 'Calidad OD', calidadUfc: 'Calidad UFC', curva: 'Curva OD vs t', curvaUfc: 'Curva UFC vs t', combinado: 'OD ↔ UFC', parametros: 'Parámetros' }
+const NOMBRE_PASO = { archivo: 'Cargar datos de OD', placa: 'Pocillos', placas: 'Cargar datos de OD', lecturas: 'Cargar datos de OD', conteo: 'Cargar conteos', calidad: 'Revisión de la OD', calidadUfc: 'Revisión de los recuentos', curva: 'Curva OD vs t', curvaUfc: 'Curva UFC vs t', combinado: 'OD ↔ UFC' }
 
 // Lo que conviene revisar antes de dar el análisis por terminado: [{ nivel: 'aviso' | 'info', texto, ir }]
 function pendientes(s) {
@@ -38,13 +37,11 @@ function pendientes(s) {
     const fuera = exp.origenOd === 'placas' ? (serie.extra?.lecturas || []).filter((l) => !l.Usado).length : pre && !pre.error ? pre.marcado.reduce((n, w) => n + w.filas.filter((f) => f.motivo).length, 0) : 0
     if (fuera) out.push({ nivel: 'info', texto: `${fuera} lectura${fuera > 1 ? 's' : ''} de OD fuera del análisis (test de atípicos o a mano).`, ir: 'calidad' })
     const conAviso = (res || []).filter((r) => r.aviso)
-    if (conAviso.length) out.push({ nivel: 'info', texto: `${conAviso.length} curva${conAviso.length > 1 ? 's' : ''} con avisos en los parámetros (por ejemplo, pocos puntos o R² bajo).`, ir: 'parametros' })
+    if (conAviso.length) out.push({ nivel: 'info', texto: `${conAviso.length} curva${conAviso.length > 1 ? 's' : ''} con avisos en los parámetros (por ejemplo, pocos puntos o R² bajo).`, ir: 'curva' })
   }
   if (ufc) {
     if (!filasConConteo(exp).length) out.push({ nivel: 'aviso', texto: exp.ufc.filas.length ? `Todavía no hay conteos de colonias: las ${exp.ufc.filas.length} filas están vacías.` : 'Todavía no hay conteos de colonias.', ir: 'conteo' })
     if (ufcRes?.hay) {
-      const incoh = ufcRes.reps.filter((r) => r._aj?.malos?.length).length
-      if (incoh) out.push({ nivel: 'aviso', texto: `${incoh} réplica${incoh > 1 ? 's' : ''} con diluciones que no coinciden con lo esperado.`, ir: 'conteo' })
       const sinDil = ufcRes.reps.filter((r) => r._estado === 'sin_dilucion').length
       if (sinDil) out.push({ nivel: 'aviso', texto: `${sinDil} réplica${sinDil > 1 ? 's' : ''} sin conteo en la dilución elegida para su cepa.`, ir: 'conteo' })
       const est = ufcRes.reps.filter((r) => ['bajo', 'alto'].includes(r._estado)).length
@@ -97,16 +94,9 @@ export function Resumen({ s }) {
   return (
     <div className="pagina">
       <Cinta>
-        <Grupo titulo="Experimento">
-          <BotonCinta icono="guardar" texto="Guardar" onClick={s.guardar} tip={s.archivoExp ? `Guarda los cambios en «${s.archivoExp.nombre}» (Ctrl + S)` : 'Guarda el experimento en un archivo .curvas.json (Ctrl + S)'} />
-          <BotonCinta icono="guardarComo" texto="Guardar como" onClick={s.guardarComo} tip="Guarda una copia con otro nombre o en otra carpeta (Ctrl + Mayús + S)" />
-          <BotonCinta icono="editar" texto="Datos del experimento" onClick={() => setEditar(true)} tip="Nombre, condiciones, notas y cepas (renombrar o agregar)" />
-        </Grupo>
         <Grupo titulo="Exportar">
-          <BotonCinta icono="tabla" texto="Excel completo" onClick={() => descargarExcel(s)} tip="Todas las tablas del análisis, una por hoja, con las condiciones y los ajustes" />
-          <BotonCinta icono="imprimir" texto="Imprimir" onClick={() => window.print()} />
+          <BotonCinta icono="imprimir" texto="Imprimir" onClick={() => window.print()} tip={'Imprimir o guardar en PDF este resumen\n(guardar el experimento: Archivo o Ctrl + S; el Excel completo: Datos)'} />
         </Grupo>
-        {proximo && <Grupo titulo="Siguiente"><BotonCinta icono="flecha" texto={NOMBRE_PASO[proximo]} onClick={() => s.irA(proximo)} tip="Primer paso que falta completar" /></Grupo>}
       </Cinta>
       {editar && <EditarExperimento s={s} onClose={() => setEditar(false)} />}
 
@@ -161,7 +151,7 @@ export function Resumen({ s }) {
           </Mosaico>
         )}
         {od && (
-          <Mosaico titulo="μmax por cepa" accion="Parámetros" onAccion={() => s.irA('parametros')}>
+          <Mosaico titulo="μmax por cepa" accion="Curva OD" onAccion={() => s.irA('curva')}>
             {muPorCepa.length ? muPorCepa.map((r) => {
               const m = r.Muestra, c = celdaResumen(r, 'mu_max')
               return (

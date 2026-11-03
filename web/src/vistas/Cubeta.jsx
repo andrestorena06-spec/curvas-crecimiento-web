@@ -78,7 +78,7 @@ export function Cubeta({ s }) {
           <CampoCinta etiqueta="Columnas"><Num value={m.nd} onChange={(v) => { if (fin(v)) setM({ nd: Math.min(6, Math.max(1, Math.round(v))) }) }} ancho={52} /></CampoCinta>
         </Grupo>
       </Cinta>
-      <Encabezado titulo="Lecturas de OD" sub="Espectrofotómetro en cubeta. Cargá la absorbancia de cada cepa, réplica y tiempo. Si la lectura se salió de la zona lineal del equipo, cargá también la de la dilución: se usa la que cae dentro de la ventana lineal." />
+      <Encabezado titulo="Cargar datos de OD" sub="Espectrofotómetro en cubeta. Cargá la absorbancia de cada cepa, réplica y tiempo. Si la lectura se salió de la zona lineal del equipo, cargá también la de la dilución: se usa la que cae dentro de la ventana lineal." />
       <div>
         <div style={{ minWidth: 0 }}>
           <div className="tarjeta" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}>

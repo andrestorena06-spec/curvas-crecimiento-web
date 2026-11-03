@@ -3,14 +3,16 @@ import { useOpcion } from '../ui/opciones.js'
 import { desvio, finito, media } from '../motor/analisis.js'
 import { METODOS_ATIPICOS } from '../motor/atipicos.js'
 import { TEMAS, rellenoPocillo, useTema } from '../tema.js'
-import { estiloGraficoDef, useAncho } from '../ui/grafico.jsx'
+import { Grafico, estiloGraficoDef, useAncho } from '../ui/grafico.jsx'
 import { ModalGuardarImagen, useGraficoCtx } from '../ui/guardarImagen.jsx'
 import { PanelPersonalizar } from '../ui/personalizar.jsx'
-import { Icono, Num } from '../ui/base.jsx'
+import { Icono, Modal, Num } from '../ui/base.jsx'
 import { BotonCinta, Cajon, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
 import { LETRAS, exportarSVG, fmtTick, fx, tCuantil, ticks } from '../utils.js'
 import { Valor } from '../fichas/FichaCalculo.jsx'
+import { GrupoMostrar, GrupoTipoError, conEtiquetas, textoMostrar, useMostrar } from '../ui/mostrar.jsx'
 import { fichaBlancoPlaca } from '../fichas/definiciones.js'
+import { ModalFases, ventanaOdElegida, zonasFases } from './FasesCepa.jsx'
 
 const ERRORES = [['sd', 'Desviación estándar'], ['sem', 'Error estándar (EEM)'], ['ic95', 'IC 95 %']]
 const errorDe = (v, tipo) => {
@@ -26,7 +28,7 @@ const valorDe = (l) => (l.EsBlanco ? l.OD_leida : l.OD_corregida)
 // vertical (miden lo mismo en el mismo tiempo; solo cambia la OD). Un clic en una cepa la acerca (el eje Y se ajusta a sus
 // pocillos para ver las diferencias); con la cepa acercada, un clic en un punto lo excluye o lo reincorpora.
 // ---------------------------------------------------------------
-function GraficoExclusion(props) {
+export function GraficoExclusion(props) {
   const { lect, orden: ordenTodo, colores, o, onClick, titulo, estilo = {}, anchoFijo, altoTotal, refSvg, interactivo = true, idEstilo, focoInicial = null } = props
   const [guardar, setGuardar] = useState(false)
   const [foco, setFoco] = useState(focoInicial)   // cepa acercada
@@ -56,7 +58,7 @@ function GraficoExclusion(props) {
     lo = a - sp * 0.35; hi = b + sp * 0.35
   }
   const fijoMin = e.ymin !== '' && Number.isFinite(Number(e.ymin)), fijoMax = e.ymax !== '' && Number.isFinite(Number(e.ymax))
-  if (o.medias) hi += (hi - lo) * (o.errores ? 0.16 : 0.1)
+  if (o.etiquetas) hi += (hi - lo) * (o.errores ? 0.16 : 0.1)
   hi += (hi - lo) * 0.04
   if (fijoMin) lo = Number(e.ymin)
   if (fijoMax) hi = Number(e.ymax)
@@ -108,7 +110,7 @@ function GraficoExclusion(props) {
           const col = l.EsBlanco ? '#8C9BB0' : colores[l.Muestra] || T.acento
           return (
             <g key={l.clave} onClick={!interactivo ? undefined : acercada ? () => onClick(l.clave) : () => setFoco(l.Muestra)} style={{ cursor: acercada ? 'pointer' : 'zoom-in' }}
-              data-tip={`${l.Pocillo} · ${l.Muestra}${l.EsBlanco ? '' : ` (réplica ${l.Replica})`} · t = ${l.Placa_T_h} h\n${l.EsBlanco ? `OD leída = ${fx(l.OD_leida, 4)}` : `OD = (${fx(l.OD_leida, 4)} − ${fx(l.Blanco, 4)})${l.Factor_dilucion > 1 ? ` × ${l.Factor_dilucion}` : ''} = ${fx(l.OD_corregida, 4)}`}\n${l.Motivo || (l.Usado ? 'Aceptado' : 'Excluido')}\nClic: ${acercada ? (l.Usado ? 'excluir' : 'reincorporar') : 'acercar esta cepa'}`}>
+              data-tip={`${l.Pocillo} · ${l.Muestra}${l.EsBlanco ? '' : ` (réplica ${l.Replica})`} · t = ${l.Placa_T_h} h\n${l.EsBlanco ? `OD leída = ${fx(l.OD_leida, 4)}` : l.tipOD || `OD = (${fx(l.OD_leida, 4)} − ${fx(l.Blanco, 4)})${l.Factor_dilucion > 1 ? ` × ${l.Factor_dilucion}` : ''} = ${fx(l.OD_corregida, 4)}`}\n${l.Motivo || (l.Usado ? 'Aceptado' : 'Excluido')}\nClic: ${acercada ? (l.Usado ? 'excluir' : 'reincorporar') : 'acercar esta cepa'}`}>
               <circle cx={X} cy={Y} r="13" fill="transparent" />
               {l.Sospechoso && <circle cx={X} cy={Y} r="9" fill="none" stroke={T.aviso} strokeWidth="2.4" />}
               {l.Usado ? <circle cx={X} cy={Y} r={5 * e.radio} fill={col} stroke={T.panel} strokeWidth="1" />
@@ -116,10 +118,11 @@ function GraficoExclusion(props) {
             </g>
           )
         }))}
-        {o.medias && res.map((r, i) => {
+        {o.etiquetas && res.map((r, i) => {
           if (!r) return null
           const top = Math.max(...grupos[i].map(valorDe).filter(finito), r.m + (o.errores && finito(r.err) ? r.err : 0))
-          const txt = o.errores && finito(r.err) ? `${fx(r.m, 3)} ± ${fx(r.err, 3)}` : fx(r.m, 3)
+          const txt = textoMostrar(o.mostrar, fx(r.m, 3), finito(r.err) ? `± ${fx(r.err, 3)}` : '')
+          if (!txt) return null
           return (
             <g key={'t' + i}>
               <rect x={cx(i) - txt.length * 3.6 - 6} y={py(top) - 30} width={txt.length * 7.2 + 12} height="20" rx="5" fill={T.panel2} stroke={T.borde} />
@@ -142,6 +145,75 @@ function GraficoExclusion(props) {
       {guardar && <ModalGuardarImagen nombre="exclusion" anchoPantalla={W} altoPantalla={H} onClose={() => setGuardar(false)}
         renderizar={(w, h, r, blanco) => <GraficoExclusion {...props} focoInicial={foco} anchoFijo={w} altoTotal={h} refSvg={r} interactivo={false} estilo={blanco ? { ...estilo, fondo: 'blanco' } : estilo} />} />}
     </div>
+  )
+}
+
+// Ventana emergente: la distribución de los puntos de una cepa en UN tiempo, acercada para verla bien. Un clic en un punto lo excluye o lo reincorpora.
+export function ZoomTiempo({ titulo, lect, cepa, colores, o, onClick, onClose, estilo }) {
+  return (
+    <Modal titulo={titulo} ancho={600} onClose={onClose}>
+      <GraficoExclusion lect={lect} orden={[cepa]} colores={colores} o={{ ...o, puntos: true }} onClick={onClick} estilo={{ ...estilo, alto: 380 }} focoInicial={cepa} idEstilo="exclusion" />
+      <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>Cada punto es una lectura de ese tiempo. Un clic en un punto lo excluye o lo reincorpora (cruz roja: excluido; anillo naranja: sospechoso según el test, que por defecto solo se marca).</p>
+    </Modal>
+  )
+}
+
+// Una tarjeta por cepa con sus pocillos a lo largo de los tiempos (placas por tiempo): el mismo formato que la revisión de cubeta
+function VistaCepasPlacas({ s, lecturas, mo, o }) {
+  const T = useTema()
+  const [zoom, setZoom] = useState(null)   // { m, t }
+  const [fasesDe, setFasesDe] = useState(null)
+  const datosFases = new Map()
+  const cepas = [...new Set(lecturas.filter((l) => !l.EsBlanco).map((l) => l.Muestra))]
+  const grupos = [...cepas, ...(mo.blanco && lecturas.some((l) => l.EsBlanco) ? ['Blanco'] : [])]
+  const claves = new Map()
+  const tarjetas = grupos.map((m) => {
+    const L = lecturas.filter((l) => l.Muestra === m)
+    const color = m === 'Blanco' ? '#8C9BB0' : s.colores[m]
+    const series = [], extras = []
+    const tip = (l) => `${l.Pocillo}${l.EsBlanco ? '' : ` · réplica ${l.Replica}`} · t = ${fx(l.Placa_T_h, 2)} h\n${l.EsBlanco ? 'OD leída' : 'OD corregida'} = ${fx(valorDe(l), 4)}\n${l.Motivo || (l.Usado ? 'Aceptado' : 'Excluido')}\nClic: ver los pocillos de ese tiempo`
+    L.forEach((l) => claves.set(l.clave, { m, t: l.Placa_T_h }))
+    if (mo.replicas) {
+      series.push({ id: 'p' + m, nombre: 'Pocillos', color, linea: false, puntos: true, radio: 3, opacidad: 0.85, data: L.filter((l) => l.Usado && finito(valorDe(l))).map((l) => ({ x: l.Placa_T_h, y: valorDe(l), key: l.clave, tip: tip(l) })) })
+      L.filter((l) => !l.Usado && finito(valorDe(l))).forEach((l) => extras.push({ x: l.Placa_T_h, y: valorDe(l), key: l.clave, color: T.peligro, forma: 'x', tip: tip(l) }))
+      L.filter((l) => l.Usado && l.Sospechoso && finito(valorDe(l))).forEach((l) => extras.push({ x: l.Placa_T_h, y: valorDe(l), key: l.clave, color: T.aviso, forma: 'anillo', tip: tip(l) }))
+    }
+    if (mo.puntos || mo.barras || conEtiquetas(mo)) {
+      const ts = [...new Set(L.map((l) => l.Placa_T_h))].sort((a, b) => a - b)
+      series.push({ id: 'media' + m, nombre: 'Media', color, linea: false, puntos: !!mo.puntos, radio: 3.6, errores: !!mo.barras, etiqueta: conEtiquetas(mo) ? (d) => d.valor : null,
+        data: ts.map((t) => {
+          const v = L.filter((l) => l.Placa_T_h === t && l.Usado).map(valorDe).filter(finito)
+          if (!v.length) return null
+          const mm = media(v), e = errorDe(v, o.error), key = `T|${m}|${t}`
+          claves.set(key, { m, t })
+          return { x: t, y: mm, lo: finito(e) ? mm - e : NaN, hi: finito(e) ? mm + e : NaN, key, valor: textoMostrar(mo, fx(mm, 3), finito(e) ? `± ${fx(e, 3)}` : ''), tip: `${m}\nt = ${fx(t, 2)} h\nmedia = ${fx(mm, 4)}${finito(e) ? ` ± ${fx(e, 4)}` : ''}\nn = ${v.length} de ${L.filter((l) => l.Placa_T_h === t).length}\nClic: ver los pocillos de ese tiempo` }
+        }).filter(Boolean) })
+    }
+    const nEx = L.filter((l) => !l.Usado).length, nSo = L.filter((l) => l.Usado && l.Sospechoso).length
+    const tiempos = [...new Set(L.map((l) => l.Placa_T_h))].sort((a, b) => a - b)
+    const filas = m === 'Blanco' ? [] : (s.res || []).filter((r) => r.Muestra === m)
+    datosFases.set(m, { series, extras, tiempos, filas })
+    return { m, color, series, extras, nEx, nSo, tiempos, filas }
+  })
+  return (
+    <>
+      <div className="grilla-cepas">
+        {tarjetas.map(({ m, color, series, extras, nEx, nSo, tiempos, filas }) => (
+          <div key={m} className="mosaico">
+            <div className="mosaico-cab" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}><h2><i className="punto" style={{ background: color, marginRight: 6 }} />{m}</h2>{filas.length > 0 && <button className="chico fantasma" onClick={() => setFasesDe(m)} data-tip={'Fases de la curva: lag, exponencial y estacionaria\nAmplía la curva para elegir qué puntos forman la fase exponencial'}>Fases…</button>}</div>
+            <Grafico series={series} extras={extras} yTxt={m === 'Blanco' ? 'OD leída' : 'OD'} alto={240} zonas={zonasFases(filas, tiempos[0], tiempos[tiempos.length - 1], false, ventanaOdElegida(s, filas))} estilo={s.estiloGrafico('cepaPlacas')} idEstilo="cepaPlacas" nombre={`placas_${m}`}
+              onPuntoClick={(k) => { const z = claves.get(k); if (z) setZoom(z) }} />
+            <div className="fila" style={{ flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              <span className={`chip ${nEx ? 'peligro' : nSo ? 'aviso' : 'ok'}`}>{nEx ? `${nEx} excluida${nEx > 1 ? 's' : ''}` : nSo ? `${nSo} sospechosa${nSo > 1 ? 's' : ''}` : 'sin marcas'}</span>
+              {nEx > 0 && nSo > 0 && <span className="chip aviso">{nSo} sospechosa{nSo > 1 ? 's' : ''}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {fasesDe && datosFases.get(fasesDe) && <ModalFases s={s} cepa={fasesDe} {...datosFases.get(fasesDe)} onClose={() => setFasesDe(null)} />}
+      {zoom && <ZoomTiempo titulo={`${zoom.m} · t = ${fx(zoom.t, zoom.t % 1 ? 2 : 0)} h`} cepa={zoom.m} colores={s.colores} o={o} onClick={s.alternarLectura} estilo={s.estiloGrafico('exclusion')} onClose={() => setZoom(null)}
+        lect={lecturas.filter((l) => l.Muestra === zoom.m && l.Placa_T_h === zoom.t)} />}
+    </>
   )
 }
 
@@ -207,10 +279,13 @@ export function VistaCalidadPlacas({ s }) {
   const lecturas = s.serie.extra?.lecturas || []
   const tiempos = [...new Set(lecturas.map((l) => l.Placa_T_h))].sort((a, b) => a - b)
   const [t, setT] = useState(tiempos[0])
-  const [vista, setVista] = useOpcion('calidadPlacas.vista', 'puntos')
+  const [vistaG, setVista] = useOpcion('calidadPlacas.vista', 'cepas')
+  const vista = vistaG === 'puntos' ? 'cepas' : vistaG   // «Excluir puntos» (versión anterior) = por cepa
   const [pers, setPers] = useState(false)
-  const [o, setOAll] = useOpcion('calidadPlacas.grafico', { puntos: true, medias: true, errores: true, error: 'sd', blanco: true })
-  const setO = (k, v) => setOAll({ ...o, [k]: v })
+  // Mostrar (el mismo grupo en todos los gráficos): réplicas = cada pocillo, puntos = la media de la cepa (raya)
+  const [mo, setMo] = useMostrar('calidadPlacas', { puntos: true, replicas: true, blanco: true })
+  const [errorOd, setErrorOd] = useOpcion('curva.error', 'sd')   // tipo de error de la OD: uno solo, se elige en este mismo menú, «Tipo de error»
+  const o = { puntos: mo.replicas, medias: mo.puntos, errores: mo.barras, blanco: mo.blanco, etiquetas: conEtiquetas(mo), mostrar: mo, error: errorOd }
   const tt = tiempos.includes(t) ? t : tiempos[0]
   const lectT = lecturas.filter((l) => l.Placa_T_h === tt && (o.blanco || !l.EsBlanco))
   const pl = exp.placas.find((p) => Math.abs(p.t - tt) < 1e-9)
@@ -223,6 +298,8 @@ export function VistaCalidadPlacas({ s }) {
   return (
     <>
       <Cinta>
+        <GrupoMostrar m={mo} set={setMo} blanco notas={{ puntos: 'La raya con la media de los pocillos aceptados de cada cepa', replicas: 'Cada pocillo como un punto: clic en uno para excluirlo o reincorporarlo', blanco: 'Mostrar los blancos: la columna con los pocillos de blanco de la placa (su OD leída)', barras: 'Barras de error: el tipo (DE, EEM o IC 95 %) se elige en este mismo menú, «Tipo de error»' }} />
+        <GrupoTipoError valor={errorOd} onChange={setErrorOd} nota={'\n(el mismo en todos los gráficos de OD)'} />
         <Grupo titulo="Método">
           <OpcionesCinta valor={metodo} onChange={(v) => setAj('pl_metodo', v)} opciones={[['q', 'Dixon', 'Q', null, METODOS_ATIPICOS.q], ['grubbs', 'Grubbs', 'G', null, METODOS_ATIPICOS.grubbs], ['cv', 'CV %', 'CV', null, METODOS_ATIPICOS.cv]]} />
         </Grupo>
@@ -234,57 +311,55 @@ export function VistaCalidadPlacas({ s }) {
           <BotonCinta icono="refrescar" texto="Restablecer" tip="Borra todas las exclusiones y conservaciones hechas a mano" onClick={() => { if (window.confirm('Se borran todas las exclusiones y conservaciones manuales de las placas. ¿Continuar?')) s.restablecerLecturas() }} />
         </Grupo>
         <Grupo titulo="Gráfico">
-          <BotonCinta simbolo="•" texto="Puntos" activo={o.puntos} onClick={() => setO('puntos', !o.puntos)} tip={'Mostrar puntos\nUn punto por pocillo; clic sobre un punto para excluirlo o reincorporarlo'} />
-          <BotonCinta simbolo="x̄" texto="Media" activo={o.medias} onClick={() => setO('medias', !o.medias)} tip={'Valor medio\nLínea y etiqueta con la media de los pocillos aceptados de cada cepa'} />
-          <BotonCinta simbolo="±" texto="Error" activo={o.errores} onClick={() => setO('errores', !o.errores)} tip={'Error junto a la media\nBarras y valor del error elegido en «Tipo de error»'} />
-          <BotonCinta simbolo="B" texto="Blancos" activo={o.blanco} onClick={() => setO('blanco', !o.blanco)} tip={'Mostrar los blancos\nColumna con los pocillos de blanco de la placa (su OD leída)'} />
           <BotonCinta icono="editar" texto="Personalizar" activo={pers} onClick={() => setPers(!pers)} tip="Títulos, tamaños de letra, grosores, eje Y, fondo y colores de las cepas" />
-        </Grupo>
-        <Grupo titulo="Tipo de error">
-          <OpcionesCinta valor={o.error} onChange={(v) => setO('error', v)} opciones={[['sd', 'DE', 's', null, 'Desviación estándar\nCuánto se dispersan los pocillos entre sí'], ['sem', 'EEM', 's/√n', null, 'Error estándar de la media = DE / √n\nIncertidumbre de la media'], ['ic95', 'IC 95 %', 'IC', null, 'Intervalo de confianza del 95 %\nmedia ± t(0,975; n − 1) × DE / √n']]} />
         </Grupo>
       </Cinta>
       <Cajon titulo="Personalizar gráfico" abierto={pers} onClose={() => setPers(false)}><PanelPersonalizar s={s} id="exclusion" /></Cajon>
-      <div className="tiempos" style={{ marginBottom: 12 }}>
-        {tiempos.map((x) => {
-          const n = lecturas.filter((l) => l.Placa_T_h === x && !l.Usado).length
-          const sp = lecturas.filter((l) => l.Placa_T_h === x && l.Sospechoso && l.Usado).length
-          return <button key={x} className={`tiempo ${x === tt ? 'on' : ''}`} onClick={() => setT(x)}><b>t = {fx(x, x % 1 ? 2 : 0)} h</b><small>{n ? `${n} excluida${n > 1 ? 's' : ''}` : sp ? `${sp} sospechosa${sp > 1 ? 's' : ''}` : 'sin marcas'}</small></button>
-        })}
+      <div className="pestanas" style={{ marginBottom: 12 }}>
+        <button className={vista === 'cepas' ? 'on' : ''} onClick={() => setVista('cepas')}>Por cepa</button>
+        <button className={vista === 'placa' ? 'on' : ''} onClick={() => setVista('placa')}>Placa</button>
+        <button className={vista === 'tabla' ? 'on' : ''} onClick={() => setVista('tabla')}>Resumen de todos los tiempos</button>
       </div>
-      <div className="dos-columnas ancha">
-        <Mosaico>
-          <div className="pestanas" style={{ marginTop: -6 }}>
-            <button className={vista === 'puntos' ? 'on' : ''} onClick={() => setVista('puntos')}>Excluir puntos</button>
-            <button className={vista === 'placa' ? 'on' : ''} onClick={() => setVista('placa')}>Placa</button>
-            <button className={vista === 'tabla' ? 'on' : ''} onClick={() => setVista('tabla')}>Resumen de todos los tiempos</button>
-          </div>
-          {vista === 'puntos' && <GraficoExclusion lect={lectT} orden={orden} colores={s.colores} o={o} onClick={s.alternarLectura} titulo={`t = ${fx(tt, tt % 1 ? 2 : 0)} h`} estilo={s.estiloGrafico('exclusion')} idEstilo="exclusion" />}
-          {vista === 'placa' && <PlacaDeTiempo s={s} lect={lecturas.filter((l) => l.Placa_T_h === tt)} pl={pl} />}
-          {vista === 'tabla' && <ResumenTiempos lect={lecturas} />}
-          <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>{vista === 'puntos' ? 'Un clic en una cepa la acerca para ver las diferencias entre sus pocillos; con la cepa acercada, un clic en un punto lo excluye o lo reincorpora (doble clic: todas las cepas). ' : 'Clic sobre un pocillo para excluirlo o reincorporarlo. '}Color: aceptado · cruz roja: excluido · anillo naranja: sospechoso según el test (por defecto solo se marca).</p>
-        </Mosaico>
-        <div className="columna-mosaicos">
-          <Mosaico titulo={`Blanco de t = ${fx(tt, tt % 1 ? 2 : 0)} h`}>
-            {bl && finito(bl.valor) ? (<>
-              <div className="cifra"><b><Valor f={() => fichaBlancoPlaca(bl, lecturas.filter((l) => l.Placa_T_h === bl.origen), tt)}>{fx(bl.valor, 4)}</Valor></b>{finito(bl.de) && <span>± {fx(bl.de, 4)}</span>}</div>
-              <p className="ayuda" style={{ margin: 0 }}>Media de {bl.n} pocillo{bl.n === 1 ? '' : 's'} ({bl.pocillos.join(', ')}){bl.origen !== tt ? `, tomado de la placa t = ${bl.origen} h` : ''}. Se resta a cada lectura y el resultado se multiplica por la dilución.</p>
-            </>) : <p className="ayuda">Sin blanco aceptado en esta placa.</p>}
-          </Mosaico>
-          <Mosaico titulo={`Para revisar (${revisar.length})`}>
-            {!revisar.length ? <p className="ayuda" style={{ margin: 0 }}>Nada marcado: todas las lecturas fueron aceptadas.</p> : (
-              <div className="lista-revisar">
-                {revisar.map((l) => (
-                  <button key={l.clave} className="fantasma" onClick={() => { setT(l.Placa_T_h); s.alternarLectura(l.clave) }} data-tip={`${l.Motivo || ''}\nClic: ${l.Usado ? 'excluir' : 'reincorporar'}`}>
-                    <span><b>{l.Pocillo}</b> · {l.Muestra} · {l.Placa_T_h} h<br /><small className="ayuda">{l.Manual ? 'a mano' : l.AutoExcl ? 'test' : 'sospechoso conservado'}</small></span>
-                    <span className={`chip ${l.Usado ? 'aviso' : 'peligro'}`}>{l.Usado ? 'aceptada' : 'excluida'}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </Mosaico>
+      {vista === 'cepas' && (<>
+        <VistaCepasPlacas s={s} lecturas={lecturas.filter((l) => o.blanco || !l.EsBlanco)} mo={mo} o={o} />
+        <p className="ayuda" style={{ marginTop: 8 }}>Cada punto es un pocillo. Un clic en un punto (o en la media) de un tiempo abre una ventana con todos los pocillos de esa cepa en ese tiempo, acercados, para excluirlos o reincorporarlos. Color: aceptado · cruz roja: excluido · anillo naranja: sospechoso según el test (por defecto solo se marca).</p>
+      </>)}
+      {vista === 'placa' && (<>
+        <div className="tiempos" style={{ marginBottom: 12 }}>
+          {tiempos.map((x) => {
+            const n = lecturas.filter((l) => l.Placa_T_h === x && !l.Usado).length
+            const sp = lecturas.filter((l) => l.Placa_T_h === x && l.Sospechoso && l.Usado).length
+            return <button key={x} className={`tiempo ${x === tt ? 'on' : ''}`} onClick={() => setT(x)}><b>t = {fx(x, x % 1 ? 2 : 0)} h</b><small>{n ? `${n} excluida${n > 1 ? 's' : ''}` : sp ? `${sp} sospechosa${sp > 1 ? 's' : ''}` : 'sin marcas'}</small></button>
+          })}
         </div>
-      </div>
+        <div className="dos-columnas ancha">
+          <Mosaico>
+            <PlacaDeTiempo s={s} lect={lecturas.filter((l) => l.Placa_T_h === tt)} pl={pl} />
+            <p className="ayuda" style={{ marginTop: 8, marginBottom: 0 }}>Clic sobre un pocillo para excluirlo o reincorporarlo.</p>
+          </Mosaico>
+          <div className="columna-mosaicos">
+            <Mosaico titulo={`Blanco de t = ${fx(tt, tt % 1 ? 2 : 0)} h`}>
+              {bl && finito(bl.valor) ? (<>
+                <div className="cifra"><b><Valor f={() => fichaBlancoPlaca(bl, lecturas.filter((l) => l.Placa_T_h === bl.origen), tt)}>{fx(bl.valor, 4)}</Valor></b>{finito(bl.de) && <span>± {fx(bl.de, 4)}</span>}</div>
+                <p className="ayuda" style={{ margin: 0 }}>Media de {bl.n} pocillo{bl.n === 1 ? '' : 's'} ({bl.pocillos.join(', ')}){bl.origen !== tt ? `, tomado de la placa t = ${bl.origen} h` : ''}. Se resta a cada lectura y el resultado se multiplica por la dilución.</p>
+              </>) : <p className="ayuda">Sin blanco aceptado en esta placa.</p>}
+            </Mosaico>
+          </div>
+        </div>
+      </>)}
+      {vista === 'tabla' && <Mosaico><ResumenTiempos lect={lecturas} /></Mosaico>}
+      <Mosaico titulo={`Para revisar (${revisar.length})`}>
+        {!revisar.length ? <p className="ayuda" style={{ margin: 0 }}>Nada marcado: todas las lecturas fueron aceptadas.</p> : (
+          <div className="lista-revisar">
+            {revisar.map((l) => (
+              <button key={l.clave} className="fantasma" onClick={() => { setT(l.Placa_T_h); s.alternarLectura(l.clave) }} data-tip={`${l.Motivo || ''}\nClic: ${l.Usado ? 'excluir' : 'reincorporar'}`}>
+                <span><b>{l.Pocillo}</b> · {l.Muestra} · {l.Placa_T_h} h<br /><small className="ayuda">{l.Manual ? 'a mano' : l.AutoExcl ? 'test' : 'sospechoso conservado'}</small></span>
+                <span className={`chip ${l.Usado ? 'aviso' : 'peligro'}`}>{l.Usado ? 'aceptada' : 'excluida'}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Mosaico>
     </>
   )
 }

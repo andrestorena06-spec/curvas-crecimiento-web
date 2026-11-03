@@ -5,6 +5,7 @@ import { estiloGraficoDef } from './grafico.jsx'
 
 const FUENTES = [['IBM Plex Sans', 'IBM Plex Sans'], ['Segoe UI', 'Segoe UI'], ['Arial', 'Arial'], ['Calibri', 'Calibri'], ['Times New Roman', 'Times New Roman'], ['Georgia', 'Georgia']]
 
+// gráficos con valores escritos sobre los puntos (se elige acá, no en la cinta)
 export function PanelPersonalizar({ s, id, ejeDerecho = false, cepas }) {
   const e = { ...estiloGraficoDef(), ...(s.exp.graficos?.[id] || {}) }
   const set = (k, v) => s.setEstiloGrafico(id, { [k]: v })
