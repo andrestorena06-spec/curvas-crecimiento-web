@@ -46,7 +46,7 @@ export const ajustesDef = (origen) => ({
   // UFC: atípicos solo se marcan (no se excluyen solos); curvatura m del Baranyi y Roberts; centro de cada tiempo
   // ('pool' = Σ colonias / Σ volúmenes, 'geo' = media de log₁₀ de las réplicas); fracción de μ máx que define la
   // fase exponencial de los recuentos (para la calibración)
-  ufc_auto: false, ufc_uoper: 0.07, ufc_mcurv: 1, ufc_centro: 'pool', ufc_frac_exp: 0.5,
+  ufc_auto: false, ufc_uoper: 0.07, ufc_mcurv: 1, ufc_centro: 'geo', ufc_frac_exp: 0.5,
 })
 
 // Camino óptico en un lector de placas (lectura vertical): el haz atraviesa la altura del líquido,

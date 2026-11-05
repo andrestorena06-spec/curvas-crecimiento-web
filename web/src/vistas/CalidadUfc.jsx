@@ -88,7 +88,7 @@ export function CalidadUfc({ s }) {
       return {
         id: m + '|' + t, nombre: m, color: s.colores[m], m: e.m, lo: o.errores ? e.lo : NaN, hi: o.errores ? e.hi : NaN,
         valor: textoMostrar(mo, finito(e.m) ? fx(e.m, 2) : '', errorTextoUfc(e, false)),
-        tip: [`${m} · T = ${t} h`, finito(r.UFC_mL) ? `Σ C / Σ V = ${r.Colonias_suma} / ${sciCorto(r.Volumen_mL)} mL = ${sciCorto(r.UFC_mL)} UFC/mL` : '', `log₁₀ = ${fx(e.m, 2)}${txtErrorUfc(e, etqErr)}`, 'Detalle del cálculo: clic en el valor, en Curva UFC vs t'].filter(Boolean).join('\n'),
+        tip: [`${m} · T = ${t} h`, cen === 'geo' ? (finito(r.Media_geometrica) ? `media geométrica = ${sciCorto(r.Media_geometrica)} UFC/mL` : '') : (finito(r.UFC_mL) ? `Σ C / Σ V = ${r.Colonias_suma} / ${sciCorto(r.Volumen_mL)} mL = ${sciCorto(r.UFC_mL)} UFC/mL` : ''), `log₁₀ = ${fx(e.m, 2)}${txtErrorUfc(e, etqErr)}`, 'Detalle del cálculo: clic en el valor, en Curva UFC vs t'].filter(Boolean).join('\n'),
         pts: ufcRes.reps.filter((x) => x.Muestra === m && x.T_h === t && x.Conteos > 0).map((x) => {
           const st = estadoPunto(x)
           return { y: x.log10, key: clave(x), estado: st,
@@ -122,7 +122,7 @@ export function CalidadUfc({ s }) {
           const e = errorUfc(r, 'log10', o.error, cen), key = `T|${m}|${r.T_h}`
           clavesT.set(key, { m, t: r.T_h })
           return { x: r.T_h, y: e.m, lo: e.lo, hi: e.hi, key, valor: textoMostrar(mo, finito(e.m) ? fx(e.m, 2) : '', errorTextoUfc(e, false)),
-            tip: [`${m} · T = ${r.T_h} h`, finito(r.UFC_mL) ? `Σ C / Σ V = ${r.Colonias_suma} / ${sciCorto(r.Volumen_mL)} mL = ${sciCorto(r.UFC_mL)} UFC/mL` : '', `log₁₀ = ${fx(e.m, 2)}${txtErrorUfc(e, etqErr)}`, 'Clic: ver las réplicas de ese tiempo'].filter(Boolean).join('\n') }
+            tip: [`${m} · T = ${r.T_h} h`, cen === 'geo' ? (finito(r.Media_geometrica) ? `media geométrica = ${sciCorto(r.Media_geometrica)} UFC/mL` : '') : (finito(r.UFC_mL) ? `Σ C / Σ V = ${r.Colonias_suma} / ${sciCorto(r.Volumen_mL)} mL = ${sciCorto(r.UFC_mL)} UFC/mL` : ''), `log₁₀ = ${fx(e.m, 2)}${txtErrorUfc(e, etqErr)}`, 'Clic: ver las réplicas de ese tiempo'].filter(Boolean).join('\n') }
         }) })
     }
     // tramo exponencial de las UFC (independiente del de la OD): el elegido o, si no hay, el del ajuste de los recuentos
@@ -190,14 +190,14 @@ export function CalidadUfc({ s }) {
         onClick={(k) => { const r = ufcRes.reps.find((x) => clave(x) === k); if (r) alternar(r) }} estilo={{ ...s.estiloGrafico('exclusion'), yTxt: 'log₁₀ UFC/mL' }} onClose={() => setZoom(null)} lect={lectZoom(zoom)} />}
       <div className="tarjeta">
         <div className="tabla-scroll alta"><table className="tabla">
-          <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num">Réplica</th><th>Dilución usada (colonias)</th><th className="num">UFC/mL</th><th className="num">log₁₀</th><th>Estado</th><th className="num" data-tip={'Coeficiente de variación de las UFC/mL entre las réplicas incluidas (el mismo de Curva UFC y del Excel)\nSolo por el error de conteo (Poisson) se espera un CV ≈ 100/√C %, con C = colonias por réplica\n(p. ej. 30 colonias → 18 %; 100 → 10 %). Un CV mucho mayor indica variación entre réplicas.'}>CV % del grupo</th><th /></tr></thead>
+          <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num">Réplica</th><th>Dilución usada (colonias)</th><th className="num">UFC/mL</th><th className="num">log₁₀</th><th>Estado</th><th className="num" data-tip={cen === 'geo' ? 'Coeficiente de variación de las UFC/mL entre las réplicas incluidas (el mismo de Curva UFC y del Excel)' : 'Coeficiente de variación de las UFC/mL entre las réplicas incluidas (el mismo de Curva UFC y del Excel)\nSolo por el error de conteo (Poisson) se espera un CV ≈ 100/√C %, con C = colonias por réplica\n(p. ej. 30 colonias → 18 %; 100 → 10 %). Un CV mucho mayor indica variación entre réplicas.'}>CV % del grupo</th><th /></tr></thead>
           <tbody>{grupos.map((g) => {
             // CV del motor (calcularUfc): réplicas que entran al promedio, sin las excluidas
             const rg = ufcRes.res.find((x) => x.Muestra === g.Muestra && x.T_h === g.T_h)
             const cv = rg ? rg.CV_pct : NaN
             const cs = (rg?._pool || []).map((q) => q.C).filter((c) => c > 0)
             const cvPoisson = cs.length ? 100 / Math.sqrt(media(cs)) : NaN
-            const tipCv = finito(cv) ? `CV = ${fx(cv, 0)} % entre ${rg.N} réplicas${finito(cvPoisson) ? `\nEsperado solo por conteo (Poisson): ≈ 100/√C̄ = 100/√${fx(media(cs), 0)} = ${fx(cvPoisson, 0)} %` : ''}` : undefined
+            const tipCv = finito(cv) ? `CV = ${fx(cv, 0)} % entre ${rg.N} réplicas${cen !== 'geo' && finito(cvPoisson) ? `\nEsperado solo por conteo (Poisson): ≈ 100/√C̄ = 100/√${fx(media(cs), 0)} = ${fx(cvPoisson, 0)} %` : ''}` : undefined
             return g.reps.map((r, i) => {
               const fuera = ufcRes.fuera.has(clave(r))
               const dx = ufcRes.dixon[clave(r)]

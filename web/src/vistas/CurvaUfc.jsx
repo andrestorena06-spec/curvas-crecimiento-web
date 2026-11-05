@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useOpcion } from '../ui/opciones.js'
 import { finito } from '../motor/analisis.js'
-import { MODELOS_UFC, uOperUfc, centroUfc, curvaUfc, errorTextoUfc, errorUfc, etiquetaErrorUfc, icUfc, modeloUfc, nmaxFijado, prediccionUfc, predDe } from '../motor/ufc.js'
+import { ERRORES_UFC, MODELOS_UFC, uOperUfc, centroUfc, curvaUfc, errorTextoUfc, errorUfc, etiquetaErrorUfc, icUfc, modeloUfc, nmaxFijado, prediccionUfc, predDe } from '../motor/ufc.js'
 import { curvaUfcDe, txtErrorUfc, verUfc } from './CalidadUfc.jsx'
 import { useTema } from '../tema.js'
 import { Encabezado, Icono, Num, Vacio } from '../ui/base.jsx'
@@ -28,7 +28,7 @@ export function fichaTiempoUfc(ufcRes, aj, m, t, foco) {
   const enPool = new Set((r._pool || []).map((q) => q.Replica))
   const excl = reps.filter((x) => !enPool.has(x.Replica)).map((x) => `réplica ${x.Replica} (${ufcRes.fuera.has(`${x.Muestra}|${x.T_h}|${x.Replica}`) ? 'excluida' : String(x.Estado || '').toLowerCase()})`)
   const est = reps.filter((x) => enPool.has(x.Replica) && ['bajo', 'alto'].includes(x._estado)).map((x) => `réplica ${x.Replica}`)
-  return fichaUfcTiempo(r, { foco, centro: centroUfc(aj), excluidas: excl.join(', '), estimadas: est.join(', ') })
+  return fichaUfcTiempo(r, { foco, centro: centroUfc(aj), error: ERRORES_UFC[aj.ufc_err] ? aj.ufc_err : 'sd', excluidas: excl.join(', '), estimadas: est.join(', ') })
 }
 
 export function CurvaUfc({ s }) {
@@ -59,7 +59,7 @@ export function CurvaUfc({ s }) {
       const e = errorUfc(r, lin ? 'lineal' : 'log10', tipoErr, cen)
       const k = lin ? 10 ** pot : 1
       const valor = textoMostrar(mo, lin ? sciCorto(e.m) : fx(e.m, 2), errorTextoUfc(e, lin))
-      const centroTxt = cen === 'geo' ? `media geométrica = ${sciCorto(r.Media_geometrica)} (log₁₀ ${fx(Math.log10(r.Media_geometrica), 2)}); Σ C / Σ V = ${sciCorto(r.UFC_mL)}` : `UFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)`
+      const centroTxt = cen === 'geo' ? `media geométrica = ${sciCorto(r.Media_geometrica)} (log₁₀ ${fx(Math.log10(r.Media_geometrica), 2)})` : `UFC/mL = ${sciCorto(r.UFC_mL)} (Σ colonias / Σ volumen)`
       return { x: r.T_h, y: e.m / k, lo: e.lo / k, hi: e.hi / k, valor, key: `${m}|${r.T_h}`,
         tip: `${m} · T = ${r.T_h} h\n${centroTxt}${txtErrorUfc(e, etqErr, fmtE)}\n${r.Colonias_suma} colonias en ${r.N} réplica${r.N === 1 ? '' : 's'}${finito(r.DE_log10) ? ` · DE de las réplicas ${fx(r.DE_log10, 2)} log` : ''}\nClic: cómo se calculó` }
     }),
@@ -124,13 +124,13 @@ export function CurvaUfc({ s }) {
         <div className="cajon-grupos">
           <Grupo titulo="Valor de cada tiempo">
             <OpcionesCinta valor={cen} onChange={(x) => s.setAj('ufc_centro', x)} opciones={[
-              ['pool', 'Σ colonias / Σ vol.', 'Σ', null, 'Suma de colonias / suma de volúmenes sembrados (por defecto)\nEs el estimador de Poisson de la concentración.\nLa barra de error es su IC 95 % del conteo.'],
-              ['geo', 'Media geométrica', 'x̃', null, 'Media de log₁₀ de las réplicas (media geométrica de las UFC/mL)\nPara réplicas biológicas: la barra es la DE, el EEM o el IC 95 % de los log₁₀.\nSe usa también en el ajuste del modelo y en la calibración.'],
+              ['pool', 'Σ colonias / Σ vol.', 'Σ', null, 'Suma de colonias / suma de volúmenes sembrados (media ponderada por volumen)\nLa barra de error es el IC 95 % de la incertidumbre combinada (ISO 19036).'],
+              ['geo', 'Media geométrica', 'x̃', null, 'Para cada réplica UFC/mL = C·D/V; media de los log₁₀ (por defecto)\nPara réplicas biológicas: la barra es la DE, el EEM o el IC 95 % de los log₁₀.\nSe usa también en el ajuste del modelo y en la calibración.'],
             ]} />
           </Grupo>
-          <Grupo titulo="Incertidumbre del conteo">
+          {cen !== 'geo' && <Grupo titulo="Incertidumbre del conteo">
             <CampoCinta etiqueta="u_oper (log₁₀)" tip={'Incertidumbre operativa y de matriz por defecto (pipeteo, diluciones, muestra), en log₁₀\nSe usa el mayor entre este valor y la variación observada entre réplicas\nTípico: 0,07 a 0,10 (varianza 0,005 a 0,01). Poné 0 para usar solo lo observado entre réplicas'}><Num value={exp.aj.ufc_uoper ?? 0.07} onChange={(x) => s.setAj('ufc_uoper', x)} ancho={62} placeholder="0,07" /></CampoCinta>
-          </Grupo>
+          </Grupo>}
           <GruposOpcionesModeloUfc s={s} />
         </div>
       </Cajon>
@@ -162,21 +162,39 @@ export function CurvaUfc({ s }) {
       <div className="tarjeta">
         <h2>UFC/mL por cepa y tiempo <span className="ayuda" style={{ fontWeight: 400 }}>· clic en un valor: cómo se calculó</span></h2>
         <div className="tabla-scroll"><table className="tabla">
-          <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num" data-tip="Réplicas que entran / réplicas con conteos">Réplicas</th><th className="num" data-tip={'Suma de colonias / suma de mL de suspensión original sembrados\n(estimador de máxima verosimilitud con todas las colonias)'}>UFC/mL</th><th className="num" data-tip={'IC 95 % = 10^(log₁₀ N ± 2·u_c)\nu_c combina el error de contar (Poisson, sobre Σ colonias) y el operativo (ISO 19036)'}>IC 95 %</th><th className="num">Colonias</th><th className="num">log₁₀</th><th className="num" data-tip="Desviación estándar de log₁₀ UFC/mL entre las réplicas (dispersión de las réplicas, no error del valor)">DE réplicas (log)</th><th>Estado</th></tr></thead>
-          <tbody>{ufcRes.res.map((r) => {
-            const ic = icUfc(r)
-            const fi = (foco) => () => fichaTiempoUfc(ufcRes, exp.aj, r.Muestra, r.T_h, foco)
-            return (
-              <tr key={r.Muestra + r.T_h}><td>{r.Muestra}</td><td className="num">{r.T_h}</td><td className="num">{r.N} / {r.Con_conteos}</td>
-                <td className="num"><Valor f={fi()}><b>{sciCorto(r.UFC_mL)}</b></Valor></td>
-                <td className="num"><Valor f={fi('ic')}>{finito(ic.lo) ? `${sciCorto(ic.lo)} – ${sciCorto(ic.hi)}` : '–'}</Valor></td>
-                <td className="num">{finito(r.Colonias_suma) ? r.Colonias_suma : '–'}</td>
-                <td className="num"><Valor f={fi('log')}>{fx(r.log10, 2)}</Valor></td><td className="num">{fx(r.DE_log10, 2)}</td>
-                <td style={{ color: T.sec, fontSize: 12 }}>{r.Estado}</td></tr>
-            )
-          })}</tbody>
+          {cen === 'geo' ? (<>
+            <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num" data-tip="Réplicas con UFC > 0 que entran en la media / réplicas con conteos">Réplicas</th><th className="num" data-tip={'Media de los log₁₀ de las réplicas, vuelta a UFC/mL (10^media)'}>Media geométrica (UFC/mL)</th><th className="num">log₁₀</th><th className="num" data-tip={'Calculado sobre los log₁₀ de las réplicas (se elige en Mostrar › Error)\nCon menos de 3 réplicas solo hay DE'}>{ERRORES_UFC[tipoErr]} (log₁₀)</th><th className="num" data-tip="Intervalo en UFC/mL: 10^(media ± error)">Intervalo (UFC/mL)</th><th>Estado</th></tr></thead>
+            <tbody>{ufcRes.res.map((r) => {
+              const e = errorUfc(r, 'log10', tipoErr, 'geo')
+              const fi = (foco) => () => fichaTiempoUfc(ufcRes, exp.aj, r.Muestra, r.T_h, foco)
+              return (
+                <tr key={r.Muestra + r.T_h}><td>{r.Muestra}</td><td className="num">{r.T_h}</td><td className="num">{e.n} / {r.Con_conteos}</td>
+                  <td className="num"><Valor f={fi()}><b>{finito(r.Media_geometrica) ? sciCorto(r.Media_geometrica) : '–'}</b></Valor></td>
+                  <td className="num"><Valor f={fi('log')}>{fx(e.m, 2)}</Valor></td>
+                  <td className="num"><Valor f={fi('ic')}>{finito(e.err) ? `± ${fx(e.err, 3)}` : e.nBajo ? 'n < 3' : '–'}</Valor></td>
+                  <td className="num">{finito(e.lo) ? `${sciCorto(10 ** e.lo)} – ${sciCorto(10 ** e.hi)}` : '–'}</td>
+                  <td style={{ color: T.sec, fontSize: 12 }}>{r.Estado}</td></tr>
+              )
+            })}</tbody>
+          </>) : (<>
+            <thead><tr><th>Cepa</th><th className="num">T (h)</th><th className="num" data-tip="Réplicas que entran / réplicas con conteos">Réplicas</th><th className="num" data-tip={'Suma de colonias / suma de mL de suspensión original sembrados\n(media ponderada por volumen)'}>UFC/mL</th><th className="num" data-tip={'IC 95 % = 10^(log₁₀ N ± 2·u_c)\nu_c combina el error de contar (Poisson, sobre Σ colonias) y el operativo (ISO 19036)'}>IC 95 %</th><th className="num">Colonias</th><th className="num">log₁₀</th><th className="num" data-tip="Desviación estándar de log₁₀ UFC/mL entre las réplicas (dispersión de las réplicas, no error del valor)">DE réplicas (log)</th><th>Estado</th></tr></thead>
+            <tbody>{ufcRes.res.map((r) => {
+              const ic = icUfc(r)
+              const fi = (foco) => () => fichaTiempoUfc(ufcRes, exp.aj, r.Muestra, r.T_h, foco)
+              return (
+                <tr key={r.Muestra + r.T_h}><td>{r.Muestra}</td><td className="num">{r.T_h}</td><td className="num">{r.N} / {r.Con_conteos}</td>
+                  <td className="num"><Valor f={fi()}><b>{sciCorto(r.UFC_mL)}</b></Valor></td>
+                  <td className="num"><Valor f={fi('ic')}>{finito(ic.lo) ? `${sciCorto(ic.lo)} – ${sciCorto(ic.hi)}` : '–'}</Valor></td>
+                  <td className="num">{finito(r.Colonias_suma) ? r.Colonias_suma : '–'}</td>
+                  <td className="num"><Valor f={fi('log')}>{fx(r.log10, 2)}</Valor></td><td className="num">{fx(r.DE_log10, 2)}</td>
+                  <td style={{ color: T.sec, fontSize: 12 }}>{r.Estado}</td></tr>
+              )
+            })}</tbody>
+          </>)}
         </table></div>
-        <p className="ayuda" style={{ marginTop: 8 }}>IC 95 % = 10^(log₁₀ N ± U), con U = 2·√(u_poisson² + u_oper²) (ISO 19036). u_poisson = 1/(ln 10·√ΣC); u_oper = máx({fx(uOperUfc(exp.aj), 3)} log₁₀, la variación observada entre réplicas por encima de la de Poisson). El valor por defecto se cambia en «Más opciones».</p>
+        {cen === 'geo'
+          ? <p className="ayuda" style={{ marginTop: 8 }}>Media geométrica: para cada réplica UFC/mL = C·D/V; se promedian los log₁₀ y se vuelve a UFC/mL (10^media). {ERRORES_UFC[tipoErr]}: calculado sobre los log₁₀ de las réplicas; con menos de 3 réplicas el EEM y el IC 95 % no se calculan. Las réplicas con 0 colonias no entran. Se cambia en «Mostrar › Error».</p>
+          : <p className="ayuda" style={{ marginTop: 8 }}>IC 95 % = 10^(log₁₀ N ± U), con U = 2·√(u_poisson² + u_oper²) (ISO 19036). u_poisson = 1/(ln 10·√ΣC); u_oper = máx({fx(uOperUfc(exp.aj), 3)} log₁₀, la variación observada entre réplicas por encima de la de Poisson). El valor por defecto se cambia en «Más opciones».</p>}
       </div>
     </div>
   )

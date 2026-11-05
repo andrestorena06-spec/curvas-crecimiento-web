@@ -19,7 +19,7 @@ Abrir en línea: **https://andrestorena06-spec.github.io/curvas-de-crecimiento/*
 - **Parámetros**: μmax por ventana deslizante, tiempo de duplicación, lag, K, ΔOD, AUC, fases y modelos (Gompertz, logístico, Richards, Baranyi).
 - **Recuento de UFC**: serie de diluciones con volúmenes transferidos, una dilución por cepa y tiempo (sugerida o elegida a mano),
   coherencia entre diluciones (prueba binomial), promedio de las réplicas como suma de colonias / suma de volúmenes sembrados
-  (con IC 95 % en log₁₀ según el enfoque de ISO 19036: error de Poisson + error operativo) y test de atípicos.
+  (valor de cada tiempo a elegir: media geométrica de las réplicas con DE, EEM o IC 95 % en log₁₀, o Σ colonias / Σ volumen con IC 95 % según el enfoque de ISO 19036) y test de atípicos.
 - **OD + UFC**: ambas curvas con doble eje y calibración OD ↔ UFC/mL.
 - **Gráficos personalizables** (textos, tamaños, ejes, colores de las cepas, fondo blanco) y exportación PNG/SVG; tablas a Excel.
 - **Métodos**: descripción completa de los cálculos y texto para el informe.

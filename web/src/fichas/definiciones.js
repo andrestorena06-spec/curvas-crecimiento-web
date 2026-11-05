@@ -428,17 +428,31 @@ export function fichaUfcReplica(r, o = {}) {
     ajustes: [`rango ${p.min}–${p.max} colonias`, `${g(V * 1000, 4)} µL sembrados`] }
 }
 
-// UFC/mL de una cepa en un tiempo: Σ C / Σ V, su IC y la sobredispersión (o la media geométrica)
+// UFC/mL de una cepa en un tiempo. Según la opción elegida: Σ C / Σ V con IC 95 % de ISO 19036,
+// o media geométrica de las réplicas con DE / EEM / IC 95 % (en log₁₀).
+const NOM_ERROR = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }
+function statsGeo(r, tipo) {
+  const lg = (r._vals || []).filter((x) => x > 0).map(Math.log10), n = lg.length, m = n ? media(lg) : NaN
+  const sd = n > 1 ? desvio(lg) : NaN, tt = n > 1 ? tCuantil(0.975, n - 1) : NaN, sem = n > 2 ? sd / Math.sqrt(n) : NaN
+  const bajo = (tipo === 'sem' || tipo === 'ic95') && n < 3
+  const err = bajo ? NaN : tipo === 'sem' ? sem : tipo === 'ic95' ? tt * sem : sd
+  return { lg, n, m, sd, tt, sem, err, bajo, tipo: NOM_ERROR[tipo] ? tipo : 'sd', etq: NOM_ERROR[tipo] || 'DE' }
+}
 export function fichaUfcTiempo(r, o = {}) {
   const f0 = fichaUfcTiempoCompleta(r, o)
   const idx = (t) => f0.pasos.findIndex((p) => p.titulo.startsWith(t))
+  const geo = o.centro === 'geo'
   if (o.foco === 'ic') {
+    if (geo) {
+      const sg = statsGeo(r, o.error)
+      const sel = f0.pasos.filter((p) => p.titulo.startsWith('Réplicas que entran') || p.titulo.startsWith('UFC/mL de cada') || p.titulo.startsWith('Error entre réplicas'))
+      return { ...f0, titulo: `${sg.etq} del tiempo`, valor: finito(sg.err) ? `± ${f3(sg.err)}` : '–', unidad: 'log₁₀', sub: finito(sg.err) ? `Intervalo: ${sci(10 ** (sg.m - sg.err))} a ${sci(10 ** (sg.m + sg.err))} UFC/mL` : '', pasos: sel }
+    }
     const ic = icUfc(r)
     const sel = f0.pasos.filter((p) => p.titulo.startsWith('Réplicas que entran') || p.titulo.startsWith('Incertidumbre'))
     return { ...f0, titulo: 'IC 95 % del tiempo', valor: finito(ic.lo) ? `${sci(ic.lo)} a ${sci(ic.hi)}` : '–', unidad: 'UFC/mL', sub: TEXTO_IC_UFC[ic.tipo] || '', pasos: sel }
   }
   if (o.foco === 'log') {
-    const geo = o.centro === 'geo'
     const val = geo ? r.Media_geometrica : r.UFC_mL
     return { ...f0, titulo: 'log₁₀ UFC/mL del tiempo', valor: f2(Math.log10(val), 3), unidad: 'log₁₀ UFC/mL', sub: '',
       pasos: [...f0.pasos.slice(0, idx('Suma') + 1 || 2), { titulo: 'Logaritmo decimal', texto: 'En el gráfico se usa log₁₀ porque el crecimiento exponencial se ve como una recta.', formula: ['log₁₀ UFC/mL'], cuenta: [`log₁₀(${sci(val)}) = ${f2(Math.log10(val), 3)}`] }] }
@@ -449,38 +463,55 @@ function fichaUfcTiempoCompleta(r, o = {}) {
   const pool = r._pool || []
   const sujeto = `${r.Muestra} · T = ${r.T_h} h`
   if (!pool.length) return { titulo: 'UFC/mL del tiempo', sujeto, valor: '–', metodos: 'ufc', pasos: [{ titulo: 'Sin réplicas utilizables', texto: String(r.Estado || '') }] }
-  const S = r.Colonias_suma, V = r.Volumen_mL, lam = S / V
-  const ic = icUfc(r)
+  const S = r.Colonias_suma, V = r.Volumen_mL
   const geo = o.centro === 'geo'
+  const ic = icUfc(r)
   const pasos = [
     { titulo: `Réplicas que entran (${pool.length} de ${r.Replicas})`, texto: `Todas contadas en la misma dilución. V = mL de suspensión original en cada siembra (volumen sembrado / dilución).${o.excluidas ? ` Quedan afuera: ${o.excluidas}.` : ''}`,
       esquema: { tipo: 'replicas', tarjetas: pool.map((q) => ({ titulo: `Réplica ${q.Replica}`, c: q.C, v: q.D })) } },
-    { titulo: 'Suma de colonias / suma de volúmenes', texto: 'Si las réplicas son siembras de la misma suspensión, este es el estimador de máxima verosimilitud de la concentración (Poisson): las réplicas con más volumen pesan más y los ceros también cuentan.',
-      formula: ['UFC/mL = ', v('Σ C', 1), ' / ', v('Σ V', 2)],
-      cuenta: ['UFC/mL = ', v(`(${pool.map((q) => q.C).join(' + ')})`, 1), ' / ', v(`(${pool.map((q) => sci(q.D, 3)).join(' + ')})`, 2), '\n= ', v(S, 1), ' / ', v(`${sci(V, 3)} mL`, 2), ` = ${sci(r.UFC_mL)}`] },
   ]
-  if (S > 0) {
-    const x = Math.log10(r.UFC_mL)
-    pasos.push({ titulo: 'Incertidumbre de Poisson (error de contar)', texto: 'Aun contando bien, el número de colonias varía al azar. En escala log₁₀ su desviación es 1/(ln 10 · √C), con C = suma de colonias de las réplicas.',
-      formula: ['u_poisson = 1 / (ln 10 · √ΣC)'], cuenta: [`u_poisson = 1 / (2,3026 · √${S}) = ${f3(r.u_poisson)} log₁₀`] })
-    pasos.push({ titulo: 'Incertidumbre operativa y de matriz', texto: 'Pipeteo, diluciones y heterogeneidad de la muestra agregan variación que el conteo no explica. Se toma el mayor entre el valor por defecto (editable en «Más opciones» de Curva UFC vs t) y la variación observada entre réplicas por encima de la de Poisson.',
-      formula: ['u_oper = máx( u_oper por defecto ; √( s² − promedio(0,1886 / Cᵢ) ) )'],
-      cuenta: [finito(r.u_oper_est) ? `s = ${f3(r.DE_log10)} ; promedio(0,1886 / Cᵢ) = ${f3(r.Var_poisson_rep)} → variación en exceso = ${f3(r.u_oper_est)} log₁₀` : 'Con una sola réplica no se puede estimar la variación entre réplicas: se usa el valor por defecto.',
-        `\nu_oper = máx(${f3(r.u_oper_def)} ; ${finito(r.u_oper_est) ? f3(r.u_oper_est) : '–'}) = ${f3(r.u_oper)} log₁₀`] })
-    pasos.push({ titulo: 'Incertidumbre combinada y expandida (ISO 19036)', texto: 'Las dos componentes son independientes: se suman las varianzas. Con el factor de cobertura k = 2 se obtiene el IC 95 %, que en UFC/mL es asimétrico (el crecimiento microbiano es log-normal).',
-      formula: ['u_c = √(u_poisson² + u_oper²)   ;   U = 2 · u_c   ;   IC 95 % = 10^(log₁₀ N ± U)'],
-      cuenta: [`u_c = √(${f3(r.u_poisson)}² + ${f3(r.u_oper)}²) = ${f3(r.u_comb)} ; U = ${f3(r.U_exp)} log₁₀`, `\nIC = 10^(${f2(x, 3)} ± ${f3(r.U_exp)}) = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
-      esquema: { tipo: 'intervalo', lo: ic.lo, m: r.UFC_mL, hi: ic.hi, log: true, etiqueta: 'IC 95 % (ISO 19036)' } })
-  }
+  let sg = null
   if (geo) {
-    const lg = (r._vals || []).filter((x) => x > 0).map(Math.log10)
-    pasos.push({ titulo: 'Media geométrica (valor elegido para este tiempo)', texto: 'Media de los log₁₀ de las réplicas, apropiada para réplicas biológicas; el error se calcula en la misma escala.',
-      formula: ['log₁₀ x̃ = Σ log₁₀ UFCᵢ / n   ;   DE = √[Σ(log₁₀ UFCᵢ − log₁₀ x̃)²/(n − 1)]'],
-      cuenta: [`log₁₀ x̃ = (${lg.map((x) => f2(x)).join(' + ')}) / ${lg.length} = ${f2(media(lg), 3)} → x̃ = ${sci(r.Media_geometrica)}${lg.length > 1 ? ` ; DE = ${f2(desvio(lg), 3)}` : ''}`] })
+    sg = statsGeo(r, o.error)
+    const filas = pool.map((q) => (q.C > 0 ? `Réplica ${q.Replica}: ${q.C} / ${sci(q.D, 3)} mL = ${sci(q.C / q.D)} UFC/mL → log₁₀ = ${f2(Math.log10(q.C / q.D), 3)}` : `Réplica ${q.Replica}: 0 colonias → sin log₁₀, no entra en la media`))
+    pasos.push({ titulo: 'UFC/mL de cada réplica', texto: 'Cada réplica se calcula por separado: colonias / volumen de suspensión original sembrado. Después se pasa a log₁₀.',
+      formula: ['UFC/mLᵢ = ', v('Cᵢ', 1), ' / ', v('Vᵢ', 2), '   ;   xᵢ = log₁₀ UFC/mLᵢ'], cuenta: [filas.join('\n')] })
+    pasos.push({ titulo: 'Media geométrica (valor de este tiempo)', texto: 'Se promedian los log₁₀ de las réplicas; al volver a UFC/mL (10^media) es la media geométrica.',
+      formula: ['x̄ = Σ xᵢ / n   ;   media geométrica = 10^x̄'],
+      cuenta: [`x̄ = (${sg.lg.map((x) => f2(x, 3)).join(' + ')}) / ${sg.n} = ${f2(sg.m, 3)} → 10^${f2(sg.m, 3)} = ${sci(r.Media_geometrica)} UFC/mL`] })
+    const formulas = { sd: 'DE = √[ Σ(xᵢ − x̄)² / (n − 1) ]', sem: 'EEM = DE / √n', ic95: 'IC 95 % = x̄ ± t(0,975; n − 1) · DE / √n' }
+    const cuentas = []
+    if (sg.n > 1) cuentas.push(`DE = ${f3(sg.sd)} log₁₀ (n = ${sg.n})`)
+    if (sg.bajo) cuentas.push('Con menos de 3 réplicas el EEM y el IC 95 % no se calculan (la t de Student con n − 1 g.l. es muy grande): solo queda la DE.')
+    else if (sg.tipo === 'sem') cuentas.push(`EEM = ${f3(sg.sd)} / √${sg.n} = ${f3(sg.sem)} log₁₀`)
+    else if (sg.tipo === 'ic95') cuentas.push(`t(0,975; ${sg.n - 1}) = ${f2(sg.tt, 3)} ; ± ${f3(sg.tt)} · ${f3(sg.sd)} / √${sg.n} = ± ${f3(sg.err)} log₁₀`)
+    if (finito(sg.err)) cuentas.push(`Intervalo = 10^(${f2(sg.m, 3)} ± ${f3(sg.err)}) = ${sci(10 ** (sg.m - sg.err))} a ${sci(10 ** (sg.m + sg.err))} UFC/mL`)
+    pasos.push({ titulo: `Error entre réplicas (${sg.etq})`, texto: 'La variabilidad se mide entre las réplicas, en escala log₁₀ (los recuentos varían de forma multiplicativa).',
+      formula: [formulas[sg.tipo]], cuenta: [cuentas.join('\n')],
+      ...(finito(sg.err) ? { esquema: { tipo: 'intervalo', lo: 10 ** (sg.m - sg.err), m: r.Media_geometrica, hi: 10 ** (sg.m + sg.err), log: true, etiqueta: sg.etq } } : {}) })
+  } else {
+    pasos.push({ titulo: 'Suma de colonias / suma de volúmenes', texto: 'Media ponderada por volumen: las réplicas con más volumen pesan más y los ceros también cuentan.',
+      formula: ['UFC/mL = ', v('Σ C', 1), ' / ', v('Σ V', 2)],
+      cuenta: ['UFC/mL = ', v(`(${pool.map((q) => q.C).join(' + ')})`, 1), ' / ', v(`(${pool.map((q) => sci(q.D, 3)).join(' + ')})`, 2), '\n= ', v(S, 1), ' / ', v(`${sci(V, 3)} mL`, 2), ` = ${sci(r.UFC_mL)}`] })
+    if (S > 0) {
+      const x = Math.log10(r.UFC_mL)
+      pasos.push({ titulo: 'Incertidumbre de Poisson (error de contar)', texto: 'Aun contando bien, el número de colonias varía al azar. En escala log₁₀ su desviación es 1/(ln 10 · √C), con C = suma de colonias de las réplicas.',
+        formula: ['u_poisson = 1 / (ln 10 · √ΣC)'], cuenta: [`u_poisson = 1 / (2,3026 · √${S}) = ${f3(r.u_poisson)} log₁₀`] })
+      pasos.push({ titulo: 'Incertidumbre operativa y de matriz', texto: 'Pipeteo, diluciones y heterogeneidad de la muestra agregan variación que el conteo no explica. Se toma el mayor entre el valor por defecto (editable en «Más opciones» de Curva UFC vs t) y la variación observada entre réplicas por encima de la de Poisson.',
+        formula: ['u_oper = máx( u_oper por defecto ; √( s² − promedio(0,1886 / Cᵢ) ) )'],
+        cuenta: [finito(r.u_oper_est) ? `s = ${f3(r.DE_log10)} ; promedio(0,1886 / Cᵢ) = ${f3(r.Var_poisson_rep)} → variación en exceso = ${f3(r.u_oper_est)} log₁₀` : 'Con una sola réplica no se puede estimar la variación entre réplicas: se usa el valor por defecto.',
+          `\nu_oper = máx(${f3(r.u_oper_def)} ; ${finito(r.u_oper_est) ? f3(r.u_oper_est) : '–'}) = ${f3(r.u_oper)} log₁₀`] })
+      pasos.push({ titulo: 'Incertidumbre combinada y expandida (ISO 19036)', texto: 'Las dos componentes son independientes: se suman las varianzas. Con el factor de cobertura k = 2 se obtiene el IC 95 %, que en UFC/mL es asimétrico (el crecimiento microbiano es log-normal).',
+        formula: ['u_c = √(u_poisson² + u_oper²)   ;   U = 2 · u_c   ;   IC 95 % = 10^(log₁₀ N ± U)'],
+        cuenta: [`u_c = √(${f3(r.u_poisson)}² + ${f3(r.u_oper)}²) = ${f3(r.u_comb)} ; U = ${f3(r.U_exp)} log₁₀`, `\nIC = 10^(${f2(x, 3)} ± ${f3(r.U_exp)}) = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
+        esquema: { tipo: 'intervalo', lo: ic.lo, m: r.UFC_mL, hi: ic.hi, log: true, etiqueta: 'IC 95 % (ISO 19036)' } })
+    }
   }
   const valor = geo ? sci(r.Media_geometrica) : sci(r.UFC_mL)
-  return { titulo: geo ? 'UFC/mL del tiempo (media geométrica)' : 'UFC/mL del tiempo', sujeto, valor, unidad: 'UFC/mL', metodos: 'ufc',
-    sub: `log₁₀ = ${f2(geo ? Math.log10(r.Media_geometrica) : r.log10)}${finito(ic.lo) ? ` · ${TEXTO_IC_UFC[ic.tipo] || 'IC 95 %'}: ${sci(ic.lo)} a ${sci(ic.hi)}` : ''}`,
+  const sub = geo
+    ? `log₁₀ = ${f2(sg.m, 3)}${finito(sg.err) ? ` · ${sg.etq} = ± ${f3(sg.err)} log₁₀` : ''}`
+    : `log₁₀ = ${f2(r.log10)}${finito(ic.lo) ? ` · ${TEXTO_IC_UFC[ic.tipo] || 'IC 95 %'}: ${sci(ic.lo)} a ${sci(ic.hi)}` : ''}`
+  return { titulo: geo ? 'UFC/mL del tiempo (media geométrica)' : 'UFC/mL del tiempo', sujeto, valor, unidad: 'UFC/mL', metodos: 'ufc', sub,
     pasos, avisos: [...(o.estimadas ? [`Incluye réplicas estimadas fuera del rango contable: ${o.estimadas}.`] : [])],
     ajustes: [geo ? 'valor: media geométrica' : 'valor: Σ C / Σ V'] }
 }

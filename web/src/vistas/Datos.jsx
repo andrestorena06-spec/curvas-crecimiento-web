@@ -1,16 +1,16 @@
 import { useMemo, useState } from 'react'
 import { PARAMS } from '../ayuda.js'
 import { excelDe } from '../excel.js'
-import { finito } from '../motor/analisis.js'
+import { desvio, finito, media } from '../motor/analisis.js'
 import { odCorregida } from '../motor/odmanual.js'
 import { TIPOS, ORIGENES, VERSION, dilucionesUfc, serieUfc } from '../modelo.js'
 import { APP_VERSION } from '../version.js'
 import { Encabezado, Icono, Vacio } from '../ui/base.jsx'
 import { BotonCinta, CampoCinta, Cinta, Grupo, Mosaico, OpcionesCinta } from '../ui/cinta.jsx'
-import { descargarBlob, signif } from '../utils.js'
+import { descargarBlob, signif, tCuantil } from '../utils.js'
 import { CLAVES_RESUMEN, ajustesOd, resumenPorCepa } from './Parametros.jsx'
 import { crecimientoPorCepa } from './ParamUfc.jsx'
-import { MODELOS_UFC, icUfc, modeloUfc, prediccionUfc } from '../motor/ufc.js'
+import { MODELOS_UFC, centroUfc, icUfc, modeloUfc, prediccionUfc } from '../motor/ufc.js'
 import { paresOdUfc } from './Combinado.jsx'
 
 const r4 = (x) => (typeof x === 'number' ? (finito(x) ? signif(x, 6) : null) : x)
@@ -112,9 +112,17 @@ export function tablasDe(s) {
       filas: rs.map((r) => ({ Muestra: r.Muestra, n: r.nTxt, n_unidad: r.unico ? `${r.unidad} (una curva por cepa, ${r.n_lecturas} lecturas)` : `${r.unidad} técnicas`, tipo_de_error: r.unico ? 'EE de la pendiente (solo μmax)' : 'DE entre réplicas', mu_max_EE_pendiente: r.unico ? r.se_mu : null, ...Object.fromEntries(CLAVES_RESUMEN.flatMap((k) => (k === 'r2' ? [['r2_min', r[k].m], ['r2_n', r[k].n]] : [[`${k}_media`, r[k].m], [`${k}_DE`, r[k].sd], [`${k}_IC95`, r[k].ic], [`${k}_n`, r[k].n]]))) })) })
   }
   if (ufcRes?.hay) {
-    T.push({ id: 'ufc_rep', titulo: 'UFC/mL por réplica', columnas: ['Muestra', 'T_h', 'Replica', 'Diluciones_usadas', 'Colonias_usadas', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'log10', 'Estado', 'Incluida'],
+    T.push({ id: 'ufc_rep', titulo: 'UFC/mL por réplica', columnas: ['Muestra', 'T_h', 'Replica', 'Diluciones_usadas', 'Colonias_usadas', 'UFC_mL', ...(centroUfc(exp.aj) === 'geo' ? [] : ['IC95_inf', 'IC95_sup']), 'log10', 'Estado', 'Incluida'],
       filas: ufcRes.reps.filter((r) => r.Conteos > 0).map((r) => ({ ...r, Incluida: ufcRes.fuera.has(`${r.Muestra}|${r.T_h}|${r.Replica}`) ? 'No' : 'Sí' })) })
-    T.push({ id: 'ufc_res', titulo: 'UFC/mL por cepa y tiempo (Σ colonias / Σ volumen sembrado)', columnas: ['Muestra', 'T_h', 'N', 'Colonias_suma', 'Volumen_mL', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'u_poisson_log10', 'u_oper_log10', 'u_oper_estimada_log10', 'u_oper_defecto_log10', 'u_comb_log10', 'U_expandida_log10', 'k', 'log10', 'DE_log10', 'Media_geometrica', 'CV_pct', 'Estado'], nota: 'IC95_inf / IC95_sup = 10^(log10 N ± U), con U = k·u_comb y u_comb² = u_poisson² + u_oper² (enfoque de ISO 19036, k = 2). u_poisson = 1/(ln10·√Colonias_suma). u_oper = máx(u_oper_defecto, u_oper_estimada), donde u_oper_estimada es la variación entre réplicas (DE de log10) por encima de la de Poisson (vacía con una sola réplica). Todas las u en unidades log10.', filas: ufcRes.res.map((r) => ({ ...r, u_poisson_log10: r.u_poisson, u_oper_log10: r.u_oper, u_oper_estimada_log10: r.u_oper_est, u_oper_defecto_log10: r.u_oper_def, u_comb_log10: r.u_comb, U_expandida_log10: r.U_exp, k: 2 })) })
+    const tablaPool = { id: 'ufc_res', titulo: 'UFC/mL por cepa y tiempo (Σ colonias / Σ volumen sembrado)', columnas: ['Muestra', 'T_h', 'N', 'Colonias_suma', 'Volumen_mL', 'UFC_mL', 'IC95_inf', 'IC95_sup', 'u_poisson_log10', 'u_oper_log10', 'u_oper_estimada_log10', 'u_oper_defecto_log10', 'u_comb_log10', 'U_expandida_log10', 'k', 'log10', 'DE_log10', 'Media_geometrica', 'CV_pct', 'Estado'], nota: 'IC95_inf / IC95_sup = 10^(log10 N ± U), con U = k·u_comb y u_comb² = u_poisson² + u_oper² (enfoque de ISO 19036, k = 2). u_poisson = 1/(ln10·√Colonias_suma). u_oper = máx(u_oper_defecto, u_oper_estimada), donde u_oper_estimada es la variación entre réplicas (DE de log10) por encima de la de Poisson (vacía con una sola réplica). Todas las u en unidades log10.', filas: ufcRes.res.map((r) => ({ ...r, u_poisson_log10: r.u_poisson, u_oper_log10: r.u_oper, u_oper_estimada_log10: r.u_oper_est, u_oper_defecto_log10: r.u_oper_def, u_comb_log10: r.u_comb, U_expandida_log10: r.U_exp, k: 2 })) }
+    // media geométrica: media de los log10 de las réplicas, con DE, EEM e IC 95 % (t de Student) en log10 y en UFC/mL
+    const filaGeo = (r) => {
+      const lg = (r._vals || []).filter((x) => x > 0).map(Math.log10), n = lg.length, m = n ? media(lg) : NaN
+      const sd = n > 1 ? desvio(lg) : NaN, eem = n > 2 ? sd / Math.sqrt(n) : NaN, h = n > 2 ? tCuantil(0.975, n - 1) * eem : NaN
+      return { Muestra: r.Muestra, T_h: r.T_h, N: n, Media_geometrica: n ? 10 ** m : NaN, log10_media: m, DE_log10: sd, EEM_log10: eem, IC95_log10_inf: m - h, IC95_log10_sup: m + h, IC95_inf: 10 ** (m - h), IC95_sup: 10 ** (m + h), CV_pct: r.CV_pct, Colonias_suma: r.Colonias_suma, Estado: r.Estado }
+    }
+    const tablaGeo = { id: 'ufc_res', titulo: 'UFC/mL por cepa y tiempo (media geométrica de las réplicas)', columnas: ['Muestra', 'T_h', 'N', 'Media_geometrica', 'log10_media', 'DE_log10', 'EEM_log10', 'IC95_log10_inf', 'IC95_log10_sup', 'IC95_inf', 'IC95_sup', 'CV_pct', 'Colonias_suma', 'Estado'], nota: 'Para cada réplica UFC/mL = C·D/V; se promedian los log10 y se vuelve a UFC/mL (10^media). N = réplicas con UFC > 0. DE_log10 = desvío muestral (n − 1) de los log10; EEM_log10 = DE/√N; IC95_log10 = media ± t(0,975; N − 1)·EEM_log10 y IC95_inf / IC95_sup = 10^ese intervalo (UFC/mL, asimétrico). EEM e IC95 solo con N ≥ 3.', filas: ufcRes.res.map(filaGeo) }
+    T.push(centroUfc(exp.aj) === 'geo' ? tablaGeo : tablaPool)
     const cr = crecimientoPorCepa(ufcRes, exp.aj).map(({ Muestra, c }) => ({ Muestra, Modelo: c.modelo, Puntos: c.n, Tiempos: c.nT, gl: c.gl, curvatura_m: c.mcurv, Convergio: c.convergio === false ? 'No' : 'Sí', Modelo_nombre: MODELOS_UFC[c.modelo], Velocidad_log10_h: c.rate, EE_mu_h: c.ee_mu, EE_lag_h: c.ee_lag, EE_y0_log10: c.ee_y0, EE_ymax_log10: c.ee_ymax, EE_td_h: c.ee_td, Correlacion_mu_lag: c.corr_mu_lag, Lag_fijado: c.lagFijo ? 'Sí' : 'No', Ventana_t0_h: c.modelo === 'lineal' ? c.t0 : null, Ventana_t1_h: c.modelo === 'lineal' ? c.t1 : null, Ventana_ampliada: c.ventanaAmpliada ? 'Sí' : 'No', mu_h: c.mu, td_h: c.td_h, lag_h: c.lag_h, y0_log10: c.y0, yfinal_log10: c.yEnd, R2: c.r2, EE_ajuste_log10: c.se, Aviso: [c.motivo, ...(c.avisos || [])].filter(Boolean).join(' · '), log10_inicio: c.log10_N0, log10_fin: c.log10_fin, aumento_log10: c.crecimiento_log10, generaciones: c.generaciones, aumento_segun: c.aumentoDe === 'modelo' ? 'modelo (primer a último tiempo)' : c.aumentoDe === 'observado' ? 'valores observados' : '' }))
     T.push({ id: 'ufc_crec', titulo: 'Crecimiento por recuento', columnas: Object.keys(cr[0] || { Muestra: 1 }), filas: cr })
     if (exp.aj.ufc_pred?.on) {
