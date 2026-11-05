@@ -4,7 +4,7 @@ Aplicación para analizar el crecimiento bacteriano **por densidad óptica (OD),
 
 **Todo se calcula en tu navegador.** Los archivos y los resultados no se envían a ningún servidor.
 
-Abrir en línea: **https://andrestorena06-spec.github.io/curvas-crecimiento-web/**
+Abrir en línea: **https://andrestorena06-spec.github.io/curvas-de-crecimiento/**
 
 ## Usar sin internet
 
