@@ -49,7 +49,7 @@ export function GrupoMostrar({ m, set, blanco = false, sinReplicas = false, nota
 export function GrupoTipoError({ valor, onChange, fijo = false, nota = '' }) {
   if (fijo) return (
     <Grupo titulo="Tipo de error">
-      <OpcionesCinta valor="ic95" onChange={() => {}} opciones={[['ic95', 'IC 95 %', 'IC', null, 'Con Σ colonias / Σ volumen la barra es el IC 95 % del conteo (Poisson; ensanchado por √φ si las réplicas varían más que el conteo)\nPara elegir DE o EEM, usá «Media geométrica» en Curva UFC vs t']]} />
+      <OpcionesCinta valor="ic95" onChange={() => {}} opciones={[['ic95', 'IC 95 %', 'IC', null, 'Con Σ colonias / Σ volumen la barra es el IC 95 % del conteo (10^(log₁₀ N ± 2·u_c), con el error de Poisson y el operativo; ISO 19036)\nPara elegir DE o EEM, usá «Media geométrica» en Curva UFC vs t']]} />
     </Grupo>
   )
   return (

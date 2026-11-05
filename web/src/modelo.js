@@ -5,7 +5,7 @@
 // ============================================================
 import { estadoVacio } from './motor/pipeline.js'
 import { manualADatos, manualDef, normalizarManual } from './motor/odmanual.js'
-import { calcularUfc, sugerirDilucionGrupo } from './motor/ufc.js'
+import { calcularUfc, sugerirDilucionGrupo, uOperUfc } from './motor/ufc.js'
 import { analizarCurva, finito, media, desvio } from './motor/analisis.js'
 import { dixonQ, opAnalisis } from './motor/pipeline.js'
 import { detectarCV } from './motor/atipicos.js'
@@ -46,7 +46,7 @@ export const ajustesDef = (origen) => ({
   // UFC: atípicos solo se marcan (no se excluyen solos); curvatura m del Baranyi y Roberts; centro de cada tiempo
   // ('pool' = Σ colonias / Σ volúmenes, 'geo' = media de log₁₀ de las réplicas); fracción de μ máx que define la
   // fase exponencial de los recuentos (para la calibración)
-  ufc_auto: false, ufc_mcurv: 1, ufc_centro: 'pool', ufc_frac_exp: 0.5,
+  ufc_auto: false, ufc_uoper: 0.07, ufc_mcurv: 1, ufc_centro: 'pool', ufc_frac_exp: 0.5,
 })
 
 // Camino óptico en un lector de placas (lectura vertical): el haz atraviesa la altura del líquido,
@@ -411,7 +411,7 @@ export const filasConDilucion = (u) => { const d = dilucionesUfc(u); return u.fi
 export const autoExcluirUfc = (aj) => aj?.ufc_dixon_on !== false && aj?.ufc_auto === true
 export function resultadosUfc(e) {
   const u = e.ufc
-  const motor = (filas) => calcularUfc({ metodo: 'extendida', par: { estimados: u.estimados }, petri: [], tabla: { vol: u.vol, factor: u.factor, min: u.min, max: u.max, nd: u.nd, filas, D: serieUfc(u).map((d) => d.D) } })
+  const motor = (filas) => calcularUfc({ metodo: 'extendida', par: { estimados: u.estimados, uoper: uOperUfc(e.aj) }, petri: [], tabla: { vol: u.vol, factor: u.factor, min: u.min, max: u.max, nd: u.nd, filas, D: serieUfc(u).map((d) => d.D) } })
   const filasD = filasConDilucion(u)
   const todas = motor(filasD)
   // Dixon entre réplicas (n de 3 a 10). El test se arma con las MISMAS réplicas que entran al promedio

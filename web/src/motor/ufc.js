@@ -4,10 +4,10 @@
 //   Cada placa (o gota) con C colonias y volumen V (mL) aporta C / V × factor^k UFC/mL.
 //   Cada réplica usa UNA sola dilución (la elegida a mano o la sugerida; ver sugerirDilucion): no se promedian
 //   diluciones dentro de una réplica (no se usa la media ponderada de ISO 7218).
-//   IC 95 % del conteo: Poisson exacto (Garwood).
+//   Incertidumbre del recuento (enfoque de ISO 19036, en log₁₀): u_c² = u_poisson² + u_oper²; IC 95 % = 10^(log₁₀ N ± 2·u_c).
 //   Réplicas de una cepa en un tiempo (misma dilución): se suman las colonias y se dividen por la suma de los
-//   volúmenes de suspensión original sembrados: UFC/mL = Σ Cᵢ / Σ (Vᵢ / dᵢ), con su IC 95 % de Poisson sobre Σ C
-//   (solo error de conteo). La dispersión entre réplicas se evalúa con el χ² de sobredispersión (ver calcularUfc).
+//   volúmenes de suspensión original sembrados: UFC/mL = Σ Cᵢ / Σ (Vᵢ / dᵢ), con su IC 95 % = 10^(log₁₀ N ± 2·u_c),
+//   con u_poisson = 1/(ln 10 · √ΣC) y u_oper = máx(valor por defecto, variación observada entre réplicas más allá de Poisson).
 // Los recuentos pueden venir de la grilla de gotas sobre una placa de 96 (cada FILA es una réplica y cada
 // COLUMNA j es la dilución −j) o de una tabla (una fila por muestra, tiempo y réplica, una columna por dilución).
 // ============================================================
@@ -87,43 +87,25 @@ const colDe = (p) => Number(p.slice(1))
 const filaDe = (p) => p[0]
 export const claveT = (t) => String(Math.round(Number(t) * 1000) / 1000)
 
-// ---------- Poisson exacto (Garwood) ----------
-function lgamma(z) {
-  const c = [0.99999999999980993, 676.5203681218851, -1259.1392167224028, 771.32342877765313, -176.61502916214059, 12.507343278686905, -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7]
-  if (z < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * z)) - lgamma(1 - z)
-  z -= 1
-  let x = c[0]
-  for (let i = 1; i < 9; i++) x += c[i] / (z + i)
-  const t = z + 7.5
-  return 0.5 * Math.log(2 * Math.PI) + (z + 0.5) * Math.log(t) - t + Math.log(x)
+// ---------- incertidumbre del recuento (enfoque de ISO 19036), en escala log₁₀ ----------
+// u_poisson: error de contar colonias, 1/(ln 10 · √C) con C = colonias contadas (varianza 0,1886 / C).
+// u_oper: componente operativa y de matriz (pipeteo, diluciones, heterogeneidad de la muestra): el mayor entre un valor por
+//   defecto (aj.ufc_uoper, en log₁₀) y la variación observada entre réplicas por encima de la de Poisson.
+// u_c = √(u_poisson² + u_oper²) · U = k · u_c con k = 2 (≈ 95 %) · IC 95 % = 10^(log₁₀ N ± U), asimétrico en UFC/mL.
+export const K_COB = 2
+export const VAR_POI = 1 / Math.LN10 ** 2
+export const U_OPER_DEF = 0.07
+export const uOperUfc = (aj) => {
+  const x = aj?.ufc_uoper
+  if (x === '' || x === null || x === undefined) return U_OPER_DEF
+  const v = Number(x)
+  return finito(v) && v >= 0 ? v : U_OPER_DEF
 }
-// gamma incompleta regularizada inferior P(a, x). P(χ² ≤ x | k g.l.) = gammaP(k/2, x/2)
-export function gammaP(a, x) {
-  if (x <= 0) return 0
-  if (x < a + 1) {
-    let sum = 1 / a, term = sum, n = a
-    for (let i = 0; i < 1000; i++) { n++; term *= x / n; sum += term; if (Math.abs(term) < Math.abs(sum) * 1e-15) break }
-    return sum * Math.exp(-x + a * Math.log(x) - lgamma(a))
-  }
-  let b = x + 1 - a, c = 1e300, d = 1 / b, h = d
-  for (let i = 1; i < 1000; i++) {
-    const an = -i * (i - a)
-    b += 2; d = an * d + b; if (Math.abs(d) < 1e-300) d = 1e-300
-    c = b + an / c; if (Math.abs(c) < 1e-300) c = 1e-300
-    d = 1 / d
-    const del = d * c
-    h *= del
-    if (Math.abs(del - 1) < 1e-15) break
-  }
-  return 1 - Math.exp(-x + a * Math.log(x) - lgamma(a)) * h
+export const uPoisson = (C) => (C > 0 ? Math.sqrt(VAR_POI / C) : NaN)
+export function incertidumbreUfc(x, C, uOper) {
+  const up = uPoisson(C), uc = Math.sqrt(up * up + uOper * uOper), U = K_COB * uc
+  return { u_poisson: up, u_oper: uOper, u_comb: uc, U_exp: U, lo: 10 ** (x - U), hi: 10 ** (x + U) }
 }
-export function qgamma(p, a) {
-  let lo = 0, hi = Math.max(10, a + 12 * Math.sqrt(a) + 30)
-  for (let i = 0; i < 200; i++) { const m = (lo + hi) / 2; if (gammaP(a, m) < p) lo = m; else hi = m }
-  return (lo + hi) / 2
-}
-// IC 95 % exacto del número esperado de colonias cuando se contaron S
-export const icPoisson = (S) => [S > 0 ? qgamma(0.025, S) : 0, qgamma(0.975, S + 1)]
 
 // ---------- estimación de UFC/mL de una réplica ----------
 // cont: { k: colonias } (k = columna de la dilución); par: { vol (mL), factor, min, max, D: [dilución total por columna], usar: k elegido a mano }
@@ -166,7 +148,7 @@ export function sugerirDilucionGrupo(conts, par) {
   return kb
 }
 
-export function estimarUfc(cont, par) {
+export function estimarUfc(cont, par, uOper = U_OPER_DEF) {
   const e = entradas(cont)
   const vacio = { ufc: NaN, lo: NaN, hi: NaN, estado: 'sin_datos', usados: [], S: 0, lim: NaN, sugerida: null, manual: false }
   if (!e.length) return vacio
@@ -181,9 +163,9 @@ export function estimarUfc(cont, par) {
   const base = { usados: [k], S: c, sugerida, manual, D }
   if (c === 0) return { ...vacio, ...base, estado: 'cero', lim: 3 / D }   // límite de detección (≈ 3 colonias esperadas)
   if (c > 2 * par.max) return { ...vacio, ...base, estado: 'incontable' }
-  const [lo, hi] = icPoisson(c)
+  const inc = incertidumbreUfc(Math.log10(c / D), c, uOper)
   const estado = c < par.min ? 'bajo' : c > par.max ? 'alto' : 'ok'
-  return { ufc: c / D, lo: lo / D, hi: hi / D, estado, lim: NaN, ...base }
+  return { ufc: c / D, lo: inc.lo, hi: inc.hi, estado, lim: NaN, ...base }
 }
 
 
@@ -235,8 +217,9 @@ export const textoEstado = (e) => NOMBRE_ESTADO[e] || e
 // Resultados por réplica y por muestra y tiempo
 export function calcularUfc(u) {
   const regs = registrosConteo(u)
+  const uDef = uOperUfc({ ufc_uoper: u.par?.uoper })
   const reps = regs.map((r) => {
-    const est = estimarUfc(r.cont, r.par)
+    const est = estimarUfc(r.cont, r.par, uDef)
     const n = Object.keys(r.cont).length
     return {
       Muestra: r.Muestra, T_h: r.T_h, Fila: r.Fila || '', Replica: r.Replica, Origen: r.origen, Conteos: n,
@@ -244,7 +227,7 @@ export function calcularUfc(u) {
       _manual: est.manual, _sugerida: est.sugerida,
       UFC_mL: est.ufc, IC95_inf: est.lo, IC95_sup: est.hi, Estado: textoEstado(est.estado), _estado: est.estado,
       log10: finito(est.ufc) && est.ufc > 0 ? Math.log10(est.ufc) : NaN, Colonias_usadas: est.S, Limite: est.lim,
-      _cont: r.cont, _par: r.par, _usados: est.usados, _S: est.S, _D: est.D,
+      _cont: r.cont, _par: r.par, _uOper: uDef, _usados: est.usados, _S: est.S, _D: est.D,
     }
   })
   const incluirEst = u.par.estimados !== false
@@ -257,7 +240,6 @@ export function calcularUfc(u) {
     const S = pool.reduce((a, r) => a + r._S, 0)
     const V = pool.reduce((a, r) => a + r._D, 0)
     const ufc = pool.length && S > 0 ? S / V : NaN
-    const [lo, hi] = pool.length && S > 0 ? icPoisson(S) : [NaN, NaN]
     // dispersión entre réplicas (para las barras de DE, el CV y el test de atípicos)
     const vals = pool.filter((r) => finito(r.UFC_mL) && r.UFC_mL > 0)
     const lg = vals.map((r) => r.log10)
@@ -265,30 +247,24 @@ export function calcularUfc(u) {
     const arit = vals.length ? media(vals.map((r) => r.UFC_mL)) : NaN
     const sd = vals.length > 1 ? desvio(vals.map((r) => r.UFC_mL)) : NaN
     const estados = [...new Set(g.map((r) => r._estado))]
-    // sobredispersión entre réplicas: si solo hubiera error de conteo (Poisson), Cᵢ ~ Poisson(Vᵢ λ̂) con λ̂ = Σ C / Σ V.
-    //   χ² = Σ (Cᵢ − Vᵢλ̂)² / (Vᵢλ̂), con n − 1 g.l.; φ = χ² / (n − 1) (≈ 1 si la dispersión es la de Poisson).
-    //   Si φ > 1, IC de Poisson ensanchado por √φ en escala log (cuasi-Poisson): λ̂ · (límite / λ̂)^√φ.
-    let disp = { Chi2_disp: NaN, gl_disp: NaN, p_disp: NaN, phi: NaN, IC95_inf_disp: NaN, IC95_sup_disp: NaN, Sobredisperso: false }
-    if (pool.length > 1 && S > 0) {
-      const lam = S / V
-      const chi2 = pool.reduce((a, r) => { const E = r._D * lam; return a + (r._S - E) ** 2 / E }, 0)
-      const gl = pool.length - 1
-      const p = Math.max(0, 1 - gammaP(gl / 2, chi2 / 2))
-      const phi = chi2 / gl
-      const k = Math.sqrt(phi), V0 = V
-      const ancho = phi > 1 && finito(lo) && lo > 0 && finito(hi)
-      disp = { Chi2_disp: chi2, gl_disp: gl, p_disp: p, phi, IC95_inf_disp: ancho ? lam * (lo / V0 / lam) ** k : NaN, IC95_sup_disp: ancho ? lam * (hi / V0 / lam) ** k : NaN, Sobredisperso: p < 0.05 }
+    // incertidumbre del valor Σ C / Σ V (enfoque de ISO 19036, en log₁₀): u_c² = u_poisson² + u_oper²
+    //   u_poisson² = 0,1886 / ΣC · u_oper = máx(valor por defecto, √(s² − promedio(0,1886 / Cᵢ))), con s = DE de log₁₀ de las réplicas
+    let inc = { u_poisson: NaN, u_oper: NaN, u_comb: NaN, U_exp: NaN, lo: NaN, hi: NaN }
+    let uEst = NaN, vPoi = NaN
+    if (pool.length && S > 0) {
+      vPoi = vals.length ? media(vals.map((r) => VAR_POI / r._S)) : NaN
+      uEst = vals.length > 1 ? Math.sqrt(Math.max(0, sdLog ** 2 - vPoi)) : NaN
+      inc = incertidumbreUfc(Math.log10(ufc), S, Math.max(uDef, finito(uEst) ? uEst : 0))
     }
     res.push({
       Muestra: m, T_h: t, Replicas: g.length, Con_conteos: g.filter((r) => r.Conteos > 0).length, N: pool.length,
       _vals: vals.map((r) => r.UFC_mL), _pool: pool.map((r) => ({ Replica: r.Replica, C: r._S, D: r._D, k: r._usados[0] })),
       Colonias_suma: pool.length ? S : NaN, Volumen_mL: pool.length ? V : NaN,
       UFC_mL: ufc, DE: sd, log10: finito(ufc) ? Math.log10(ufc) : NaN, DE_log10: sdLog,
-      IC95_inf: finito(lo) ? lo / V : NaN, IC95_sup: finito(hi) ? hi / V : NaN,
+      IC95_inf: inc.lo, IC95_sup: inc.hi, u_poisson: inc.u_poisson, u_oper: inc.u_oper, u_oper_est: uEst, u_oper_def: uDef, u_comb: inc.u_comb, U_exp: inc.U_exp, Var_poisson_rep: vPoi,
       Media_geometrica: lg.length ? 10 ** media(lg) : NaN, CV_pct: vals.length > 1 && arit ? (100 * sd) / arit : NaN,
       Estado: estados.includes('ok') && estados.length === 1 ? 'En rango' : estados.map(textoEstado).join(' · '),
       Limite: pool.length && S === 0 ? 3 / V : NaN,
-      ...disp,
     })
   })
   res.sort((a, b) => (a.Muestra < b.Muestra ? -1 : a.Muestra > b.Muestra ? 1 : a.T_h - b.T_h))
@@ -300,8 +276,7 @@ export function calcularUfc(u) {
 // ---------- error del valor de un tiempo, para mostrar ----------
 // El error tiene que ser el del MISMO valor que se grafica:
 //   centro 'pool' (Σ C / Σ V, por defecto): el punto es la concentración estimada con todas las colonias, y su error es
-//     el IC 95 % de esa concentración: el de Poisson (solo error de conteo) o, si las réplicas varían más que el conteo
-//     (χ² de sobredispersión con p < 0,05), el ensanchado por √φ (cuasi-Poisson). Ver icUfc. La dispersión de las
+//     el IC 95 % de esa concentración: 10^(log₁₀ N ± 2·u_c), con u_c² = u_poisson² + u_oper² (enfoque de ISO 19036). La dispersión de las
 //     réplicas se ve en sus puntos; no se usa como barra porque es la de otro estimador (la media de los log₁₀).
 //   centro 'geo' (media de log₁₀ de las réplicas = media geométrica): media ± DE, EEM (DE/√n) o IC 95 %
 //     (t(0,975; n − 1) · DE/√n) de los log₁₀. Con menos de 3 réplicas el EEM y el IC no se calculan (nBajo).
@@ -311,12 +286,11 @@ export const ERRORES_UFC = { sd: 'DE', sem: 'EEM', ic95: 'IC 95 %' }
 export const centroUfc = (aj) => (aj?.ufc_centro === 'geo' ? 'geo' : 'pool')
 // log₁₀ del valor central de una fila de resultados (cepa y tiempo) según el centro elegido
 export const centroLog10 = (r, centro = 'pool') => (centro === 'geo' && finito(r.Media_geometrica) && r.Media_geometrica > 0 ? Math.log10(r.Media_geometrica) : r.log10)
-// IC 95 % que se informa para Σ C / Σ V: Poisson, o Poisson ensanchado por √φ si hay sobredispersión significativa
+// IC 95 % que se informa para Σ C / Σ V (y para cada réplica): 10^(log₁₀ N ± 2·u_c)
 export function icUfc(r) {
-  if (r?.Sobredisperso && finito(r.IC95_inf_disp) && finito(r.IC95_sup_disp)) return { lo: r.IC95_inf_disp, hi: r.IC95_sup_disp, tipo: 'disp' }
-  return { lo: r?.IC95_inf, hi: r?.IC95_sup, tipo: finito(r?.IC95_inf) ? 'poisson' : '' }
+  return { lo: r?.IC95_inf, hi: r?.IC95_sup, tipo: finito(r?.IC95_inf) ? 'iso' : '' }
 }
-export const TEXTO_IC_UFC = { poisson: 'IC 95 % de Poisson', disp: 'IC 95 % de Poisson ensanchado por √φ (sobredispersión)' }
+export const TEXTO_IC_UFC = { iso: 'IC 95 % = 10^(log₁₀ N ± 2·u_c), ISO 19036' }
 // nombre corto del error que se dibuja, para leyendas y ejes
 export const etiquetaErrorUfc = (centro, tipo) => (centro === 'geo' ? ERRORES_UFC[tipo] || 'DE' : 'IC 95 %')
 export function errorUfc(r, escala = 'log10', tipo = 'sd', centro = 'pool') {

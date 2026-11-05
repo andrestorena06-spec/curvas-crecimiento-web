@@ -9,7 +9,7 @@
 // ============================================================
 import { desvio, finito, media, od0TresFases, runmed3, trapz, ventanasLn } from '../motor/analisis.js'
 import { Q_TABLA, criticoGrubbs, detectar } from '../motor/atipicos.js'
-import { MODELOS_UFC, TEXTO_IC_UFC, dilDe, icPoisson, icUfc } from '../motor/ufc.js'
+import { MODELOS_UFC, TEXTO_IC_UFC, VAR_POI, dilDe, icUfc } from '../motor/ufc.js'
 import { MODELOS_CALIB } from '../motor/calibracion.js'
 import { AYUDA, PARAMS, explicarResultado } from '../ayuda.js'
 import { fs, fx, tCuantil } from '../utils.js'
@@ -411,13 +411,15 @@ export function fichaUfcReplica(r, o = {}) {
     return { titulo: 'UFC/mL de la réplica', sujeto, valor: `< ${sci(r.Limite)}`, unidad: 'UFC/mL', metodos: 'ufc', pasos }
   }
   if (r._estado === 'incontable') return { titulo: 'UFC/mL de la réplica', sujeto, valor: 'incontable', metodos: 'ufc', pasos: [...pasos, { titulo: 'Incontable', texto: `${C} colonias: más del doble del máximo contable (${p.max}). Las colonias se superponen y se subcuenta.` }] }
-  const [lo, hi] = icPoisson(C)
   pasos.push({ titulo: 'Concentración', formula: ['UFC/mL = ', v('C', 1), ' · ', v('D', 4), ' / ', v('V', 2)],
     cuenta: ['UFC/mL = ', v(C, 1), ' × ', v(sci(D), 4), ' / ', v(`${g(V)} mL`, 2), ` = ${sci(r.UFC_mL)}`] })
-  pasos.push({ titulo: 'Incertidumbre del conteo (Poisson exacto, Garwood)', texto: `Contar colonias tiene error aunque se cuente bien: con C = ${C} el número esperado está, con 95 % de confianza, entre los límites de la chi-cuadrado.`,
-    formula: ['λ inf = χ²(0,025; 2C)/2   ;   λ sup = χ²(0,975; 2C + 2)/2   ;   IC = [λ inf ; λ sup] · D / V'],
-    cuenta: [`[${g(lo, 4)} ; ${g(hi, 4)}] colonias × ${sci(D)} / ${g(V)} mL = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
-    esquema: { tipo: 'intervalo', lo: r.IC95_inf, m: r.UFC_mL, hi: r.IC95_sup, log: true } })
+  {
+    const x = Math.log10(r.UFC_mL), up = Math.sqrt(VAR_POI / C), uo = r._uOper, uc = Math.sqrt(up * up + uo * uo), U = 2 * uc
+    pasos.push({ titulo: 'Incertidumbre expandida (ISO 19036)', texto: `Contar colonias tiene error aunque se cuente bien (u_poisson), y pipetear y diluir agregan otro (u_oper, valor por defecto editable). Se combinan en log₁₀ y se expanden con k = 2 (≈ 95 %).`,
+      formula: ['u_poisson = 1 / (ln 10 · √C)   ;   u_c = √(u_poisson² + u_oper²)   ;   IC = 10^(log₁₀ N ± 2·u_c)'],
+      cuenta: [`u_poisson = 1 / (2,3026 · √${C}) = ${f3(up)} ; u_oper = ${f3(uo)} → u_c = ${f3(uc)} ; U = ${f3(U)} log₁₀`, `\nIC = 10^(${f2(x, 3)} ± ${f3(U)}) = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
+      esquema: { tipo: 'intervalo', lo: r.IC95_inf, m: r.UFC_mL, hi: r.IC95_sup, log: true } })
+  }
   const avisos = []
   if (r._estado === 'bajo' || r._estado === 'alto') avisos.push(`${C} colonias está ${r._estado === 'bajo' ? 'debajo' : 'arriba'} del rango contable (${p.min} a ${p.max}): es una estimación con error grande.`)
   if (o.dixon) avisos.push(`Marcada como atípica: ${o.dixon}`)
@@ -432,7 +434,7 @@ export function fichaUfcTiempo(r, o = {}) {
   const idx = (t) => f0.pasos.findIndex((p) => p.titulo.startsWith(t))
   if (o.foco === 'ic') {
     const ic = icUfc(r)
-    const sel = f0.pasos.filter((p) => p.titulo.startsWith('Réplicas que entran') || p.titulo.startsWith('Incertidumbre') || p.titulo.startsWith('¿Las réplicas varían'))
+    const sel = f0.pasos.filter((p) => p.titulo.startsWith('Réplicas que entran') || p.titulo.startsWith('Incertidumbre'))
     return { ...f0, titulo: 'IC 95 % del tiempo', valor: finito(ic.lo) ? `${sci(ic.lo)} a ${sci(ic.hi)}` : '–', unidad: 'UFC/mL', sub: TEXTO_IC_UFC[ic.tipo] || '', pasos: sel }
   }
   if (o.foco === 'log') {
@@ -458,20 +460,17 @@ function fichaUfcTiempoCompleta(r, o = {}) {
       cuenta: ['UFC/mL = ', v(`(${pool.map((q) => q.C).join(' + ')})`, 1), ' / ', v(`(${pool.map((q) => sci(q.D, 3)).join(' + ')})`, 2), '\n= ', v(S, 1), ' / ', v(`${sci(V, 3)} mL`, 2), ` = ${sci(r.UFC_mL)}`] },
   ]
   if (S > 0) {
-    const [lo, hi] = icPoisson(S)
-    pasos.push({ titulo: 'Incertidumbre del conteo (Poisson exacto)', formula: ['IC = [χ²(0,025; 2S)/2 ; χ²(0,975; 2S + 2)/2] / Σ V'],
-      cuenta: [`[${g(lo, 4)} ; ${g(hi, 4)}] colonias / ${sci(V, 3)} mL = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
-      esquema: { tipo: 'intervalo', lo: ic.lo, m: r.UFC_mL, hi: ic.hi, log: true, etiqueta: ic.tipo === 'disp' ? 'IC ensanchado por √φ' : 'IC de Poisson' } })
-  }
-  if (pool.length > 1 && S > 0 && finito(r.Chi2_disp)) {
-    const terms = pool.map((q) => { const E = q.D * lam; return { q, E, t: (q.C - E) ** 2 / E } })
-    pasos.push({ titulo: '¿Las réplicas varían más que el error de contar?', texto: 'Si solo hubiera error de conteo, cada réplica tendría ≈ Vᵢ·λ̂ colonias (λ̂ = Σ C / Σ V). El índice de dispersión compara lo observado con lo esperado.',
-      formula: ['χ² = Σ (Cᵢ − Vᵢ·λ̂)² / (Vᵢ·λ̂)   con n − 1 g.l.   ;   φ = χ² / (n − 1)'],
-      cuenta: [`χ² = ${terms.map((x) => g(x.t, 3)).join(' + ')} = ${g(r.Chi2_disp, 3)} con ${r.gl_disp} g.l. → p = ${g(r.p_disp, 3)} ; φ = ${g(r.phi, 3)}`],
-      esquema: { tipo: 'barras', items: terms.map((x) => ({ etiqueta: `Rép. ${x.q.Replica}`, obs: x.q.C, esp: x.E })) },
-      nota: r.Sobredisperso
-        ? `p < 0,05: varían más de lo que explica el conteo. El IC informado se ensancha por √φ en escala log (cuasi-Poisson): ${sci(r.IC95_inf_disp)} a ${sci(r.IC95_sup_disp)} UFC/mL.`
-        : 'p ≥ 0,05: la dispersión es compatible con el error de conteo; se informa el IC de Poisson.' })
+    const x = Math.log10(r.UFC_mL)
+    pasos.push({ titulo: 'Incertidumbre de Poisson (error de contar)', texto: 'Aun contando bien, el número de colonias varía al azar. En escala log₁₀ su desviación es 1/(ln 10 · √C), con C = suma de colonias de las réplicas.',
+      formula: ['u_poisson = 1 / (ln 10 · √ΣC)'], cuenta: [`u_poisson = 1 / (2,3026 · √${S}) = ${f3(r.u_poisson)} log₁₀`] })
+    pasos.push({ titulo: 'Incertidumbre operativa y de matriz', texto: 'Pipeteo, diluciones y heterogeneidad de la muestra agregan variación que el conteo no explica. Se toma el mayor entre el valor por defecto (editable en «Más opciones» de Curva UFC vs t) y la variación observada entre réplicas por encima de la de Poisson.',
+      formula: ['u_oper = máx( u_oper por defecto ; √( s² − promedio(0,1886 / Cᵢ) ) )'],
+      cuenta: [finito(r.u_oper_est) ? `s = ${f3(r.DE_log10)} ; promedio(0,1886 / Cᵢ) = ${f3(r.Var_poisson_rep)} → variación en exceso = ${f3(r.u_oper_est)} log₁₀` : 'Con una sola réplica no se puede estimar la variación entre réplicas: se usa el valor por defecto.',
+        `\nu_oper = máx(${f3(r.u_oper_def)} ; ${finito(r.u_oper_est) ? f3(r.u_oper_est) : '–'}) = ${f3(r.u_oper)} log₁₀`] })
+    pasos.push({ titulo: 'Incertidumbre combinada y expandida (ISO 19036)', texto: 'Las dos componentes son independientes: se suman las varianzas. Con el factor de cobertura k = 2 se obtiene el IC 95 %, que en UFC/mL es asimétrico (el crecimiento microbiano es log-normal).',
+      formula: ['u_c = √(u_poisson² + u_oper²)   ;   U = 2 · u_c   ;   IC 95 % = 10^(log₁₀ N ± U)'],
+      cuenta: [`u_c = √(${f3(r.u_poisson)}² + ${f3(r.u_oper)}²) = ${f3(r.u_comb)} ; U = ${f3(r.U_exp)} log₁₀`, `\nIC = 10^(${f2(x, 3)} ± ${f3(r.U_exp)}) = ${sci(r.IC95_inf)} a ${sci(r.IC95_sup)} UFC/mL`],
+      esquema: { tipo: 'intervalo', lo: ic.lo, m: r.UFC_mL, hi: ic.hi, log: true, etiqueta: 'IC 95 % (ISO 19036)' } })
   }
   if (geo) {
     const lg = (r._vals || []).filter((x) => x > 0).map(Math.log10)
@@ -482,7 +481,7 @@ function fichaUfcTiempoCompleta(r, o = {}) {
   const valor = geo ? sci(r.Media_geometrica) : sci(r.UFC_mL)
   return { titulo: geo ? 'UFC/mL del tiempo (media geométrica)' : 'UFC/mL del tiempo', sujeto, valor, unidad: 'UFC/mL', metodos: 'ufc',
     sub: `log₁₀ = ${f2(geo ? Math.log10(r.Media_geometrica) : r.log10)}${finito(ic.lo) ? ` · ${TEXTO_IC_UFC[ic.tipo] || 'IC 95 %'}: ${sci(ic.lo)} a ${sci(ic.hi)}` : ''}`,
-    pasos, avisos: [...(r.Sobredisperso ? ['Sobredispersión: las réplicas varían más que el error de conteo.'] : []), ...(o.estimadas ? [`Incluye réplicas estimadas fuera del rango contable: ${o.estimadas}.`] : [])],
+    pasos, avisos: [...(o.estimadas ? [`Incluye réplicas estimadas fuera del rango contable: ${o.estimadas}.`] : [])],
     ajustes: [geo ? 'valor: media geométrica' : 'valor: Σ C / Σ V'] }
 }
 
